@@ -4,7 +4,7 @@ import AgentAvatar from "@/components/aix/AgentAvatar";
 import Markdown from "@/components/mike/Markdown";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { ChatIcon, DocsIcon, MailIcon, PaperPlaneIcon, TrashBinIcon, UserCircleIcon } from "@/icons";
+import { ChatIcon, CheckCircleIcon, DocsIcon, MailIcon, PaperPlaneIcon, TrashBinIcon, UserCircleIcon } from "@/icons";
 import { apiFetch, Conversation } from "@/lib/mike-api";
 import { useEffect, useMemo, useState } from "react";
 
@@ -18,40 +18,48 @@ function relativeTime(iso: string) {
   return `${Math.round(hours / 24)}d`;
 }
 
-const statusDetails = {
-  open: { label: "Mike handling", color: "info" as const },
-  resolved: { label: "Resolved", color: "success" as const },
-  needs_human: { label: "Needs review", color: "warning" as const },
-  human_active: { label: "Human joined", color: "primary" as const },
+type BadgeInfo = { label: string; color: "info" | "success" | "warning" | "primary" | "light" };
+
+const statusDetails: Record<string, BadgeInfo> = {
+  open: { label: "Open", color: "info" },
+  resolved: { label: "Resolved", color: "success" },
+  needs_human: { label: "Needs review", color: "warning" },
+  human_active: { label: "Human active", color: "primary" },
+  closed: { label: "Closed", color: "light" },
 };
 
-function badgeFor(conversation: Conversation) {
+function badgeFor(conversation: Conversation): BadgeInfo {
   if (conversation.status === "needs_human") {
     return conversation.priority === "high"
-      ? { label: "Needs review", color: "warning" as const }
-      : { label: "Follow-up", color: "info" as const };
+      ? { label: "Needs review", color: "warning" }
+      : { label: "Follow-up", color: "info" };
   }
-  return statusDetails[conversation.status];
+  return statusDetails[conversation.status] ?? { label: conversation.status, color: "light" };
+}
+
+function ticketRef(conversation: Conversation) {
+  return conversation.ticket_number
+    ? `EAPX-${conversation.ticket_number}`
+    : "EAPX-" + conversation.id.replace(/-/g, "").slice(0, 8).toUpperCase();
 }
 
 function initials(name: string) {
   return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
+const ACTIVE_HIDDEN = new Set(["resolved", "closed"]);
+
 export default function SupportInbox() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [filter, setFilter] = useState<"all" | "needs_human">("all");
-  const [takingOver, setTakingOver] = useState(false);
+  const [filter, setFilter] = useState<"active" | "needs_human" | "closed">("active");
+  const [updating, setUpdating] = useState(false);
   const [reply, setReply] = useState("");
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
     apiFetch<Conversation[]>("/conversations")
-      .then((data) => {
-        setConversations(data);
-        setSelectedId((current) => current || data[0]?.id || "");
-      })
+      .then((data) => setConversations(data))
       .catch(() => undefined);
   }, []);
 
@@ -60,22 +68,30 @@ export default function SupportInbox() {
     [conversations]
   );
 
-  const visible = useMemo(
-    () => filter === "needs_human" ? conversations.filter((item) => item.status === "needs_human") : conversations,
-    [conversations, filter]
-  );
-  const selected = conversations.find((item) => item.id === selectedId) || visible[0];
+  const visible = useMemo(() => {
+    if (filter === "needs_human") return conversations.filter((item) => item.status === "needs_human");
+    if (filter === "closed") return conversations.filter((item) => ACTIVE_HIDDEN.has(item.status));
+    return conversations.filter((item) => !ACTIVE_HIDDEN.has(item.status));
+  }, [conversations, filter]);
+  // `selected` is strictly the ticket referenced by selectedId — never a positional
+  // fallback — so a manager action always targets the ticket that is displayed.
+  const selected = conversations.find((item) => item.id === selectedId);
 
-  async function takeOver() {
+  useEffect(() => {
+    if (selectedId && conversations.some((item) => item.id === selectedId)) return;
+    setSelectedId(visible[0]?.id ?? "");
+  }, [conversations, visible, selectedId]);
+
+  async function setStatus(status: Conversation["status"]) {
     if (!selected) return;
-    setTakingOver(true);
+    setUpdating(true);
     try {
-      const updated = await apiFetch<Conversation>(`/conversations/${selected.id}/status?conversation_status=human_active`, { method: "PATCH" });
+      const updated = await apiFetch<Conversation>(`/conversations/${selected.id}/status?conversation_status=${status}`, { method: "PATCH" });
       setConversations((items) => items.map((item) => item.id === updated.id ? updated : item));
     } catch {
-      setConversations((items) => items.map((item) => item.id === selected.id ? { ...item, status: "human_active", assigned_to: "Support Manager" } : item));
+      setConversations((items) => items.map((item) => item.id === selected.id ? { ...item, status } : item));
     } finally {
-      setTakingOver(false);
+      setUpdating(false);
     }
   }
 
@@ -121,13 +137,16 @@ export default function SupportInbox() {
             </div>
             <Badge size="sm" color="warning">{needsHumanCount} need you</Badge>
           </div>
-          <div className="mt-4 grid grid-cols-2 rounded-lg bg-gray-100 p-1 dark:bg-white/5">
-            <button onClick={() => setFilter("all")} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${filter === "all" ? "bg-white text-gray-800 shadow-theme-xs dark:bg-gray-800 dark:text-white" : "text-gray-500"}`}>All</button>
-            <button onClick={() => setFilter("needs_human")} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${filter === "needs_human" ? "bg-white text-gray-800 shadow-theme-xs dark:bg-gray-800 dark:text-white" : "text-gray-500"}`}>Needs review</button>
+          <div className="mt-4 grid grid-cols-3 rounded-lg bg-gray-100 p-1 dark:bg-white/5">
+            {(["active", "needs_human", "closed"] as const).map((key) => (
+              <button key={key} onClick={() => setFilter(key)} className={`rounded-lg px-2 py-1.5 text-xs font-medium ${filter === key ? "bg-white text-gray-800 shadow-theme-xs dark:bg-gray-800 dark:text-white" : "text-gray-500"}`}>
+                {key === "active" ? "Active" : key === "needs_human" ? "Needs review" : "Closed"}
+              </button>
+            ))}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {!visible.length && <p className="px-4 py-10 text-center text-sm text-gray-500">{filter === "needs_human" ? "Nothing needs your review." : "No conversations yet."}</p>}
+          {!visible.length && <p className="px-4 py-10 text-center text-sm text-gray-500">{filter === "needs_human" ? "Nothing needs your review." : filter === "closed" ? "No resolved or closed tickets." : "No active tickets."}</p>}
           {visible.map((conversation) => {
             const active = conversation.id === selected?.id;
             return (
@@ -141,7 +160,10 @@ export default function SupportInbox() {
                     </div>
                     <p className="mt-1 truncate text-sm text-gray-600 dark:text-gray-300">{conversation.subject}</p>
                     <div className="mt-2 flex items-center justify-between gap-2">
-                      <Badge size="sm" color={badgeFor(conversation).color}>{badgeFor(conversation).label}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge size="sm" color={badgeFor(conversation).color}>{badgeFor(conversation).label}</Badge>
+                        <span className="font-mono text-[10px] text-gray-400">{ticketRef(conversation)}</span>
+                      </div>
                       <span className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400">{conversation.channel === "email" ? <MailIcon className="size-3.5" /> : <ChatIcon className="size-3.5" />}{conversation.channel}</span>
                     </div>
                   </div>
@@ -160,10 +182,10 @@ export default function SupportInbox() {
                 <h2 className="truncate text-base font-semibold text-gray-800 dark:text-white/90">{selected.subject}</h2>
                 <Badge size="sm" color={badgeFor(selected).color}>{badgeFor(selected).label}</Badge>
               </div>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{selected.customer_name} · {selected.customer_email} · Assigned to {selected.assigned_to}</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400"><span className="font-mono text-gray-600 dark:text-gray-300">{ticketRef(selected)}</span> · {selected.customer_name} · {selected.customer_email} · Assigned to {selected.assigned_to}</p>
             </div>
             <div className="flex items-center gap-2">
-              {selected.status !== "human_active" && <Button size="sm" variant="outline" loading={takingOver} onClick={takeOver} startIcon={<UserCircleIcon className="size-4" />}>Take over</Button>}
+              {selected.status !== "human_active" && <Button size="sm" variant="outline" loading={updating} onClick={() => setStatus("human_active")} startIcon={<UserCircleIcon className="size-4" />}>Take over</Button>}
               <button onClick={deleteConversation} aria-label="Delete conversation" title="Delete conversation" className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-400 transition-colors hover:border-error-200 hover:bg-error-50 hover:text-error-600 dark:border-gray-800 dark:hover:border-error-500/30 dark:hover:bg-error-500/10"><TrashBinIcon className="size-4" /></button>
             </div>
           </header>
@@ -208,6 +230,23 @@ export default function SupportInbox() {
             </div>
 
             <aside className="hidden w-[280px] shrink-0 border-l border-gray-200 p-5 xl:block dark:border-gray-800">
+              <div className="mb-5 border-b border-gray-100 pb-5 dark:border-gray-800">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-sm font-semibold text-gray-800 dark:text-white/90">{ticketRef(selected)}</span>
+                  <Badge size="sm" color={badgeFor(selected).color}>{badgeFor(selected).label}</Badge>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selected.status !== "resolved" && selected.status !== "closed" && (
+                    <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("resolved")} startIcon={<CheckCircleIcon className="size-4" />}>Resolve</Button>
+                  )}
+                  {selected.status !== "closed" && (
+                    <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("closed")}>Close</Button>
+                  )}
+                  {(selected.status === "resolved" || selected.status === "closed") && (
+                    <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("open")}>Reopen</Button>
+                  )}
+                </div>
+              </div>
               <h3 className="text-sm font-semibold text-gray-800 dark:text-white/90">Mike’s decision</h3>
               <div className="mt-4 rounded-xl bg-gray-50 p-4 dark:bg-white/[0.03]">
                 <p className="text-xs text-gray-500 dark:text-gray-400">Confidence</p>

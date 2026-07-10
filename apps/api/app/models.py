@@ -65,6 +65,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    ticket_number: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     channel: Mapped[str] = mapped_column(String(20), default="chat")
     customer_name: Mapped[str] = mapped_column(String(120), default="Website visitor")
     customer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)

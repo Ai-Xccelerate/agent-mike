@@ -53,7 +53,10 @@ export default function MikeDashboard() {
     apiFetch<KnowledgeDocument[]>("/knowledge").then(setKnowledge).catch(() => undefined);
   }, []);
 
-  const recent = useMemo(() => conversations.slice(0, 5), [conversations]);
+  const recent = useMemo(
+    () => conversations.filter((c) => c.status !== "resolved" && c.status !== "closed").slice(0, 5),
+    [conversations]
+  );
   const lastActivity = conversations[0]?.updated_at;
 
   return (
@@ -112,8 +115,8 @@ export default function MikeDashboard() {
                   <p className="mt-0.5 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.subject}</p>
                 </div>
                 <div className="hidden text-right sm:block">
-                  <Badge size="sm" color={conversation.status === "needs_human" ? (conversation.priority === "high" ? "warning" : "info") : conversation.status === "resolved" ? "success" : "info"}>
-                    {conversation.status === "needs_human" ? (conversation.priority === "high" ? "Needs review" : "Follow-up") : conversation.status === "resolved" ? "Resolved" : "Mike handling"}
+                  <Badge size="sm" color={conversation.status === "needs_human" ? (conversation.priority === "high" ? "warning" : "info") : conversation.status === "resolved" ? "success" : conversation.status === "closed" ? "light" : "info"}>
+                    {conversation.status === "needs_human" ? (conversation.priority === "high" ? "Needs review" : "Follow-up") : conversation.status === "resolved" ? "Resolved" : conversation.status === "closed" ? "Closed" : "Open"}
                   </Badge>
                   <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{Math.round((conversation.confidence || 0) * 100)}% confidence</p>
                 </div>

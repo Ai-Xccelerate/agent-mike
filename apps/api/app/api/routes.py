@@ -37,14 +37,21 @@ def _clean_email_text(text: str) -> str:
     return text.strip()
 
 
-def _ticket_ref(conversation_id: str) -> str:
-    return "EAPX-" + conversation_id.replace("-", "")[:8].upper()
+def _ticket_ref(conversation: Conversation) -> str:
+    if conversation.ticket_number:
+        return f"EAPX-{conversation.ticket_number}"
+    return "EAPX-" + conversation.id.replace("-", "")[:8].upper()
+
+
+async def _next_ticket_number(db: AsyncSession) -> int:
+    current = await db.scalar(select(func.max(Conversation.ticket_number)))
+    return (current or 1000) + 1
 
 
 async def _notify_manager(profile: AgentProfile, conversation: Conversation, answer, customer_message: str) -> None:
     if not (answer.escalated and profile.manager_email):
         return
-    ref = _ticket_ref(conversation.id)
+    ref = _ticket_ref(conversation)
     who = conversation.customer_name
     if conversation.customer_email:
         who += f" <{conversation.customer_email}>"
@@ -137,7 +144,7 @@ async def set_conversation_status(
     conversation_status: str,
     db: AsyncSession = Depends(get_db),
 ) -> Conversation:
-    allowed = {"open", "resolved", "needs_human", "human_active"}
+    allowed = {"open", "resolved", "needs_human", "human_active", "closed"}
     if conversation_status not in allowed:
         raise HTTPException(status_code=422, detail=f"Status must be one of {sorted(allowed)}")
     conversation = await get_conversation(conversation_id, db)
@@ -179,6 +186,7 @@ async def chat(payload: ChatRequest, db: AsyncSession = Depends(get_db)) -> Chat
             customer_name=payload.customer_name,
             customer_email=str(payload.customer_email) if payload.customer_email else None,
             subject=payload.message[:90],
+            ticket_number=await _next_ticket_number(db),
         )
         db.add(conversation)
         await db.flush()
@@ -362,6 +370,7 @@ async def agentmail_webhook(
             customer_email=sender,
             subject=subject,
             external_thread_id=thread_id,
+            ticket_number=await _next_ticket_number(db),
         )
         db.add(conversation)
         await db.flush()

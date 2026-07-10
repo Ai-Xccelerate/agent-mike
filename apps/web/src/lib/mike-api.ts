@@ -17,11 +17,12 @@ export type Message = {
 
 export type Conversation = {
   id: string;
+  ticket_number?: number | null;
   channel: "email" | "chat";
   customer_name: string;
   customer_email?: string | null;
   subject: string;
-  status: "open" | "resolved" | "needs_human" | "human_active";
+  status: "open" | "resolved" | "needs_human" | "human_active" | "closed";
   priority: string;
   assigned_to: string;
   confidence?: number | null;

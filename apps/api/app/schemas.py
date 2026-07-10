@@ -52,6 +52,7 @@ class MessageOut(BaseModel):
 class ConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
+    ticket_number: int | None = None
     channel: str
     customer_name: str
     customer_email: str | None

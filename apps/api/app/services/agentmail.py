@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import re
 
 import markdown as markdown_lib
@@ -21,7 +22,9 @@ def verify_webhook(payload: bytes, headers: dict[str, str]) -> bool:
 
 
 def _to_html(text: str) -> str:
-    body = markdown_lib.markdown(text, extensions=["extra", "sane_lists"])
+    # Escape first so any raw HTML/script in Mike's output or a customer's message
+    # cannot be injected into the outgoing email; markdown syntax still renders.
+    body = markdown_lib.markdown(html.escape(text), extensions=["extra", "sane_lists"])
     return (
         '<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; '
         'line-height: 1.6; color: #1a1a1a;">'
