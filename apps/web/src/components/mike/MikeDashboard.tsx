@@ -60,7 +60,7 @@ export default function MikeDashboard() {
   const lastActivity = conversations[0]?.updated_at;
 
   return (
-    <div className="space-y-5 md:space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-5 md:gap-6">
       <AgentHero
         name="Mike"
         tagline="Handles first-line product questions across email and website chat, with a human manager always in reach."
@@ -85,8 +85,8 @@ export default function MikeDashboard() {
         <StatCard label="Knowledge concepts" value={String(knowledge.length)} icon={<DocsIcon className="size-5" />} />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.75fr)] md:gap-6">
-        <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.75fr)] md:gap-6">
+        <section className="flex flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
           <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-gray-800 md:px-6">
             <div>
               <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Recent conversations</h2>
@@ -94,7 +94,7 @@ export default function MikeDashboard() {
             </div>
             <Link href="/inbox" className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">View inbox</Link>
           </div>
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <div className="flex-1 divide-y divide-gray-100 dark:divide-gray-800">
             {!recent.length && (
               <p className="px-5 py-12 text-center text-sm text-gray-500 md:px-6">No conversations yet. They appear here once customers reach Mike over chat or email.</p>
             )}

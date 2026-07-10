@@ -71,7 +71,11 @@ async def _notify_manager(profile: AgentProfile, conversation: Conversation, ans
 
 
 def _apply_outcome(conversation: Conversation, profile: AgentProfile, answer) -> None:
-    if answer.escalated:
+    if getattr(answer, "resolved", False):
+        conversation.status = "resolved"  # customer confirmed the issue is solved
+        conversation.priority = "normal"
+        conversation.assigned_to = profile.display_name
+    elif answer.escalated:
         conversation.status = "needs_human"
         conversation.priority = getattr(answer, "priority", "high")  # high=handoff, normal=follow-up
         conversation.assigned_to = profile.manager_name  # follow-up owner
@@ -245,6 +249,60 @@ async def list_knowledge(db: AsyncSession = Depends(get_db)) -> list[KnowledgeDo
         )
         for document in documents
     ]
+
+
+@router.get("/knowledge/graph")
+async def knowledge_graph(db: AsyncSession = Depends(get_db)) -> dict:
+    documents = list(
+        await db.scalars(
+            select(KnowledgeDocument).options(selectinload(KnowledgeDocument.chunks))
+        )
+    )
+    nodes: list[dict] = []
+    links: list[dict] = []
+    sections = 0
+    for document in documents:
+        nodes.append(
+            {
+                "id": document.id,
+                "label": document.title,
+                "group": "concept",
+                "type": document.type,
+                "concept_id": document.concept_id,
+                "tags": document.tags,
+                "val": max(6, len(document.chunks) * 2),
+            }
+        )
+        for chunk in sorted(document.chunks, key=lambda item: item.position):
+            section_id = f"{document.id}:{chunk.position}"
+            section_label = chunk.heading or f"{document.title} — part {chunk.position + 1}"
+            nodes.append(
+                {
+                    "id": section_id,
+                    "label": section_label,
+                    "group": "section",
+                    "type": document.type,
+                    "concept_id": document.concept_id,
+                    "val": 2,
+                }
+            )
+            links.append({"source": document.id, "target": section_id, "kind": "section"})
+            sections += 1
+
+    def prefix(concept_id: str) -> str:
+        return concept_id.split("/")[0].split("-")[0]
+
+    for index, first in enumerate(documents):
+        first_tags = set(first.tags or [])
+        for second in documents[index + 1:]:
+            if (first_tags & set(second.tags or [])) or prefix(first.concept_id) == prefix(second.concept_id):
+                links.append({"source": first.id, "target": second.id, "kind": "related"})
+
+    return {
+        "nodes": nodes,
+        "links": links,
+        "stats": {"concepts": len(documents), "sections": sections, "links": len(links)},
+    }
 
 
 @router.post("/knowledge/ingest", response_model=KnowledgeDocumentOut, status_code=201)
