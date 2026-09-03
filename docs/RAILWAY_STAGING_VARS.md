@@ -1,0 +1,33 @@
+# Staging Railway variables — copy/paste
+
+You cannot put real Clerk/Anthropic/AgentMail **secrets** in git. Railway reads variables from the service UI, not from a committed `.env`.
+
+What *is* in the repo (safe to copy):
+
+- API paste block: [`.env.staging.example`](../.env.staging.example)
+- Frontend paste block: [`frontend/.env.staging.example`](../frontend/.env.staging.example)
+
+## Where the secret values come from
+
+| Variable | Copy from |
+|---|---|
+| `CLERK_JWKS_URL`, `CLERK_ISSUER` | Core kit `aix-clerk-core-env-values.md` **or** Jules/Nick **API** staging Railway |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Same kit **or** Jules/Nick **frontend** staging Railway |
+| `CLERK_ENCRYPTION_KEY` | Jules/Nick frontend staging, or generate once |
+| `ANTHROPIC_API_KEY`, `AGENTMAIL_*` | This project’s **production** `api` → Variables |
+| `DATABASE_URL` | Already in the paste file as `${{Postgres.DATABASE_URL}}` |
+| `MIKE_WIDGET_SITE_TOKEN` | You generate (`openssl rand -hex 32`); put the same value on frontend as `NEXT_PUBLIC_MIKE_WIDGET_SITE_TOKEN` |
+| `MIKE_WIDGET_ORG_ID`, `AGENTMAIL_ORG_ID` | Clerk org id for the org that should own widget/email data |
+
+## Paste into Railway
+
+1. `mike-api` → **Variables** → Raw Editor → paste `.env.staging.example` → fill blanks.
+2. Generate a public domain on `mike-api`.
+3. `mike-frontend` → **Variables** → Raw Editor → paste `frontend/.env.staging.example`.
+4. Generate a public domain on `mike-frontend`.
+5. Put that frontend origin into:
+   - API `CLERK_AUTHORIZED_PARTIES` and `CORS_ALLOWED_ORIGINS`
+   - Frontend `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WIDGET_ORIGIN`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_AUTHORIZED_PARTIES`
+6. Then Apply / Deploy.
+
+Never set `MIKE_ALLOW_LOCAL_UNAUTH` on Railway.
