@@ -7,6 +7,8 @@ import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { LocalModeProvider } from "@/lib/local-mode-context";
 import { assertLocalBypassSafe, isLocalUnauthEnabled } from "@/lib/local-mode";
+import AuthDiagnostics from "@/components/AuthDiagnostics";
+import { authDebug, authEnvSnapshot } from "@/lib/auth-debug";
 import { MikeAuthBridge } from "@/lib/mike-auth";
 
 export const metadata = {
@@ -54,7 +56,19 @@ export default function RootLayout({
   const coreApp = process.env.NEXT_PUBLIC_CORE_APP_URL?.replace(/\/$/, "");
   const allowedRedirectOrigins = parseList(process.env.CLERK_ALLOWED_REDIRECT_ORIGINS);
 
-  const tree = <AppProviders bypass={bypass}>{children}</AppProviders>;
+  authDebug("server.layout", {
+    bypass,
+    ...authEnvSnapshot(),
+    signUpUrlPresent: Boolean(signUpUrl),
+    allowedRedirectOriginsCount: allowedRedirectOrigins?.length ?? 0,
+  });
+
+  const tree = (
+    <AppProviders bypass={bypass}>
+      {!bypass ? <AuthDiagnostics /> : null}
+      {children}
+    </AppProviders>
+  );
 
   return (
     <html lang="en" suppressHydrationWarning>

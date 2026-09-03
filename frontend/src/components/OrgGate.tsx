@@ -1,12 +1,21 @@
 "use client";
 
 import { useOrganization } from "@clerk/nextjs";
+import { useEffect } from "react";
+import { authDebug } from "@/lib/auth-debug";
 import { useLocalBypass } from "@/lib/local-mode-context";
 
 const CORE_APP = (process.env.NEXT_PUBLIC_CORE_APP_URL ?? "").replace(/\/$/, "");
 
 function OrgGateClerk({ children }: { children: React.ReactNode }) {
   const { isLoaded, organization } = useOrganization();
+
+  useEffect(() => {
+    authDebug("orgGate.state", {
+      isLoaded,
+      hasOrganization: Boolean(organization?.id),
+    });
+  }, [isLoaded, organization?.id]);
 
   if (!isLoaded) {
     return (

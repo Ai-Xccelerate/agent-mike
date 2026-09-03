@@ -3,6 +3,7 @@
 import { useAuth, useOrganization } from "@clerk/nextjs";
 import { useCallback, useEffect, useState } from "react";
 import NoAccessScreen from "@/components/NoAccessScreen";
+import { authDebug } from "@/lib/auth-debug";
 import { getTokenWithRetry } from "@/lib/clerk-token";
 import { useLocalBypass } from "@/lib/local-mode-context";
 
@@ -21,23 +22,31 @@ function useMikeAccess(): MikeAccessState {
 
   const check = useCallback(async () => {
     if (!CORE_API) {
+      authDebug("access.error", { reason: "missing_core_api_url" });
       setState({ status: "error" });
       return;
     }
 
     const token = await getTokenWithRetry(getToken, organization?.id);
     if (!token) {
+      authDebug("access.error", { reason: "missing_clerk_token" });
       setState({ status: "error" });
       return;
     }
 
     try {
+      authDebug("access.check.start", {
+        coreApi: CORE_API,
+        hasOrganization: Boolean(organization?.id),
+      });
       const res = await fetch(`${CORE_API}/api/v1/agents/mike/access`, {
         headers: { Authorization: `Bearer ${token}` },
         credentials: "omit",
         cache: "no-store",
         signal: AbortSignal.timeout(15_000),
       });
+
+      authDebug("access.check.response", { status: res.status });
 
       if (res.status === 401) {
         setState({ status: "error" });
@@ -63,14 +72,24 @@ function useMikeAccess(): MikeAccessState {
         reason?: string;
       } | null;
 
+      authDebug("access.check.result", {
+        hasAccess: Boolean(data?.has_access),
+        reason: data?.reason ?? null,
+      });
+
       if (data?.has_access) setState({ status: "allowed" });
       else setState({ status: "denied", reason: data?.reason });
-    } catch {
+    } catch (err) {
+      authDebug("access.error", {
+        reason: "fetch_failed",
+        message: err instanceof Error ? err.message : String(err),
+      });
       setState({ status: "error" });
     }
   }, [getToken, organization?.id]);
 
   useEffect(() => {
+    authDebug("access.waiting", { isLoaded, isSignedIn, orgLoaded });
     if (!isLoaded || !isSignedIn || !orgLoaded) return;
     setState({ status: "loading" });
     void check();
