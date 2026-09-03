@@ -2,9 +2,11 @@
 
 ## Service boundaries
 
-`apps/web` is a Next.js application. It owns only presentation, manager workflows, and the public widget. It never receives the Anthropic or AgentMail secret.
+`frontend/` is a Next.js manager console and public `/widget`. It never receives Anthropic or AgentMail secrets. Manager routes require the shared AIX Clerk session; `/widget` is public and authenticates to the API with a site token.
 
-`apps/api` is a FastAPI application. It owns identity configuration, conversations, messages, guardrails, knowledge ingestion/retrieval, Claude execution, and AgentMail delivery.
+The API is a Next.js app at the repository root. It owns identity configuration, org-scoped conversations, messages, guardrails, knowledge ingestion/retrieval, Claude execution, and AgentMail delivery. Clerk JWTs are verified locally; every manager request then checks `GET /api/v1/agents/mike/access` on AIX Core.
+
+The legacy FastAPI app under `apps/api` is not the Railway root anymore.
 
 PostgreSQL is the durable system of record. OKF files remain the portable, human-reviewable knowledge source. Ingestion copies their frontmatter and body into PostgreSQL, then splits the body into searchable chunks.
 
@@ -13,7 +15,7 @@ PostgreSQL is the durable system of record. OKF files remain the portable, human
 1. A message arrives from the widget or the AgentMail webhook.
 2. The API persists the customer message and retrieves relevant knowledge chunks using PostgreSQL full-text search.
 3. Deterministic rules check for escalation terms, prompt-injection language, and configured risk boundaries.
-4. If safe to proceed, the API builds Mike's system prompt and runs a single Claude Agent SDK turn with built-in tools disabled.
+4. If safe to proceed, the API builds Mike's system prompt and runs a single Anthropic Messages turn with no tools.
 5. The answer and citations are persisted. Email answers are sent through AgentMail; chat answers are returned to the widget.
 6. Low-confidence or guarded requests are marked `needs_human` and appear in the manager inbox.
 
@@ -23,10 +25,10 @@ PostgreSQL `websearch_to_tsquery` gives a low-operations baseline: no extra data
 
 ## Security boundaries
 
-- Claude Agent SDK runs with `tools=[]`, so the support agent cannot use shell, filesystem, or code-editing tools.
+- Anthropic calls run with no tools, so the support agent cannot use shell, filesystem, or code-editing tools.
 - Retrieved text is marked as untrusted reference material in the prompt.
 - Secrets stay server-side and are never serialized by API schemas.
 - AgentMail webhook verification is supported with HMAC SHA-256.
 - The public chat endpoint should receive rate limiting and bot protection at the edge before a high-volume launch.
-- Manager authentication is intentionally left as the deployment's identity-provider integration point; do not expose manager routes publicly without it.
+- Manager routes require Clerk + Core access. Widget chat uses `x-mike-site-token`. The AgentMail webhook uses a Svix signing secret. The local Clerk bypass is fail-closed outside `APP_ENV=local`.
 

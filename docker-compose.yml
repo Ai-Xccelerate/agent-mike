@@ -10,31 +10,5 @@ services:
     volumes:
       - mike-postgres:/var/lib/postgresql/data
 
-  api:
-    build: ./apps/api
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/mike
-      DEMO_MODE: "true"
-      CORS_ORIGINS: http://localhost:3000
-      KNOWLEDGE_PATH: /app/knowledge
-    ports:
-      - "8000:8000"
-    depends_on:
-      - postgres
-    volumes:
-      - ./knowledge:/app/knowledge
-
-  web:
-    build:
-      context: ./apps/web
-      args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-    ports:
-      - "3000:3000"
-    depends_on:
-      - api
-
 volumes:
   mike-postgres:

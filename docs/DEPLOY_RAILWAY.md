@@ -1,93 +1,83 @@
 # Deploy to Railway
 
-This repository is an isolated monorepo: the web and API services have separate roots and do not import shared code. Create one Railway project with three services.
+One GitHub repo (`Ai-Xccelerate/agent-mike`) → two Railway services, Nick’s layout.
 
-## Current deployment
+Do **not** merge or deploy this work from `main` until staging is proven. Ship from the `staging` branch.
 
-Deployed in the AI Xccelerate Railway workspace:
+## Services
 
-- Project: `agent-mike` (`f9925ea4-a14d-4d6e-9310-bcc6907c2ff4`)
-- Console and widget: `https://web-production-13a30.up.railway.app`
-- API: `https://api-production-491c.up.railway.app`
-- Environment: `production`
-- Services: `web`, `api`, and `Postgres`
+Project: `agent-mike` (`f9925ea4-a14d-4d6e-9310-bcc6907c2ff4`)
 
-Running with `DEMO_MODE=false` and `CLAUDE_MODEL=claude-sonnet-5`. The database
-starts empty (no seeded conversations or knowledge). Until approved knowledge is
-loaded from the **Knowledge** page, every question retrieves zero chunks, scores
-below the confidence threshold, and escalates to a human before Claude is called —
-this is expected, not a failure. AgentMail does not send external traffic until
-its secrets are set.
+| Service | Root directory | Start | Health |
+| --- | --- | --- | --- |
+| API (`api`) | repository root | `npx drizzle-kit migrate && npm run start -- -p $PORT` (`railway.toml`) | `/api/health` |
+| Web (`web`) | `frontend` | `npm run start -- -H 0.0.0.0 -p $PORT` (`frontend/railway.toml`) | `/api/health` |
+| Postgres | Railway plugin | — | — |
 
-Services build from their own Dockerfiles. Each is deployed by running
-`railway up --service <name>` from inside its app directory (`apps/api`,
-`apps/web`) so the Dockerfile sits at the build-context root — `source.rootDirectory`
-was intentionally left unset. Both services listen on Railway's injected `PORT`
-(8080), so their generated domains target port 8080.
+The legacy FastAPI app under `apps/api` is not the Railway API root anymore.
 
-The earlier demo project `eap-mike` (`5b472646-e9e7-4698-93a7-f9b232e12abe`,
-`DEMO_MODE=true`) still exists in the same workspace.
+## Staging environment (human)
 
-## 1. Create services
+Railway currently has **production** only. Duplicate a **staging** environment on the same project, then:
 
-1. Add a PostgreSQL database.
-2. Add an empty service named `api` with root directory `/apps/api`.
-3. Add an empty service named `web` with root directory `/apps/web`.
+1. Point both `api` and `web` at the `staging` git branch.
+2. Set API root directory to `/` (repo root) and web root directory to `/frontend`.
+3. Generate public domains (or attach `mike-staging.aiworkforce.md` / API staging hostname).
+4. Copy Clerk + Core env **names** from `.env.example` / `frontend/.env.example` and **values** from the Core kit file. Do not invent secrets.
+5. `CLERK_AUTHORIZED_PARTIES` on Mike API must include Core **and** the Mike frontend origin.
+6. Ask Core owners to add those Mike URLs to Core CORS and to register catalog slug `mike` when ready.
 
-Both app directories include a Dockerfile. Railway can also detect Python and Next.js automatically, but Dockerfiles make the runtime commands explicit.
+Until the catalog row exists, signed-in manager traffic returns **503** “not registered”. That is expected.
 
-## 2. API variables
-
-Set these on `api`:
+## API variables
 
 ```text
+APP_ENV=staging
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 ANTHROPIC_API_KEY=...
 CLAUDE_MODEL=claude-sonnet-4-5
-AGENTMAIL_API_KEY=...
-AGENTMAIL_INBOX_ID=mike@your-domain.example
-AGENTMAIL_WEBHOOK_SECRET=...
 DEMO_MODE=false
-CORS_ORIGINS=https://YOUR-WEB-DOMAIN
+CLERK_JWKS_URL=...
+CLERK_ISSUER=...
+CLERK_AUTHORIZED_PARTIES=https://app-staging.aiworkforce.md,https://mike-staging.aiworkforce.md
+AIX_CORE_API_URL=https://api-staging.aiworkforce.md
+CORS_ALLOWED_ORIGINS=https://mike-staging.aiworkforce.md,https://app-staging.aiworkforce.md
+MIKE_WIDGET_SITE_TOKEN=...
+MIKE_WIDGET_ORG_ID=org_...
+AGENTMAIL_API_KEY=...
+AGENTMAIL_INBOX_ID=...
+AGENTMAIL_WEBHOOK_SECRET=...
+AGENTMAIL_ORG_ID=org_...
 ```
 
-Railway's Postgres URL starts with `postgresql://`; the API normalizes it to the `postgresql+asyncpg://` SQLAlchemy driver automatically.
+Never set `MIKE_ALLOW_LOCAL_UNAUTH` here.
 
-Generate a public domain for `api`. Configure AgentMail's inbound webhook to:
+AgentMail inbound webhook:
 
 ```text
 https://YOUR-API-DOMAIN/api/v1/webhooks/agentmail
 ```
 
-## 3. Web variables
-
-Set these on `web` before its build:
+## Web variables
 
 ```text
 NEXT_PUBLIC_API_URL=https://YOUR-API-DOMAIN
 NEXT_PUBLIC_WIDGET_ORIGIN=https://YOUR-WEB-DOMAIN
+NEXT_PUBLIC_MIKE_WIDGET_SITE_TOKEN=...   # same value as API MIKE_WIDGET_SITE_TOKEN
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
+CLERK_SECRET_KEY=...
+CLERK_ENCRYPTION_KEY=...
+CLERK_SIGN_IN_URL=https://app-staging.aiworkforce.md/login
+CLERK_SIGN_UP_URL=https://app-staging.aiworkforce.md/signup
+CLERK_ALLOWED_REDIRECT_ORIGINS=https://mike-staging.aiworkforce.md
+CLERK_AUTHORIZED_PARTIES=https://app-staging.aiworkforce.md,https://mike-staging.aiworkforce.md
+NEXT_PUBLIC_CORE_API_URL=https://api-staging.aiworkforce.md
+NEXT_PUBLIC_CORE_APP_URL=https://app-staging.aiworkforce.md
 ```
 
-Generate a public domain for `web`, then update `CORS_ORIGINS` on the API to the exact web origin.
+## Verify
 
-## 4. Load knowledge
-
-The repository includes a starter OKF bundle in `/knowledge`. Because the API service root is `/apps/api`, that folder is not in the deploy image. For production use one of these patterns:
-
-- Upload documents from the Knowledge page after deploy.
-- Trigger `POST /api/v1/knowledge/ingest` from a CI job that checks out the whole repository and sends each document.
-- Change the API service to use repository root and Dockerfile path `/apps/api/Dockerfile` if you want the starter bundle baked into the image.
-
-## 5. Verify
-
-Check `https://YOUR-API-DOMAIN/health`; it should return `{"status":"ok"}`. Then open the web domain, send a test chat, and send an email to Mike's AgentMail address. Confirm the thread and its knowledge citations appear in Inbox.
-
-## Production checklist
-
-- Put manager routes behind SSO.
-- Turn off demo mode.
-- Set a non-empty webhook secret and verify AgentMail's exact signature header format.
-- Add edge rate limiting to public chat and webhook endpoints.
-- Configure database backups and a staging environment.
-- Add telemetry and alerts for failed agent runs and email delivery.
-- Review escalation and confidence settings with the support lead before enabling automatic replies.
+- `https://YOUR-API-DOMAIN/api/health` → `{ "status": "ok", "service": "mike-api" }`
+- Open the web domain; unauthenticated users redirect to Core login
+- After Core login, if catalog `mike` is missing, the no-access screen / API 503 is expected
+- `/widget` stays public and uses the site token

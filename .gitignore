@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .env.local
+.env*.local
 .venv/
 __pycache__/
 .pytest_cache/
@@ -11,3 +12,4 @@ node_modules/
 .next/
 coverage/
 dist/
+*.tsbuildinfo
