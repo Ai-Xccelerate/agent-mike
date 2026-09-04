@@ -17,6 +17,7 @@ Table `nylas_mailboxes`:
 - One org per grant.
 - Unknown `grant_id` on webhook → accept and ignore.
 - **No `NYLAS_ORG_ID` (or any env org stamp) for email tenancy.**
+- `NYLAS_GRANT_ID` is app-wide for this deploy; managers never paste it in the UI.
 
 ## Resolution
 
@@ -31,13 +32,17 @@ Manager / outbound
   → nylas_mailboxes.organization_id → grant_id
 ```
 
-Provision via authenticated API: `GET/PUT /api/v1/mailboxes` (org from JWT). Settings UI writes the same.
+Provision via authenticated API: `GET/PUT /api/v1/mailboxes` (org from JWT).
+`PUT` reads `grant_id` from `NYLAS_GRANT_ID` and accepts only `email` from the client.
+Settings UI never displays the grant UUID.
 
 ## App-wide env (not per-org)
 
 - `NYLAS_API_KEY`
 - `NYLAS_API_URI` (default `https://api.us.nylas.com`)
 - `NYLAS_WEBHOOK_SECRET`
+- `NYLAS_GRANT_ID` (grant UUID for this Mike deploy)
+- `NYLAS_MAILBOX_EMAIL` (optional default when binding)
 
 ## Widget note
 

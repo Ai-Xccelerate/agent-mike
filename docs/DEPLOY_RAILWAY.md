@@ -49,9 +49,11 @@ MIKE_WIDGET_ORG_ID=org_...
 NYLAS_API_KEY=...
 NYLAS_API_URI=https://api.us.nylas.com
 NYLAS_WEBHOOK_SECRET=...
+NYLAS_GRANT_ID=...
+NYLAS_MAILBOX_EMAIL=agent.mike@wkr.email
 ```
 
-Never set `MIKE_ALLOW_LOCAL_UNAUTH` here. Do not set `NYLAS_ORG_ID` — attach grants in Settings (`PUT /api/v1/mailboxes`) using the signed-in Clerk org.
+Never set `MIKE_ALLOW_LOCAL_UNAUTH` here. Do not set `NYLAS_ORG_ID` — set `NYLAS_GRANT_ID` on the API; managers confirm mailbox email in Settings (`PUT /api/v1/mailboxes`).
 
 Nylas inbound webhook (challenge GET + signed POST):
 
@@ -61,7 +63,7 @@ https://YOUR-API-DOMAIN/api/v1/webhooks/nylas
 
 Subscribe at least to `message.created`. After Nylas verifies the challenge, store the generated `webhook_secret` as `NYLAS_WEBHOOK_SECRET`.
 
-Grant↔org mapping: see [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md). Managers bind grant + email to their JWT org; webhooks resolve org from `grant_id`.
+Grant↔org mapping: see [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md). API binds env `NYLAS_GRANT_ID` + mailbox email to the JWT org; webhooks resolve org from `grant_id`.
 ## Web variables
 
 ```text

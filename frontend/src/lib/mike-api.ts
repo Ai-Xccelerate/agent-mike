@@ -54,7 +54,6 @@ export type AgentProfile = {
 export type NylasMailbox = {
   id: string;
   organization_id: string;
-  grant_id: string;
   email: string;
   active: boolean;
   created_at: string;

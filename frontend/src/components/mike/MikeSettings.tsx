@@ -43,9 +43,9 @@ const cardClass = "scroll-mt-24 rounded-2xl border border-gray-200 bg-white p-5 
 
 export default function MikeSettings() {
   const [profile, setProfile] = useState(fallback);
-  const [grantId, setGrantId] = useState("");
   const [mailboxEmail, setMailboxEmail] = useState("agent.mike@wkr.email");
   const [mailbox, setMailbox] = useState<NylasMailbox | null>(null);
+  const [grantFromEnv, setGrantFromEnv] = useState(false);
   const [active, setActive] = useState("identity");
   const [saving, setSaving] = useState(false);
   const [savingMailbox, setSavingMailbox] = useState(false);
@@ -53,13 +53,11 @@ export default function MikeSettings() {
 
   useEffect(() => {
     apiFetch<AgentProfile>("/agent").then(setProfile).catch(() => undefined);
-    apiFetch<{ mailbox: NylasMailbox | null }>("/mailboxes")
+    apiFetch<{ mailbox: NylasMailbox | null; grant_from_env?: boolean }>("/mailboxes")
       .then((data) => {
         setMailbox(data.mailbox);
-        if (data.mailbox) {
-          setGrantId(data.mailbox.grant_id);
-          setMailboxEmail(data.mailbox.email);
-        }
+        setGrantFromEnv(Boolean(data.grant_from_env));
+        if (data.mailbox?.email) setMailboxEmail(data.mailbox.email);
       })
       .catch(() => undefined);
   }, []);
@@ -87,20 +85,36 @@ export default function MikeSettings() {
     setSavingMailbox(true);
     setNotice("");
     try {
-      const data = await apiFetch<{ mailbox: NylasMailbox }>("/mailboxes", {
+      const data = await apiFetch<{ mailbox: NylasMailbox; grant_from_env?: boolean }>("/mailboxes", {
         method: "PUT",
-        body: JSON.stringify({ grant_id: grantId, email: mailboxEmail }),
+        body: JSON.stringify({ email: mailboxEmail }),
       });
       setMailbox(data.mailbox);
+      setGrantFromEnv(Boolean(data.grant_from_env));
       setNotice("Nylas mailbox linked to this organization.");
     } catch {
-      setNotice("Could not save Nylas mailbox. Check grant id and email.");
+      setNotice(
+        grantFromEnv
+          ? "Could not save mailbox. Check the email and try again."
+          : "Could not save mailbox. NYLAS_GRANT_ID must be set on the API service.",
+      );
     } finally {
       setSavingMailbox(false);
     }
   }
 
   function jump(id: string) { setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+
+  const nylasStatus = !grantFromEnv
+    ? "Needs env config"
+    : mailbox
+      ? "Linked"
+      : "Not linked";
+  const nylasDetail = !grantFromEnv
+    ? "Grant from environment"
+    : mailbox
+      ? mailbox.email
+      : "Save mailbox email to bind this org";
 
   return (
     <div className="space-y-5 md:space-y-6">
@@ -125,7 +139,7 @@ export default function MikeSettings() {
             <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Internal name<input value={profile.name} onChange={(event) => update("name", event.target.value)} className={`${fieldClass} mt-2`} /></label>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Customer-facing name<input value={profile.display_name} onChange={(event) => update("display_name", event.target.value)} className={`${fieldClass} mt-2`} /></label>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">Support email address<div className="relative mt-2"><EnvelopeIcon className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-gray-400" /><input value={profile.email} onChange={(event) => update("email", event.target.value)} className={`${fieldClass} pl-10`} /></div><span className="mt-1.5 block text-xs font-normal text-gray-500">Display address. Bind the Nylas grant under Integrations for this org.</span></label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">Support email address<div className="relative mt-2"><EnvelopeIcon className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-gray-400" /><input value={profile.email} onChange={(event) => update("email", event.target.value)} className={`${fieldClass} pl-10`} /></div><span className="mt-1.5 block text-xs font-normal text-gray-500">Display address. Link the Nylas mailbox under Integrations for this org.</span></label>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">Tone<textarea rows={3} value={profile.tone} onChange={(event) => update("tone", event.target.value)} className={`${textareaClass} mt-2`} /></label>
             </div>
           </section>
@@ -151,26 +165,26 @@ export default function MikeSettings() {
           <section id="integrations" onMouseEnter={() => setActive("integrations")} className={cardClass}>
             <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Integrations</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Nylas grant is bound to your signed-in organization. API key and webhook secret stay on the API service.
+              Grant is configured on the API service. This org binds to that mailbox when you save the display address. API key and webhook secret stay on the API.
             </p>
             <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
-                Nylas grant id
-                <input value={grantId} onChange={(event) => setGrantId(event.target.value)} className={`${fieldClass} mt-2`} placeholder="UUID from Nylas Grants" />
-              </label>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
                 Mailbox email
                 <input type="email" value={mailboxEmail} onChange={(event) => setMailboxEmail(event.target.value)} className={`${fieldClass} mt-2`} />
               </label>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <Button loading={savingMailbox} onClick={saveMailbox}>Save mailbox</Button>
-              <Badge size="sm" color={mailbox ? "success" : "warning"}>{mailbox ? "Linked to this org" : "Not linked"}</Badge>
+              <Button loading={savingMailbox} onClick={saveMailbox} disabled={!grantFromEnv}>
+                Save mailbox
+              </Button>
+              <Badge size="sm" color={mailbox && grantFromEnv ? "success" : "warning"}>
+                {mailbox && grantFromEnv ? "Linked to this org" : grantFromEnv ? "Not linked" : "Needs env config"}
+              </Badge>
             </div>
             <div className="mt-5 divide-y divide-gray-100 rounded-xl border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
               {[
                 { name: "OpenAI Agents SDK", detail: "gpt-5.6-luna · response generation", status: "Configured" },
-                { name: "Nylas", detail: mailbox ? mailbox.email : "Attach grant above", status: mailbox ? "Linked" : "Needs grant" },
+                { name: "Nylas", detail: nylasDetail, status: nylasStatus },
                 { name: "PostgreSQL", detail: "Conversations and OKF retrieval", status: "Healthy" },
                 { name: "Website widget", detail: "/widget", status: "Ready" },
               ].map((integration) => (
@@ -180,7 +194,7 @@ export default function MikeSettings() {
                     <p className="text-sm font-medium text-gray-800 dark:text-white/90">{integration.name}</p>
                     <p className="truncate text-xs text-gray-500 dark:text-gray-400">{integration.detail}</p>
                   </div>
-                  <Badge size="sm" color={integration.status === "Needs grant" ? "warning" : "success"}>{integration.status}</Badge>
+                  <Badge size="sm" color={integration.status === "Configured" || integration.status === "Healthy" || integration.status === "Ready" || integration.status === "Linked" ? "success" : "warning"}>{integration.status}</Badge>
                 </div>
               ))}
             </div>

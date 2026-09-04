@@ -11,12 +11,20 @@ export function serializeMailbox(row: NylasMailbox | null) {
   return {
     id: row.id,
     organization_id: row.organizationId,
-    grant_id: row.grantId,
     email: row.email,
     active: row.active,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   };
+}
+
+/** App-wide Nylas grant from Railway / env — never collected in the UI. */
+export function envNylasGrantId(): string {
+  return (process.env.NYLAS_GRANT_ID || "").trim();
+}
+
+export function envNylasMailboxEmail(): string {
+  return (process.env.NYLAS_MAILBOX_EMAIL || "").trim().toLowerCase();
 }
 
 export async function mailboxByGrantId(grantId: string): Promise<NylasMailbox | null> {
