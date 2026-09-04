@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth, useOrganization } from "@clerk/nextjs";
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { getTokenWithRetry } from "@/lib/clerk-token";
 import { useLocalBypass } from "@/lib/local-mode-context";
 
@@ -16,16 +16,17 @@ export async function getManagerToken() {
 }
 
 function MikeAuthBridgeClerk({ children }: { children: React.ReactNode }) {
-  const { getToken, isSignedIn } = useAuth();
+  const { getToken, isSignedIn, isLoaded } = useAuth();
   const { organization } = useOrganization();
 
-  useEffect(() => {
+  // useLayoutEffect so the provider is ready before child useEffects fire (Overview fetch).
+  useLayoutEffect(() => {
     setManagerTokenProvider(async () => {
-      if (!isSignedIn) return null;
+      if (!isLoaded || !isSignedIn) return null;
       return getTokenWithRetry(getToken, organization?.id);
     });
     return () => setManagerTokenProvider(async () => null);
-  }, [getToken, isSignedIn, organization?.id]);
+  }, [getToken, isSignedIn, isLoaded, organization?.id]);
 
   return <>{children}</>;
 }

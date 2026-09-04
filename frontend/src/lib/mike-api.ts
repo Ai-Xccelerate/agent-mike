@@ -87,7 +87,10 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
     if (siteToken) headers.set("x-mike-site-token", siteToken);
   } else {
     const token = await getManagerToken();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    if (!token) {
+      throw new Error("Not signed in");
+    }
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   // Let the browser set multipart boundaries for FormData uploads.
