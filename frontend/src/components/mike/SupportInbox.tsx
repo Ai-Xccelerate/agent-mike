@@ -132,9 +132,9 @@ export default function SupportInbox() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-128px)] flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900/95">
-      <aside className="hidden w-[330px] shrink-0 border-r border-gray-200 lg:flex lg:flex-col dark:border-gray-800">
-        <div className="border-b border-gray-200 p-4 dark:border-gray-800">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900/95">
+      <aside className="hidden w-[330px] shrink-0 border-r border-gray-200 lg:flex lg:min-h-0 lg:flex-col dark:border-gray-800">
+        <div className="shrink-0 border-b border-gray-200 p-4 dark:border-gray-800">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-lg font-semibold text-gray-800 dark:text-white/90">Support inbox</h1>
@@ -150,7 +150,7 @@ export default function SupportInbox() {
             ))}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {!visible.length && <p className="px-4 py-10 text-center text-sm text-gray-500">{filter === "needs_human" ? "Nothing needs your review." : filter === "closed" ? "No resolved or closed tickets." : "No active tickets."}</p>}
           {visible.map((conversation) => {
             const active = conversation.id === selected?.id;
@@ -180,8 +180,8 @@ export default function SupportInbox() {
       </aside>
 
       {selected ? (
-        <main className="flex min-w-0 flex-1 flex-col">
-          <header className="flex flex-col gap-3 border-b border-gray-200 px-4 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between md:px-6">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <header className="flex shrink-0 flex-col gap-3 border-b border-gray-200 px-4 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between md:px-6">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="truncate text-base font-semibold text-gray-800 dark:text-white/90">{selected.subject}</h2>
@@ -195,9 +195,9 @@ export default function SupportInbox() {
             </div>
           </header>
 
-          <div className="flex flex-1 flex-col xl:flex-row">
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex-1 space-y-5 overflow-y-auto bg-gray-25 p-4 dark:bg-gray-950/40 md:p-6">
+          <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 dark:bg-gray-950/40 md:p-6">
                 {selected.messages.map((message) => {
                   const isMike = message.sender_type === "agent";
                   const isHuman = message.sender_type === "human";
@@ -225,7 +225,7 @@ export default function SupportInbox() {
                 })}
               </div>
 
-              <div className="border-t border-gray-200 p-4 dark:border-gray-800 md:p-5">
+              <div className="shrink-0 border-t border-gray-200 p-4 dark:border-gray-800 md:p-5">
                 {notice && <p className="mb-2 text-xs text-warning-700 dark:text-warning-400">{notice}</p>}
                 <div className="flex items-end gap-3 rounded-xl border border-gray-300 bg-white p-2 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
                   <textarea value={reply} onChange={(event) => setReply(event.target.value)} rows={2} placeholder={selected.status === "human_active" ? "Reply as Support Manager…" : "Take over to reply as a human…"} disabled={selected.status !== "human_active"} className="min-h-12 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-white/90" />
@@ -234,7 +234,7 @@ export default function SupportInbox() {
               </div>
             </div>
 
-            <aside className="hidden w-[280px] shrink-0 border-l border-gray-200 p-5 xl:block dark:border-gray-800">
+            <aside className="hidden w-[280px] shrink-0 overflow-y-auto overscroll-contain border-l border-gray-200 p-5 xl:block dark:border-gray-800">
               <div className="mb-5 border-b border-gray-100 pb-5 dark:border-gray-800">
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-sm font-semibold text-gray-800 dark:text-white/90">{ticketRef(selected)}</span>
