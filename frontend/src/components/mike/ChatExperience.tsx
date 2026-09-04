@@ -82,6 +82,7 @@ export function ChatPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const recordStartedAtRef = useRef(0);
   const sendTextRef = useRef<(text: string) => Promise<void>>(async () => undefined);
 
   useEffect(() => {
@@ -220,20 +221,40 @@ export function ChatPanel({
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
       chunksRef.current = [];
+      recordStartedAtRef.current = Date.now();
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunksRef.current.push(event.data);
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+        const elapsedMs = Date.now() - recordStartedAtRef.current;
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        if (!blob.size) return;
+        // Short taps produce empty/hallucinated transcripts (e.g. random filler phrases).
+        if (!blob.size || elapsedMs < 700) {
+          setPreview(true);
+          return;
+        }
         setTranscribing(true);
         try {
+          const ext = blob.type.includes("mp4") ? "m4a" : "webm";
           const form = new FormData();
-          form.append("audio", blob, "mike-voice.webm");
+          form.append("audio", blob, `mike-voice.${ext}`);
           const result = await apiFetch<{ text: string }>("/transcribe", {
             method: "POST",
             widget: compact,
@@ -241,6 +262,7 @@ export function ChatPanel({
           });
           const text = (result.text || "").trim();
           if (text) setValue((current) => (current ? `${current.trim()} ${text}` : text));
+          else setPreview(true);
         } catch {
           setPreview(true);
         } finally {
@@ -249,7 +271,8 @@ export function ChatPanel({
         }
       };
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      // Timeslice keeps chunks flowing so stop() always has audio bytes.
+      recorder.start(250);
       setRecording(true);
     } catch {
       setPreview(true);

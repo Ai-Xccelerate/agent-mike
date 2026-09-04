@@ -16,6 +16,8 @@ What *is* in the repo (safe to copy):
 | `CLERK_ENCRYPTION_KEY` | Jules/Nick frontend staging, or generate once |
 | `OPENAI_API_KEY` | OpenAI dashboard (Agents SDK / Responses) |
 | `OPENAI_MODEL` | Default `gpt-5.6-luna`; optional `gpt-5.6-sol` |
+| `OPENAI_TRANSCRIBE_MODEL` | Default `gpt-transcribe` (Chat mic STT) |
+| `OPENAI_TRANSCRIBE_LANGUAGE` | Default `en` |
 | `NYLAS_API_KEY`, `NYLAS_WEBHOOK_SECRET` | Nylas dashboard (app API key + webhook secret) |
 | `DATABASE_URL` | Already in the paste file as `${{Postgres.DATABASE_URL}}` |
 | `MIKE_WIDGET_SITE_TOKEN` | You generate (`openssl rand -hex 32`); put the same value on frontend as `NEXT_PUBLIC_MIKE_WIDGET_SITE_TOKEN` |
