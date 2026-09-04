@@ -2,13 +2,23 @@
 
 ## Service boundaries
 
-`frontend/` is a Next.js manager console and public `/widget`. It never receives OpenAI or Nylas secrets. Manager routes require the shared AIX Clerk session; `/widget` is public and authenticates to the API with a site token.
+`frontend/` is a Next.js manager console and public `/widget`. It never receives OpenAI or Nylas secrets. Manager routes require the shared AIX Clerk session; `/widget` is public and authenticates to the API with a **per-org** site token (`widget_sites`).
 
-The API is a Next.js app at the repository root. It owns identity configuration, org-scoped conversations, messages, guardrails, knowledge ingestion/retrieval, Claude execution, and Nylas delivery. Clerk JWTs are verified locally; every manager request then checks `GET /api/v1/agents/mike/access` on AIX Core.
+The API is a Next.js app at the repository root. It owns identity configuration, org-scoped conversations, messages, guardrails, knowledge ingestion/retrieval, OpenAI Agents SDK execution, Whisper/`gpt-transcribe` STT, and Nylas delivery. Clerk JWTs are verified locally; every manager request then checks `GET /api/v1/agents/mike/access` on AIX Core.
 
 The legacy FastAPI app under `apps/api` is not the Railway root anymore.
 
 PostgreSQL is the durable system of record. OKF files remain the portable, human-reviewable knowledge source. Ingestion copies their frontmatter and body into PostgreSQL, then splits the body into searchable chunks.
+
+## Tenancy
+
+| Channel | Tenant resolution |
+|---|---|
+| Manager console | Clerk JWT `org_id` |
+| Website widget | `x-mike-site-token` → `widget_sites.organization_id` (see [WIDGET.md](./WIDGET.md)) |
+| Nylas email | Webhook `grant_id` → `nylas_mailboxes.organization_id` (see [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md)) |
+
+All conversations, messages, knowledge, and profile rows are filtered by `organization_id`.
 
 ## Request lifecycle
 
@@ -27,7 +37,7 @@ PostgreSQL `websearch_to_tsquery` gives a low-operations baseline: no extra data
 
 - OpenAI Agents SDK calls run with no tools, so the support agent cannot use shell, filesystem, or code-editing tools.
 - Retrieved text is marked as untrusted reference material in the prompt.
-- Secrets stay server-side and are never serialized by API schemas.
+- Secrets stay server-side and are never serialized by API schemas (Nylas grant ids are not shown in Settings).
 - Nylas webhook verification uses HMAC-SHA256 over the raw body (`x-nylas-signature`) plus a GET challenge handshake.
 - The public chat endpoint should receive rate limiting and bot protection at the edge before a high-volume launch.
-- Manager routes require Clerk + Core access. Widget chat uses `x-mike-site-token`. The Nylas webhook uses `NYLAS_WEBHOOK_SECRET`. The local Clerk bypass is fail-closed outside `APP_ENV=local`.
+- Manager routes require Clerk + Core access. Widget chat uses per-org `x-mike-site-token`. The Nylas webhook uses `NYLAS_WEBHOOK_SECRET`. The local Clerk bypass is fail-closed outside `APP_ENV=local`.

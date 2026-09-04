@@ -46,4 +46,4 @@ Settings UI never displays the grant UUID.
 
 ## Widget note
 
-Public widget chat still uses `MIKE_WIDGET_SITE_TOKEN` (+ `MIKE_WIDGET_ORG_ID` today). That is a separate site→org map, not email tenancy. Manager console org always comes from the JWT.
+Public widget chat uses **per-org** rows in `widget_sites` (Chat → Copy embed). That is a separate site-token → org map from email tenancy. See [WIDGET.md](./WIDGET.md). Manager console org always comes from the JWT.

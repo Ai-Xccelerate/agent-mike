@@ -20,15 +20,15 @@ Then move on to later work (advisor concept, etc.). Mike is the near-term finish
 
 ---
 
-## Status snapshot (as of staging auth fix)
+## Status snapshot (as of multi-tenant widget)
 
 | Workstream | Status |
 |---|---|
-| Core auth + org structure + staging deploy | **Done** (Clerk + AIX Core `/access`, org-scoped API, `mike-staging`) |
-| Website widget smoke test | **Next / open** |
-| Flip mailbox AgentMail → Nylas | **Mostly done** (circle back: Anthropic/OpenAI keys + live email smoke) |
-| Swap Claude SDK → OpenAI Agents SDK (cheaper models) | **In progress** (`gpt-5.6-luna` default) |
-| Deepgram STT / voice input | **Later** |
+| Core auth + org structure + staging deploy | **Done** |
+| Website widget (per-org `widget_sites`, launcher, STT) | **Done** — re-copy embed after deploy (`?site=`) |
+| Flip mailbox AgentMail → Nylas | **Done** (live smoke optional) |
+| Swap Claude SDK → OpenAI Agents SDK | **Done** (`gpt-5.6-luna` default) |
+| Deepgram STT / voice input | **Superseded** by OpenAI `gpt-transcribe` on Chat/widget mic |
 | ElevenLabs if voice lag is bad | **Later** |
 | Stress test after core structure | **Later** |
 | Launch on product staging (wired end-to-end) | **In progress** |
@@ -51,11 +51,11 @@ Then move on to later work (advisor concept, etc.). Mike is the near-term finish
 
 **Done means:** Manager UI signs in via Core/Clerk; JWT verified on Mike API; Core `/api/v1/agents/mike/access`; data org-scoped.
 
-**Not automatic for widget/email:** public widget and inbound mail have no Clerk session. They still need an explicit tenant (`MIKE_WIDGET_ORG_ID` / mailbox→org mapping). Manager console org comes from the JWT.
+**Not automatic for widget/email:** public widget and inbound mail have no Clerk session. Widget tenant = per-org `widget_sites` token from Copy embed ([WIDGET.md](./WIDGET.md)). Email tenant = `nylas_mailboxes`. Manager console org comes from the JWT.
 
 ---
 
-### 2. Flip mailbox from AgentMail → Nylas — NEXT
+### 2. Flip mailbox from AgentMail → Nylas — DONE
 
 **Why:** Explicit instruction; AgentMail was temporary prototype wiring.
 
@@ -65,49 +65,27 @@ Then move on to later work (advisor concept, etc.). Mike is the near-term finish
 
 > “K. Let me handle that.” *(Nylas access for Charan)*
 
-**Done means:** Inbound/outbound support mail goes through Nylas Agent Account (target mailbox such as `agent.mike@wkr.email`); AgentMail webhook path retired or behind a dead switch; Inbox in the manager console shows live Nylas threads.
-
-**Depends on:** Nylas access (Rahul); Core auth already in place before wiring a real inbox.
+**Done means:** Inbound/outbound support mail goes through Nylas Agent Account (target mailbox such as `agent.mike@wkr.email`); AgentMail webhook path retired; Inbox shows live Nylas threads.
 
 ---
 
-### 3. Swap Claude SDK → Agents SDK (cheaper models) — IN PROGRESS
+### 3. Swap Claude SDK → Agents SDK (cheaper models) — DONE
 
 **Why:** Cost; Rahul prefers Agents SDK + cheaper models (“Cara and Luna” → **gpt-5.6-sol** / **gpt-5.6-luna**).
 
-**Rahul (verbatim):**
-
-> “So that's one. And second, I would prefer to swap Claude SDK to agent SDK. The reason is the the Cara and Luna is more cheaper than Claude's model.”
-
-> “So take a take a look at that how much is an effort”
-
 **Done means:** Mike’s answer path uses OpenAI Agents SDK with `OPENAI_MODEL` (default `gpt-5.6-luna`); Anthropic harness removed; DEMO_MODE still works for offline checks.
 
-**Note:** Earlier in the same call Rahul also asked what the prototype used (“cloud SDK or OpenAI SDK”) — the swap is the preferred direction, not a free redesign of product behavior.
+---
+
+### 4. Test the website widget — DONE (re-copy embeds)
+
+**Done means:** `/widget?site=<token>` on staging answers against live knowledge for the **copying org**; floating launcher; escalation / inbox path visible to that org’s manager. See [WIDGET.md](./WIDGET.md).
 
 ---
 
-### 4. Test the website widget — WITH / AFTER 2–3
+### 5. Voice (Deepgram, then ElevenLabs if needed) — LATER / PARTIAL
 
-**Rahul (verbatim):**
-
-> “you need to test the website widget also.”
-
-**Done means:** `/widget` on staging answers against live knowledge + org tenant; site token auth works; escalation / inbox path visible to manager.
-
----
-
-### 5. Voice (Deepgram, then ElevenLabs if needed) — LATER
-
-**Rahul (verbatim):**
-
-> “And then make sure you have Deepgram's speech to text voice input … also everywhere.”
-
-> “We have not put a voice engine to that yet. So … probably wanna start figuring out that the existing voice engine is performing okay. It's not excellent That is there is a lag or there is a pause between communications we'll have have to start thinking how we are gonna do it.”
-
-> “So we have the choice to use eleven labs in that case. Because that is one of the one of the requirements.”
-
-**Done means:** STT on the surfaces that need voice; if lag is unacceptable, evaluate ElevenLabs; no voice engine required before Nylas + SDK + widget.
+Chat and widget mic use OpenAI `gpt-transcribe` (not Deepgram). ElevenLabs only if product voice lag requires it.
 
 ---
 
@@ -134,12 +112,11 @@ Do not block Mike on advisor / Product Hunt / mobile unless explicitly pulled fo
 ## Suggested near-term checklist
 
 1. [x] Auth + Core + org structure on staging  
-2. [x] Nylas cutover (replace AgentMail) — code complete; provision grant + env to go live  
-3. [ ] OpenAI Agents SDK swap (effort check → implement)  
-4. [ ] Widget smoke on `mike-staging`  
-5. [ ] Set widget/email org tenant for anonymous channels (not auto from signed-in JWT)  
-6. [ ] Stress / product staging pass  
-7. [ ] Voice (Deepgram → ElevenLabs if needed)
+2. [x] Nylas cutover (replace AgentMail)  
+3. [x] OpenAI Agents SDK swap  
+4. [x] Widget multi-tenant (`widget_sites` + Copy embed)  
+5. [ ] Stress / product staging pass  
+6. [ ] Voice quality follow-up (ElevenLabs only if needed)
 
 ---
 
