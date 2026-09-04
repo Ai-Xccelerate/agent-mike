@@ -10,7 +10,7 @@ The manager console is adapted from the MIT-licensed [Ai-Xccelerate/aix-ui-templ
 Clerk (AIX Core) ── frontend (ClerkProvider, except /widget)
                          │ rewrites /api/v1/*
                          ▼
-Website widget ── x-mike-site-token ── Next.js API ── Anthropic
+Website widget ── x-mike-site-token ── Next.js API ── OpenAI Agents SDK
 Customer email ── Nylas webhook ──────┘      │
 Manager console ── Bearer JWT ───────────────┤
                                              └── PostgreSQL (org-scoped)
@@ -44,13 +44,13 @@ API: `http://localhost:3000`
 Manager UI: `http://localhost:3001`  
 Widget: `http://localhost:3001/widget`
 
-`DEMO_MODE=true` skips live Claude and Nylas sends. It is not an auth bypass.
+`DEMO_MODE=true` skips live OpenAI and Nylas sends. It is not an auth bypass.
 
 ## Configure Mike
 
 1. Open **Settings** after signing in through AIX Core (or local bypass).
 2. Set identity, role, guardrails, and the human manager.
 3. Upload OKF markdown (or PDF/txt) on **Knowledge**.
-4. Add Nylas and Anthropic credentials on the API service.
+4. Add Nylas and OpenAI credentials on the API service.
 
 Catalog registration for slug `mike` is owned by another engineer. Until that row exists, authenticated API calls return 503 “not registered”.

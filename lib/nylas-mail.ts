@@ -30,9 +30,9 @@ export function nylasApiConfigured() {
   return !demoMode() && Boolean(process.env.NYLAS_API_KEY);
 }
 
-/** True when the API key is set and at least one grant can be resolved (env bootstrap or DB). */
+/** App-wide Nylas API readiness. Per-org grants live in nylas_mailboxes. */
 export function nylasConfigured() {
-  return nylasApiConfigured() && Boolean((process.env.NYLAS_GRANT_ID || "").trim());
+  return nylasApiConfigured();
 }
 
 export function verifyWebhook(payload: Buffer, headers: Headers) {
@@ -128,7 +128,7 @@ export function bodyFromMessage(message: NylasMessage) {
 }
 
 export function isMikeOutbound(message: NylasMessage, mailboxEmail?: string | null) {
-  const self = (mailboxEmail || process.env.NYLAS_EMAIL || "").trim().toLowerCase();
+  const self = (mailboxEmail || "").trim().toLowerCase();
   const from = (message.from?.[0]?.email || "").toLowerCase();
   if (self && from === self) return true;
   const folders = (message.folders || []).map((f) => f.toLowerCase());

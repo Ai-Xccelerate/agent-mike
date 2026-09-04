@@ -26,8 +26,8 @@ Then move on to later work (advisor concept, etc.). Mike is the near-term finish
 |---|---|
 | Core auth + org structure + staging deploy | **Done** (Clerk + AIX Core `/access`, org-scoped API, `mike-staging`) |
 | Website widget smoke test | **Next / open** |
-| Flip mailbox AgentMail → Nylas | **Done in code** (needs Nylas grant + Railway vars) |
-| Swap Claude SDK → OpenAI Agents SDK (cheaper models) | **Open** |
+| Flip mailbox AgentMail → Nylas | **Mostly done** (circle back: Anthropic/OpenAI keys + live email smoke) |
+| Swap Claude SDK → OpenAI Agents SDK (cheaper models) | **In progress** (`gpt-5.6-luna` default) |
 | Deepgram STT / voice input | **Later** |
 | ElevenLabs if voice lag is bad | **Later** |
 | Stress test after core structure | **Later** |
@@ -71,9 +71,9 @@ Then move on to later work (advisor concept, etc.). Mike is the near-term finish
 
 ---
 
-### 3. Swap Claude SDK → Agents SDK (cheaper models) — NEXT / PARALLEL after Nylas kickoff
+### 3. Swap Claude SDK → Agents SDK (cheaper models) — IN PROGRESS
 
-**Why:** Cost; Rahul prefers Agents SDK + cheaper models (“Cara and Luna”).
+**Why:** Cost; Rahul prefers Agents SDK + cheaper models (“Cara and Luna” → **gpt-5.6-sol** / **gpt-5.6-luna**).
 
 **Rahul (verbatim):**
 
@@ -81,7 +81,7 @@ Then move on to later work (advisor concept, etc.). Mike is the near-term finish
 
 > “So take a take a look at that how much is an effort”
 
-**Done means:** Mike’s answer path uses OpenAI Agents SDK (or agreed Agents SDK) with the cheaper model tier; Anthropic-only harness removed or optional; DEMO_MODE still works for offline checks.
+**Done means:** Mike’s answer path uses OpenAI Agents SDK with `OPENAI_MODEL` (default `gpt-5.6-luna`); Anthropic harness removed; DEMO_MODE still works for offline checks.
 
 **Note:** Earlier in the same call Rahul also asked what the prototype used (“cloud SDK or OpenAI SDK”) — the swap is the preferred direction, not a free redesign of product behavior.
 

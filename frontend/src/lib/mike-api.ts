@@ -51,6 +51,16 @@ export type AgentProfile = {
   updated_at: string;
 };
 
+export type NylasMailbox = {
+  id: string;
+  organization_id: string;
+  grant_id: string;
+  email: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type KnowledgeDocument = {
   id: string;
   concept_id: string;

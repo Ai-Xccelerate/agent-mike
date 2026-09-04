@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { Agent, run, setDefaultOpenAIKey } from "@openai/agents";
 import { evaluateMessage } from "@/lib/guardrails";
 import { retrieve, type RetrievedChunk } from "@/lib/knowledge";
 
@@ -32,6 +32,21 @@ export type AgentAnswer = {
   resolved: boolean;
 };
 
+/** Cheap high-volume default (Rahul: Luna). Override with OPENAI_MODEL. */
+const DEFAULT_MODEL = "gpt-5.6-luna";
+
+function openaiConfigured() {
+  return Boolean((process.env.OPENAI_API_KEY || "").trim());
+}
+
+function modelName() {
+  return (
+    process.env.OPENAI_MODEL ||
+    process.env.OPENAI_DEFAULT_MODEL ||
+    DEFAULT_MODEL
+  ).trim();
+}
+
 function confidenceFrom(chunks: RetrievedChunk[]) {
   if (!chunks.length) return 0.28;
   const top = Math.min(chunks[0].score, 1);
@@ -56,7 +71,7 @@ function transcript(history: HistoryMessage[], message: string) {
   return lines.join("\n");
 }
 
-function buildSystemPrompt(profile: AgentProfileRow, chunks: RetrievedChunk[]) {
+function buildInstructions(profile: AgentProfileRow, chunks: RetrievedChunk[]) {
   const guardrails = profile.guardrails.map((rule) => `- ${rule}`).join("\n");
   const context =
     chunks
@@ -118,56 +133,7 @@ function citationsFrom(chunks: RetrievedChunk[]) {
   }));
 }
 
-export async function runAgent(
-  organizationId: string,
-  profile: AgentProfileRow,
-  message: string,
-  history: HistoryMessage[] = [],
-): Promise<AgentAnswer> {
-  const chunks = await retrieve(organizationId, retrievalQuery(message, history));
-  const confidence = confidenceFrom(chunks);
-  const citations = citationsFrom(chunks);
-  const guardrail = evaluateMessage(message, profile.escalationTerms || []);
-
-  if (guardrail.escalate) {
-    return {
-      text: demoAnswer(chunks, true),
-      confidence,
-      citations,
-      escalated: true,
-      reason: guardrail.reason,
-      priority: "high",
-      resolved: false,
-    };
-  }
-
-  const demoMode = (process.env.DEMO_MODE || "").toLowerCase() === "true";
-  if (demoMode || !process.env.ANTHROPIC_API_KEY) {
-    const shouldEscalate = confidence < profile.confidenceThreshold;
-    return {
-      text: demoAnswer(chunks, shouldEscalate),
-      confidence,
-      citations,
-      escalated: shouldEscalate,
-      reason: shouldEscalate ? "Low knowledge confidence" : null,
-      priority: shouldEscalate ? "high" : "normal",
-      resolved: false,
-    };
-  }
-
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const response = await client.messages.create({
-    model: process.env.CLAUDE_MODEL || "claude-sonnet-4-5",
-    max_tokens: 1024,
-    system: buildSystemPrompt(profile, chunks),
-    messages: [{ role: "user", content: transcript(history, message) }],
-  });
-
-  const answer = response.content
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .join("\n")
-    .trim();
-
+function parseAnswer(answer: string, chunks: RetrievedChunk[], confidence: number, citations: AgentAnswer["citations"]): AgentAnswer {
   if (!answer) {
     return {
       text: "I couldn’t complete that response, so I’m bringing in my support manager to follow up here.",
@@ -228,4 +194,62 @@ export async function runAgent(
     priority: "normal",
     resolved: false,
   };
+}
+
+export async function runAgent(
+  organizationId: string,
+  profile: AgentProfileRow,
+  message: string,
+  history: HistoryMessage[] = [],
+): Promise<AgentAnswer> {
+  const chunks = await retrieve(organizationId, retrievalQuery(message, history));
+  const confidence = confidenceFrom(chunks);
+  const citations = citationsFrom(chunks);
+  const guardrail = evaluateMessage(message, profile.escalationTerms || []);
+
+  if (guardrail.escalate) {
+    return {
+      text: demoAnswer(chunks, true),
+      confidence,
+      citations,
+      escalated: true,
+      reason: guardrail.reason,
+      priority: "high",
+      resolved: false,
+    };
+  }
+
+  const demoMode = (process.env.DEMO_MODE || "").toLowerCase() === "true";
+  if (demoMode || !openaiConfigured()) {
+    const shouldEscalate = confidence < profile.confidenceThreshold;
+    return {
+      text: demoAnswer(chunks, shouldEscalate),
+      confidence,
+      citations,
+      escalated: shouldEscalate,
+      reason: shouldEscalate ? "Low knowledge confidence" : null,
+      priority: shouldEscalate ? "high" : "normal",
+      resolved: false,
+    };
+  }
+
+  setDefaultOpenAIKey(process.env.OPENAI_API_KEY!.trim());
+
+  const agent = new Agent({
+    name: profile.displayName || "Mike",
+    instructions: buildInstructions(profile, chunks),
+    model: modelName(),
+    modelSettings: {
+      // Luna / GPT-5.x: keep cheap + low latency for L1 support turns.
+      reasoning: { effort: "none" },
+      text: { verbosity: "low" },
+    },
+  });
+
+  const result = await run(agent, transcript(history, message), {
+    maxTurns: Math.max(1, profile.maxAgentTurns || 3),
+  });
+
+  const answer = String(result.finalOutput ?? "").trim();
+  return parseAnswer(answer, chunks, confidence, citations);
 }

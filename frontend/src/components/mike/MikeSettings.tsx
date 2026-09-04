@@ -4,7 +4,7 @@ import AgentAvatar from "@/components/aix/AgentAvatar";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { CheckCircleIcon, DocsIcon, EnvelopeIcon, PlugInIcon, UserCircleIcon } from "@/icons";
-import { AgentProfile, apiFetch } from "@/lib/mike-api";
+import { AgentProfile, NylasMailbox, apiFetch } from "@/lib/mike-api";
 import { useEffect, useState } from "react";
 
 const fallback: AgentProfile = {
@@ -43,11 +43,26 @@ const cardClass = "scroll-mt-24 rounded-2xl border border-gray-200 bg-white p-5 
 
 export default function MikeSettings() {
   const [profile, setProfile] = useState(fallback);
+  const [grantId, setGrantId] = useState("");
+  const [mailboxEmail, setMailboxEmail] = useState("agent.mike@wkr.email");
+  const [mailbox, setMailbox] = useState<NylasMailbox | null>(null);
   const [active, setActive] = useState("identity");
   const [saving, setSaving] = useState(false);
+  const [savingMailbox, setSavingMailbox] = useState(false);
   const [notice, setNotice] = useState("");
 
-  useEffect(() => { apiFetch<AgentProfile>("/agent").then(setProfile).catch(() => undefined); }, []);
+  useEffect(() => {
+    apiFetch<AgentProfile>("/agent").then(setProfile).catch(() => undefined);
+    apiFetch<{ mailbox: NylasMailbox | null }>("/mailboxes")
+      .then((data) => {
+        setMailbox(data.mailbox);
+        if (data.mailbox) {
+          setGrantId(data.mailbox.grant_id);
+          setMailboxEmail(data.mailbox.email);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   function update<K extends keyof AgentProfile>(key: K, value: AgentProfile[K]) {
     setProfile((current) => ({ ...current, [key]: value }));
@@ -66,6 +81,23 @@ export default function MikeSettings() {
     } catch {
       setNotice("Saved in this preview. Start the API to persist these settings.");
     } finally { setSaving(false); }
+  }
+
+  async function saveMailbox() {
+    setSavingMailbox(true);
+    setNotice("");
+    try {
+      const data = await apiFetch<{ mailbox: NylasMailbox }>("/mailboxes", {
+        method: "PUT",
+        body: JSON.stringify({ grant_id: grantId, email: mailboxEmail }),
+      });
+      setMailbox(data.mailbox);
+      setNotice("Nylas mailbox linked to this organization.");
+    } catch {
+      setNotice("Could not save Nylas mailbox. Check grant id and email.");
+    } finally {
+      setSavingMailbox(false);
+    }
   }
 
   function jump(id: string) { setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }
@@ -93,7 +125,7 @@ export default function MikeSettings() {
             <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Internal name<input value={profile.name} onChange={(event) => update("name", event.target.value)} className={`${fieldClass} mt-2`} /></label>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Customer-facing name<input value={profile.display_name} onChange={(event) => update("display_name", event.target.value)} className={`${fieldClass} mt-2`} /></label>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">Support email address<div className="relative mt-2"><EnvelopeIcon className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-gray-400" /><input value={profile.email} onChange={(event) => update("email", event.target.value)} className={`${fieldClass} pl-10`} /></div><span className="mt-1.5 block text-xs font-normal text-gray-500">Nylas Agent Account address used for inbound support mail (for example agent.mike@wkr.email).</span></label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">Support email address<div className="relative mt-2"><EnvelopeIcon className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-gray-400" /><input value={profile.email} onChange={(event) => update("email", event.target.value)} className={`${fieldClass} pl-10`} /></div><span className="mt-1.5 block text-xs font-normal text-gray-500">Display address. Bind the Nylas grant under Integrations for this org.</span></label>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">Tone<textarea rows={3} value={profile.tone} onChange={(event) => update("tone", event.target.value)} className={`${textareaClass} mt-2`} /></label>
             </div>
           </section>
@@ -105,7 +137,7 @@ export default function MikeSettings() {
           </section>
 
           <section id="guardrails" onMouseEnter={() => setActive("guardrails")} className={cardClass}>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Guardrails and handoff</h2><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Deterministic checks run before Claude. Low-confidence answers never auto-send.</p>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Guardrails and handoff</h2><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Deterministic checks run before the model. Low-confidence answers never auto-send.</p>
             <div className="mt-5"><div className="flex items-center justify-between"><label className="text-sm font-medium text-gray-700 dark:text-gray-300">Minimum confidence</label><code className="font-mono text-sm font-semibold text-brand-600 dark:text-brand-400">{Math.round(profile.confidence_threshold * 100)}%</code></div><input type="range" min="0.5" max="0.95" step="0.01" value={profile.confidence_threshold} onChange={(event) => update("confidence_threshold", Number(event.target.value))} className="mt-3 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-brand-500 dark:bg-gray-800" /><div className="mt-2 flex justify-between text-[11px] text-gray-500"><span>More autonomous</span><span>More review</span></div></div>
             <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">Rules, one per line<textarea rows={6} value={profile.guardrails.join("\n")} onChange={(event) => update("guardrails", event.target.value.split("\n").filter(Boolean))} className={`${textareaClass} mt-2`} /></label>
             <label className="mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300">Escalation phrases<input value={profile.escalation_terms.join(", ")} onChange={(event) => update("escalation_terms", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} className={`${fieldClass} mt-2`} /><span className="mt-1.5 block text-xs font-normal text-gray-500">Comma-separated. Matches are case-insensitive.</span></label>
@@ -117,9 +149,40 @@ export default function MikeSettings() {
           </section>
 
           <section id="integrations" onMouseEnter={() => setActive("integrations")} className={cardClass}>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Integrations</h2><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Secrets are configured on the API service and are never exposed here.</p>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Integrations</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Nylas grant is bound to your signed-in organization. API key and webhook secret stay on the API service.
+            </p>
+            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
+                Nylas grant id
+                <input value={grantId} onChange={(event) => setGrantId(event.target.value)} className={`${fieldClass} mt-2`} placeholder="UUID from Nylas Grants" />
+              </label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
+                Mailbox email
+                <input type="email" value={mailboxEmail} onChange={(event) => setMailboxEmail(event.target.value)} className={`${fieldClass} mt-2`} />
+              </label>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Button loading={savingMailbox} onClick={saveMailbox}>Save mailbox</Button>
+              <Badge size="sm" color={mailbox ? "success" : "warning"}>{mailbox ? "Linked to this org" : "Not linked"}</Badge>
+            </div>
             <div className="mt-5 divide-y divide-gray-100 rounded-xl border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-              {[{ name: "Claude Agent SDK", detail: "Agent harness and response generation", status: "Configured" }, { name: "Nylas", detail: profile.email, status: "Configured" }, { name: "PostgreSQL", detail: "Conversations and OKF retrieval", status: "Healthy" }, { name: "Website widget", detail: "/widget", status: "Ready" }].map((integration) => <div key={integration.name} className="flex items-center gap-4 p-4"><span className="flex size-9 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"><PlugInIcon className="size-4" /></span><div className="min-w-0 flex-1"><p className="text-sm font-medium text-gray-800 dark:text-white/90">{integration.name}</p><p className="truncate text-xs text-gray-500 dark:text-gray-400">{integration.detail}</p></div><Badge size="sm" color="success">{integration.status}</Badge></div>)}
+              {[
+                { name: "OpenAI Agents SDK", detail: "Agent harness and response generation", status: "Configured" },
+                { name: "Nylas", detail: mailbox ? mailbox.email : "Attach grant above", status: mailbox ? "Linked" : "Needs grant" },
+                { name: "PostgreSQL", detail: "Conversations and OKF retrieval", status: "Healthy" },
+                { name: "Website widget", detail: "/widget", status: "Ready" },
+              ].map((integration) => (
+                <div key={integration.name} className="flex items-center gap-4 p-4">
+                  <span className="flex size-9 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"><PlugInIcon className="size-4" /></span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-800 dark:text-white/90">{integration.name}</p>
+                    <p className="truncate text-xs text-gray-500 dark:text-gray-400">{integration.detail}</p>
+                  </div>
+                  <Badge size="sm" color={integration.status === "Needs grant" ? "warning" : "success"}>{integration.status}</Badge>
+                </div>
+              ))}
             </div>
           </section>
         </div>

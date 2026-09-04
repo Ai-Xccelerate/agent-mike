@@ -193,7 +193,7 @@ export const knowledgeChunks = pgTable(
  * Nylas grant ↔ Clerk organization mapping.
  * One active mailbox per org (v1). Webhooks resolve org from grant_id;
  * outbound send/reply resolves grant from organization_id.
- * Staging can bootstrap the first row from NYLAS_GRANT_ID + NYLAS_ORG_ID.
+ * Rows are created by authenticated managers (JWT org), never from env org stamps.
  */
 export const nylasMailboxes = pgTable(
   "nylas_mailboxes",

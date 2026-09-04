@@ -6,93 +6,22 @@ import { ensureOrganization } from "@/lib/tenant-sync";
 
 export type NylasMailbox = typeof nylasMailboxes.$inferSelect;
 
-function envBootstrap() {
-  const grantId = (process.env.NYLAS_GRANT_ID || "").trim();
-  const organizationId = (
-    process.env.NYLAS_ORG_ID ||
-    process.env.MIKE_WIDGET_ORG_ID ||
-    process.env.MIKE_DEV_ORG_ID ||
-    ""
-  ).trim();
-  const email = (process.env.NYLAS_EMAIL || "").trim().toLowerCase();
-  return { grantId, organizationId, email };
-}
-
-/** Upsert the env-configured mailbox so staging can start without a separate admin UI. */
-export async function ensureBootstrapMailbox(): Promise<NylasMailbox | null> {
-  const { grantId, organizationId, email } = envBootstrap();
-  if (!grantId || !organizationId) return null;
-
-  await ensureOrganization(organizationId, "Nylas inbox");
-
-  const [byGrant] = await db
-    .select()
-    .from(nylasMailboxes)
-    .where(eq(nylasMailboxes.grantId, grantId))
-    .limit(1);
-
-  if (byGrant) {
-    if (
-      byGrant.organizationId === organizationId &&
-      (!email || byGrant.email === email) &&
-      byGrant.active
-    ) {
-      return byGrant;
-    }
-    const [updated] = await db
-      .update(nylasMailboxes)
-      .set({
-        organizationId,
-        email: email || byGrant.email,
-        active: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(nylasMailboxes.id, byGrant.id))
-      .returning();
-    return updated;
-  }
-
-  const [byOrg] = await db
-    .select()
-    .from(nylasMailboxes)
-    .where(eq(nylasMailboxes.organizationId, organizationId))
-    .limit(1);
-
-  if (byOrg) {
-    const [updated] = await db
-      .update(nylasMailboxes)
-      .set({
-        grantId,
-        email: email || byOrg.email,
-        active: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(nylasMailboxes.id, byOrg.id))
-      .returning();
-    return updated;
-  }
-
-  if (!email) {
-    throw new Error("NYLAS_EMAIL is required when bootstrapping a mailbox from env");
-  }
-
-  const [created] = await db
-    .insert(nylasMailboxes)
-    .values({
-      id: randomUUID(),
-      organizationId,
-      grantId,
-      email,
-      active: true,
-    })
-    .returning();
-  return created;
+export function serializeMailbox(row: NylasMailbox | null) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    organization_id: row.organizationId,
+    grant_id: row.grantId,
+    email: row.email,
+    active: row.active,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  };
 }
 
 export async function mailboxByGrantId(grantId: string): Promise<NylasMailbox | null> {
   const gid = grantId.trim();
   if (!gid) return null;
-  await ensureBootstrapMailbox();
   const [row] = await db
     .select()
     .from(nylasMailboxes)
@@ -104,11 +33,64 @@ export async function mailboxByGrantId(grantId: string): Promise<NylasMailbox | 
 export async function mailboxByOrgId(organizationId: string): Promise<NylasMailbox | null> {
   const orgId = organizationId.trim();
   if (!orgId) return null;
-  await ensureBootstrapMailbox();
   const [row] = await db
     .select()
     .from(nylasMailboxes)
     .where(and(eq(nylasMailboxes.organizationId, orgId), eq(nylasMailboxes.active, true)))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Attach a Nylas grant to the authenticated org.
+ * Org comes from the Clerk JWT — never from env.
+ */
+export async function upsertMailboxForOrg(
+  organizationId: string,
+  input: { grantId: string; email: string; active?: boolean },
+): Promise<NylasMailbox> {
+  const orgId = organizationId.trim();
+  const grantId = input.grantId.trim();
+  const email = input.email.trim().toLowerCase();
+  if (!orgId) throw new Error("organization_id is required");
+  if (!grantId) throw new Error("grant_id is required");
+  if (!email || !email.includes("@")) throw new Error("email is required");
+
+  await ensureOrganization(orgId, "Nylas inbox");
+
+  const [taken] = await db
+    .select()
+    .from(nylasMailboxes)
+    .where(eq(nylasMailboxes.grantId, grantId))
+    .limit(1);
+  if (taken && taken.organizationId !== orgId) {
+    throw new Error("grant_id is already mapped to another organization");
+  }
+
+  const existing = await mailboxByOrgId(orgId);
+  if (existing) {
+    const [updated] = await db
+      .update(nylasMailboxes)
+      .set({
+        grantId,
+        email,
+        active: input.active ?? true,
+        updatedAt: new Date(),
+      })
+      .where(eq(nylasMailboxes.id, existing.id))
+      .returning();
+    return updated;
+  }
+
+  const [created] = await db
+    .insert(nylasMailboxes)
+    .values({
+      id: randomUUID(),
+      organizationId: orgId,
+      grantId,
+      email,
+      active: input.active ?? true,
+    })
+    .returning();
+  return created;
 }

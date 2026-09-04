@@ -14,11 +14,14 @@ What *is* in the repo (safe to copy):
 | `CLERK_JWKS_URL`, `CLERK_ISSUER` | Core kit `aix-clerk-core-env-values.md` **or** Jules/Nick **API** staging Railway |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Same kit **or** Jules/Nick **frontend** staging Railway |
 | `CLERK_ENCRYPTION_KEY` | Jules/Nick frontend staging, or generate once |
-| `ANTHROPIC_API_KEY` | This project’s **production** `api` → Variables |
-| `NYLAS_API_KEY`, `NYLAS_GRANT_ID`, `NYLAS_WEBHOOK_SECRET` | Nylas dashboard (Agent Account for Mike) |
+| `OPENAI_API_KEY` | OpenAI dashboard (Agents SDK / Responses) |
+| `OPENAI_MODEL` | Default `gpt-5.6-luna`; optional `gpt-5.6-sol` |
+| `NYLAS_API_KEY`, `NYLAS_WEBHOOK_SECRET` | Nylas dashboard (app API key + webhook secret) |
 | `DATABASE_URL` | Already in the paste file as `${{Postgres.DATABASE_URL}}` |
 | `MIKE_WIDGET_SITE_TOKEN` | You generate (`openssl rand -hex 32`); put the same value on frontend as `NEXT_PUBLIC_MIKE_WIDGET_SITE_TOKEN` |
-| `MIKE_WIDGET_ORG_ID`, `NYLAS_ORG_ID` | Same Clerk org id — widget chat + bootstrap mailbox row (see [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md)) |
+| `MIKE_WIDGET_ORG_ID` | Clerk org for the **public widget** only (no JWT). Email tenancy uses `nylas_mailboxes` from the manager JWT — see [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md) |
+
+Do **not** set `NYLAS_ORG_ID` / `NYLAS_GRANT_ID` — grants are attached per org in Settings.
 
 Remove any leftover `AGENTMAIL_*` variables from `mike-api` after cutover.
 
