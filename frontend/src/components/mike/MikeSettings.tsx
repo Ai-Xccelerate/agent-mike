@@ -14,8 +14,8 @@ const fallback: AgentProfile = {
   email: "agent.mike@wkr.email",
   role: "Level 1 product support specialist for trained products and solutions.",
   tone: "Warm, concise, practical, and honest about uncertainty.",
-  manager_name: "Support Manager",
-  manager_email: "manager@example.com",
+  manager_name: "Charan Naik",
+  manager_email: "charan@aixccelerate.com",
   auto_reply: true,
   confidence_threshold: 0.72,
   max_agent_turns: 3,
@@ -169,7 +169,7 @@ export default function MikeSettings() {
             </div>
             <div className="mt-5 divide-y divide-gray-100 rounded-xl border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
               {[
-                { name: "OpenAI Agents SDK", detail: "Agent harness and response generation", status: "Configured" },
+                { name: "OpenAI Agents SDK", detail: "gpt-5.6-luna · response generation", status: "Configured" },
                 { name: "Nylas", detail: mailbox ? mailbox.email : "Attach grant above", status: mailbox ? "Linked" : "Needs grant" },
                 { name: "PostgreSQL", detail: "Conversations and OKF retrieval", status: "Healthy" },
                 { name: "Website widget", detail: "/widget", status: "Ready" },

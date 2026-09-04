@@ -62,8 +62,8 @@ export const agentProfiles = pgTable(
     tone: text("tone")
       .notNull()
       .default("Warm, concise, practical, and honest about uncertainty."),
-    managerName: text("manager_name").notNull().default("Support Manager"),
-    managerEmail: text("manager_email").notNull().default("manager@example.com"),
+    managerName: text("manager_name").notNull().default("Charan Naik"),
+    managerEmail: text("manager_email").notNull().default("charan@aixccelerate.com"),
     autoReply: boolean("auto_reply").notNull().default(true),
     confidenceThreshold: doublePrecision("confidence_threshold").notNull().default(0.72),
     maxAgentTurns: integer("max_agent_turns").notNull().default(3),
