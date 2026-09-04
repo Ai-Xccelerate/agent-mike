@@ -214,3 +214,27 @@ export const nylasMailboxes = pgTable(
     orgIdx: index("nylas_mailboxes_org_id_idx").on(table.organizationId),
   }),
 );
+
+/**
+ * Per-org public widget site tokens.
+ * Embed snippets include the token; API resolves organization_id from it.
+ * Never use a global MIKE_WIDGET_ORG_ID for multi-tenant embeds.
+ */
+export const widgetSites = pgTable(
+  "widget_sites",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id),
+    siteToken: text("site_token").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    tokenUnique: uniqueIndex("uq_widget_sites_token").on(table.siteToken),
+    orgUnique: uniqueIndex("uq_widget_sites_org").on(table.organizationId),
+    orgIdx: index("widget_sites_org_id_idx").on(table.organizationId),
+  }),
+);

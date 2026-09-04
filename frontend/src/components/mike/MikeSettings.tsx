@@ -216,7 +216,7 @@ export default function MikeSettings() {
                 { name: "OpenAI Agents SDK", detail: "gpt-5.6-luna · response generation", status: "Configured" },
                 { name: "Nylas", detail: nylasDetail, status: nylasStatus },
                 { name: "PostgreSQL", detail: "Conversations and OKF retrieval", status: "Healthy" },
-                { name: "Website widget", detail: "/widget", status: "Ready" },
+                { name: "Website widget", detail: "Per-org site token from Chat → Copy embed", status: "Ready" },
               ].map((integration) => (
                 <div key={integration.name} className="flex items-center gap-4 p-4">
                   <span className="flex size-9 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"><PlugInIcon className="size-4" /></span>

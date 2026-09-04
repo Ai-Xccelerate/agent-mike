@@ -66,10 +66,13 @@ export function ChatPanel({
   compact = false,
   onReady,
   onClose,
+  siteToken,
 }: {
   compact?: boolean;
   onReady?: (api: { sendPrompt: (text: string) => void }) => void;
   onClose?: () => void;
+  /** Required for public widget embeds — org is resolved from this token. */
+  siteToken?: string;
 }) {
   const [messages, setMessages] = useState<Message[]>([welcome]);
   const [conversationId, setConversationId] = useState<string>();
@@ -167,6 +170,7 @@ export function ChatPanel({
       const response = await apiFetch<ChatApiResponse>("/chat", {
         method: "POST",
         widget: compact,
+        siteToken: compact ? siteToken : undefined,
         body: JSON.stringify({
           message: trimmed,
           conversation_id: conversationId,
@@ -260,6 +264,7 @@ export function ChatPanel({
           const result = await apiFetch<{ text: string }>("/transcribe", {
             method: "POST",
             widget: compact,
+            siteToken: compact ? siteToken : undefined,
             body: form,
           });
           const text = (result.text || "").trim();
@@ -279,6 +284,18 @@ export function ChatPanel({
     } catch {
       setPreview(true);
     }
+  }
+
+  if (compact && !siteToken?.trim()) {
+    return (
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-2xl bg-white p-6 text-center dark:bg-gray-900">
+        <p className="text-sm font-semibold text-gray-800 dark:text-white/90">Widget not configured</p>
+        <p className="max-w-xs text-xs leading-5 text-gray-500 dark:text-gray-400">
+          Open Chat in the Mike console while signed into your organization and use Copy embed snippet.
+          The link must include your org’s site token.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -440,12 +457,14 @@ export function ChatPanel({
 export default function ChatExperience() {
   const chatApiRef = useRef<{ sendPrompt: (text: string) => void } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
 
-  function embedSnippet() {
+  function embedSnippet(siteToken: string) {
     const origin = window.location.origin;
-    return `<!-- Agent Mike website widget -->
+    const src = `${origin}/widget?site=${encodeURIComponent(siteToken)}`;
+    return `<!-- Agent Mike website widget (bound to your organization) -->
 <iframe
-  src="${origin}/widget"
+  src="${src}"
   title="Chat with Mike"
   allow="microphone"
   style="position:fixed;right:0;bottom:0;width:420px;height:720px;max-width:100vw;max-height:100vh;border:0;z-index:2147483646;background:transparent;color-scheme:light"
@@ -453,12 +472,17 @@ export default function ChatExperience() {
   }
 
   async function copyEmbed() {
+    setCopyError("");
     try {
-      await navigator.clipboard.writeText(embedSnippet());
+      const data = await apiFetch<{ site: { site_token: string } }>("/widget-site");
+      const token = data.site?.site_token?.trim();
+      if (!token) throw new Error("No site token");
+      await navigator.clipboard.writeText(embedSnippet(token));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+      setCopyError("Could not create your org embed. Try again while signed in.");
     }
   }
 
@@ -495,8 +519,8 @@ export default function ChatExperience() {
         <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-white/90">Website install</h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Paste before <code className="font-mono text-xs">&lt;/body&gt;</code>. Opens as a floating
-            launcher on your site.
+            Snippet is bound to your signed-in organization. Other orgs that embed your link still talk to
+            your knowledge and inbox.
           </p>
           <Button size="sm" variant="outline" className="mt-4 w-full" onClick={() => void copyEmbed()}>
             {copied ? "Copied!" : "Copy embed snippet"}
@@ -504,6 +528,11 @@ export default function ChatExperience() {
           {copied && (
             <p className="mt-2 text-center text-xs font-medium text-success-600 dark:text-success-400">
               Widget snippet copied to clipboard
+            </p>
+          )}
+          {copyError && (
+            <p className="mt-2 text-center text-xs font-medium text-error-600 dark:text-error-400">
+              {copyError}
             </p>
           )}
         </div>

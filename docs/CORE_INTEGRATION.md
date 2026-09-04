@@ -22,7 +22,7 @@ This repository does **not** register Mike in the AIX Core catalog. Another engi
 
 These channels cannot use Clerk.
 
-- Widget: `x-mike-site-token` must match `MIKE_WIDGET_SITE_TOKEN`. Data is stored on `MIKE_WIDGET_ORG_ID`. Unset token/org in staging/production fails closed (401/500).
+- Widget: `x-mike-site-token` must match a row in `widget_sites` (created when a manager copies the embed for their JWT org). Optional legacy env `MIKE_WIDGET_SITE_TOKEN` + `MIKE_WIDGET_ORG_ID` remains for local/single-tenant only.
 - Nylas webhook: HMAC-SHA256 via `NYLAS_WEBHOOK_SECRET` (`x-nylas-signature`). Inbound threads resolve `grant_id` → org via `nylas_mailboxes` (provisioned by managers via JWT). Unknown grants are ignored. Endpoint: `GET/POST /api/v1/webhooks/nylas`. See [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md).
 
 ## Local bypass

@@ -74,7 +74,7 @@ export type KnowledgeDocument = {
   chunk_count: number;
 };
 
-export type ApiFetchOptions = RequestInit & { widget?: boolean };
+export type ApiFetchOptions = RequestInit & { widget?: boolean; siteToken?: string };
 
 export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -83,8 +83,11 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
   }
 
   if (init?.widget) {
-    const siteToken = process.env.NEXT_PUBLIC_MIKE_WIDGET_SITE_TOKEN;
-    if (siteToken) headers.set("x-mike-site-token", siteToken);
+    const siteToken = (init.siteToken || "").trim();
+    if (!siteToken) {
+      throw new Error("Missing widget site token");
+    }
+    headers.set("x-mike-site-token", siteToken);
   } else {
     const token = await getManagerToken();
     if (!token) {
@@ -100,6 +103,7 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
 
   const requestInit: RequestInit = { ...(init ?? {}) };
   delete (requestInit as ApiFetchOptions).widget;
+  delete (requestInit as ApiFetchOptions).siteToken;
   const response = await fetch(`/api/v1${path}`, {
     ...requestInit,
     headers,

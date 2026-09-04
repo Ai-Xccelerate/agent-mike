@@ -93,22 +93,36 @@ function devTenant(req: NextRequest): TenantContext | null {
   };
 }
 
-function widgetTenant(req: NextRequest): TenantContext | null {
-  const expected = (process.env.MIKE_WIDGET_SITE_TOKEN || "").trim();
-  if (!expected) return null;
-  const provided = req.headers.get("x-mike-site-token") || "";
-  if (provided !== expected) return null;
-  const orgId = (process.env.MIKE_WIDGET_ORG_ID || "").trim();
-  if (!orgId) {
-    throw new AuthError(500, "MIKE_WIDGET_ORG_ID is not configured");
+async function widgetTenant(req: NextRequest): Promise<TenantContext | null> {
+  const provided = (req.headers.get("x-mike-site-token") || "").trim();
+  if (!provided) return null;
+
+  const { widgetSiteByToken } = await import("@/lib/widget-sites");
+  const site = await widgetSiteByToken(provided);
+  if (site) {
+    return {
+      orgId: site.organizationId,
+      userId: "widget",
+      role: "member",
+      rawJwt: null,
+      source: "widget",
+    };
   }
-  return {
-    orgId,
-    userId: "widget",
-    role: "member",
-    rawJwt: null,
-    source: "widget",
-  };
+
+  // Legacy single-tenant env pair (local / pre-migration staging only).
+  const expected = (process.env.MIKE_WIDGET_SITE_TOKEN || "").trim();
+  const orgId = (process.env.MIKE_WIDGET_ORG_ID || "").trim();
+  if (expected && orgId && provided === expected) {
+    return {
+      orgId,
+      userId: "widget",
+      role: "member",
+      rawJwt: null,
+      source: "widget",
+    };
+  }
+
+  throw new AuthError(401, "Invalid widget site token");
 }
 
 async function verifyClerkToken(token: string): Promise<{ tenant: TenantContext; payload: JWTPayload }> {
@@ -223,7 +237,7 @@ export async function requireTenant(req: NextRequest): Promise<TenantContext> {
 
 export async function requireManagerOrWidget(req: NextRequest): Promise<TenantContext> {
   assertLocalBypassSafe();
-  const widget = widgetTenant(req);
+  const widget = await widgetTenant(req);
   if (widget) {
     await ensureOrganization(widget.orgId, "Widget site");
     return widget;

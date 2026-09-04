@@ -1,5 +1,6 @@
 import WidgetShell from "@/components/mike/WidgetShell";
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Chat with Mike",
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function WidgetPage() {
-  return <WidgetShell />;
+  return (
+    <Suspense fallback={null}>
+      <WidgetShell />
+    </Suspense>
+  );
 }

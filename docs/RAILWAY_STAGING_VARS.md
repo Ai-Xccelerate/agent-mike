@@ -22,8 +22,7 @@ What *is* in the repo (safe to copy):
 | `NYLAS_GRANT_ID` | Nylas grant UUID for this Mike deploy (not shown in Settings UI) |
 | `NYLAS_MAILBOX_EMAIL` | Optional default mailbox email (e.g. `agent.mike@wkr.email`) |
 | `DATABASE_URL` | Already in the paste file as `${{Postgres.DATABASE_URL}}` |
-| `MIKE_WIDGET_SITE_TOKEN` | You generate (`openssl rand -hex 32`); put the same value on frontend as `NEXT_PUBLIC_MIKE_WIDGET_SITE_TOKEN` |
-| `MIKE_WIDGET_ORG_ID` | Clerk org for the **public widget** only (no JWT). Email tenancy uses `nylas_mailboxes` from the manager JWT — see [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md) |
+| `MIKE_WIDGET_SITE_TOKEN` / `MIKE_WIDGET_ORG_ID` | **Deprecated for multi-tenant.** Optional legacy fallback only. Prefer per-org tokens in `widget_sites` (Chat → Copy embed). |
 
 Do **not** set `NYLAS_ORG_ID`. Set `NYLAS_GRANT_ID` on `mike-api`; managers only confirm mailbox email in Settings.
 

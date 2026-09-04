@@ -2,13 +2,16 @@
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { ChatPanel } from "@/components/mike/ChatExperience";
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
  * Embeddable floating launcher: bubble when closed, chat panel when open.
- * Transparent page so host sites show through the iframe.
+ * Org tenancy comes from ?site=<org site token> in the embed URL.
  */
 export default function WidgetShell() {
+  const searchParams = useSearchParams();
+  const siteToken = useMemo(() => (searchParams.get("site") || "").trim(), [searchParams]);
   const [open, setOpen] = useState(false);
 
   const close = useCallback(() => setOpen(false), []);
@@ -31,6 +34,20 @@ export default function WidgetShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, close]);
 
+  if (!siteToken) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-transparent p-6">
+        <div className="max-w-sm rounded-2xl border border-gray-200 bg-white p-5 text-center shadow-theme-xl dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-sm font-semibold text-gray-800 dark:text-white/90">Missing site token</p>
+          <p className="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            This embed is not bound to an organization. Sign in to Mike, open Chat, and copy the
+            embed snippet for your org.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main
       data-mike-widget="1"
@@ -39,7 +56,7 @@ export default function WidgetShell() {
       <div className="pointer-events-auto absolute bottom-4 right-4 flex flex-col items-end gap-3">
         {open && (
           <div className="flex h-[min(640px,calc(100dvh-5.5rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xl dark:border-gray-800 dark:bg-gray-900">
-            <ChatPanel compact onClose={close} />
+            <ChatPanel compact siteToken={siteToken} onClose={close} />
           </div>
         )}
 
