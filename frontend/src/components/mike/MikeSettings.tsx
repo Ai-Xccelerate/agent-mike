@@ -39,7 +39,7 @@ const sections = [
 
 const fieldClass = "h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 shadow-theme-xs outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90";
 const textareaClass = "w-full resize-y rounded-lg border border-gray-300 bg-transparent px-4 py-3 text-sm leading-6 text-gray-800 shadow-theme-xs outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90";
-const cardClass = "scroll-mt-24 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6";
+const cardClass = "scroll-mt-4 rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6";
 
 export default function MikeSettings() {
   const [profile, setProfile] = useState(fallback);
@@ -117,20 +117,50 @@ export default function MikeSettings() {
       : "Save mailbox email to bind this org";
 
   return (
-    <div className="space-y-5 md:space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div><h1 className="font-display text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">Mike settings</h1><p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Control who Mike is, what he can handle, and when you step in.</p></div>
-        <div className="flex items-center gap-3">{notice && <span className="text-xs text-success-600 dark:text-success-400">{notice}</span>}<Button loading={saving} onClick={save}>Save changes</Button></div>
-      </div>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="flex shrink-0 flex-col gap-4 border-b border-gray-200/80 pb-4 dark:border-gray-800 sm:flex-row sm:items-end sm:justify-between md:pb-5">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">
+            Mike settings
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Control who Mike is, what he can handle, and when you step in.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {notice && (
+            <span className="text-xs text-success-600 dark:text-success-400">{notice}</span>
+          )}
+          <Button loading={saving} onClick={save}>
+            Save changes
+          </Button>
+        </div>
+      </header>
 
-      <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
+      <div className="mt-5 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain md:mt-6 md:gap-6 lg:flex-row">
         <aside className="lg:w-60 lg:shrink-0">
-          <nav className="flex flex-wrap gap-1 lg:sticky lg:top-24 lg:flex-col">
-            {sections.map((section) => { const Icon = section.icon; return <button key={section.id} onClick={() => jump(section.id)} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${active === section.id ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-400" : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5"}`}><Icon className="size-4" />{section.label}</button>; })}
+          <nav className="flex flex-wrap gap-1 lg:sticky lg:top-0 lg:flex-col">
+            {sections.map((section) => {
+              const Icon = section.icon;
+              return (
+                <button
+                  key={section.id}
+                  onClick={() => jump(section.id)}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+                    active === section.id
+                      ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-400"
+                      : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5"
+                  }`}
+                >
+                  <Icon className="size-4" />
+                  {section.label}
+                </button>
+              );
+            })}
           </nav>
         </aside>
 
-        <div className="min-w-0 flex-1 space-y-5 md:space-y-6">
+        <div className="min-w-0 flex-1 space-y-5 pb-2 md:space-y-6">
           <section id="identity" onMouseEnter={() => setActive("identity")} className={cardClass}>
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
               <AgentAvatar name="Mike" size="lg" showStatus />
