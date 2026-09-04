@@ -95,7 +95,7 @@ export default function AppSidebar() {
                   <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">Mike is online</p>
                   <span className="size-2 rounded-full bg-success-500" />
                 </div>
-                <p className="truncate text-xs text-gray-500 dark:text-gray-400">mike@agentmail.to</p>
+                <p className="truncate text-xs text-gray-500 dark:text-gray-400">agent.mike@wkr.email</p>
               </div>
             </div>
             <Link

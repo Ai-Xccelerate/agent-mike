@@ -135,7 +135,7 @@ export default function MikeDashboard() {
               <AgentAvatar name="Mike" size="lg" showStatus />
               <div>
                 <p className="text-sm font-semibold text-gray-800 dark:text-white/90">{connected ? "Ready for new work" : "Waiting for API"}</p>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Claude harness · AgentMail · PostgreSQL</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Claude harness · Nylas · PostgreSQL</p>
               </div>
             </div>
             <dl className="mt-5 space-y-3 border-t border-gray-100 pt-4 text-sm dark:border-gray-800">

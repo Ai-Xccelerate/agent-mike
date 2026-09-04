@@ -1,6 +1,6 @@
 # Staging Railway variables — copy/paste
 
-You cannot put real Clerk/Anthropic/AgentMail **secrets** in git. Railway reads variables from the service UI, not from a committed `.env`.
+You cannot put real Clerk/Anthropic/Nylas **secrets** in git. Railway reads variables from the service UI, not from a committed `.env`.
 
 What *is* in the repo (safe to copy):
 
@@ -14,10 +14,13 @@ What *is* in the repo (safe to copy):
 | `CLERK_JWKS_URL`, `CLERK_ISSUER` | Core kit `aix-clerk-core-env-values.md` **or** Jules/Nick **API** staging Railway |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Same kit **or** Jules/Nick **frontend** staging Railway |
 | `CLERK_ENCRYPTION_KEY` | Jules/Nick frontend staging, or generate once |
-| `ANTHROPIC_API_KEY`, `AGENTMAIL_*` | This project’s **production** `api` → Variables |
+| `ANTHROPIC_API_KEY` | This project’s **production** `api` → Variables |
+| `NYLAS_API_KEY`, `NYLAS_GRANT_ID`, `NYLAS_WEBHOOK_SECRET` | Nylas dashboard (Agent Account for Mike) |
 | `DATABASE_URL` | Already in the paste file as `${{Postgres.DATABASE_URL}}` |
 | `MIKE_WIDGET_SITE_TOKEN` | You generate (`openssl rand -hex 32`); put the same value on frontend as `NEXT_PUBLIC_MIKE_WIDGET_SITE_TOKEN` |
-| `MIKE_WIDGET_ORG_ID`, `AGENTMAIL_ORG_ID` | Clerk org id for the org that should own widget/email data |
+| `MIKE_WIDGET_ORG_ID`, `NYLAS_ORG_ID` | Same Clerk org id — widget chat + bootstrap mailbox row (see [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md)) |
+
+Remove any leftover `AGENTMAIL_*` variables from `mike-api` after cutover.
 
 ## Paste into Railway
 
@@ -28,6 +31,7 @@ What *is* in the repo (safe to copy):
 5. Put that frontend origin into:
    - API `CLERK_AUTHORIZED_PARTIES` and `CORS_ALLOWED_ORIGINS`
    - Frontend `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WIDGET_ORIGIN`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_AUTHORIZED_PARTIES`
-6. Then Apply / Deploy.
+6. Register Nylas webhook → `https://YOUR-API-DOMAIN/api/v1/webhooks/nylas` (`message.created`) and save `webhook_secret`.
+7. Then Apply / Deploy.
 
 Never set `MIKE_ALLOW_LOCAL_UNAUTH` on Railway.

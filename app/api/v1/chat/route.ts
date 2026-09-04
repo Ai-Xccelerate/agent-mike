@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { conversations, messages } from "@/db/schema";
 import { runAgent } from "@/lib/agent";
-import { sendEmail } from "@/lib/agentmail";
+import { sendEmail } from "@/lib/nylas-mail";
 import { nextTicketNumber } from "@/lib/conversations";
 import { db } from "@/lib/db";
 import { json, withTenant } from "@/lib/http";
@@ -114,6 +114,7 @@ export async function POST(req: NextRequest) {
             ? `${fresh.customerName} <${fresh.customerEmail}>`
             : fresh.customerName;
           await sendEmail(
+            tenant.orgId,
             profile.managerEmail,
             `[Escalation ${ref}] ${fresh.subject.slice(0, 60)}`,
             [

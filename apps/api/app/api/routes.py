@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import json
-import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.config import settings
 from app.database import get_db
 from app.models import AgentProfile, Conversation, KnowledgeDocument, Message
 from app.schemas import (
@@ -24,17 +21,9 @@ from app.schemas import (
     MessageOut,
 )
 from app.services.agent import run_agent
-from app.services.agentmail import reply_to_email, send_email, verify_webhook
 from app.services.knowledge import InvalidOKFDocument, ingest_okf, ingest_upload
 
 router = APIRouter()
-
-
-def _clean_email_text(text: str) -> str:
-    text = re.sub(r"\[image:[^\]]*\]", "", text)  # drop inline image placeholders
-    text = re.sub(r"[ \t]+\n", "\n", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)  # collapse long blank runs
-    return text.strip()
 
 
 def _ticket_ref(conversation: Conversation) -> str:
@@ -49,25 +38,13 @@ async def _next_ticket_number(db: AsyncSession) -> int:
 
 
 async def _notify_manager(profile: AgentProfile, conversation: Conversation, answer, customer_message: str) -> None:
+    # Legacy FastAPI stack no longer sends mail. Use the Next.js API + Nylas path.
     if not (answer.escalated and profile.manager_email):
         return
-    ref = _ticket_ref(conversation)
-    who = conversation.customer_name
-    if conversation.customer_email:
-        who += f" <{conversation.customer_email}>"
-    note = (
-        f"Agent Mike escalated a support conversation and needs a human to respond.\n\n"
-        f"**Ticket:** {ref}\n"
-        f"**Reference ID:** {conversation.id}\n"
-        f"**Channel:** {conversation.channel}\n"
-        f"**Customer:** {who}\n"
-        f"**Reason:** {answer.reason or 'Escalation'}\n\n"
-        f"**Customer's message:**\n{customer_message}\n\n"
-        f"**Mike's reply to the customer:**\n{answer.text}\n\n"
-        f"Please review and respond on ticket {ref}."
+    print(
+        f"[legacy-api] escalation for {_ticket_ref(conversation)} "
+        f"to {profile.manager_email} (email delivery is handled by Next.js/Nylas)"
     )
-    subject = f"[Escalation {ref}] {conversation.subject[:60]}"
-    await send_email(profile.manager_email, subject, note)
 
 
 def _apply_outcome(conversation: Conversation, profile: AgentProfile, answer) -> None:
@@ -375,103 +352,3 @@ async def dashboard(db: AsyncSession = Depends(get_db)) -> DashboardStats:
     )
 
 
-@router.post("/webhooks/agentmail", status_code=status.HTTP_202_ACCEPTED)
-async def agentmail_webhook(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    raw = await request.body()
-    if not verify_webhook(raw, dict(request.headers)):
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
-    try:
-        event = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="Invalid JSON") from exc
-    message_data = event.get("message") or event.get("data", {}).get("message") or event.get("data") or event
-
-    configured_inbox = (settings.agentmail_inbox_id or "").strip().lower()
-    if configured_inbox:
-        target_inbox = str(message_data.get("inbox_id") or "").strip().lower()
-        recipients = message_data.get("to") or []
-        recipient_text = (" ".join(recipients) if isinstance(recipients, list) else str(recipients)).lower()
-        if target_inbox != configured_inbox and configured_inbox not in recipient_text:
-            return {"accepted": True, "ignored": f"Not addressed to {settings.agentmail_inbox_id}"}
-
-    message_id = str(message_data.get("message_id") or message_data.get("id") or "")
-    thread_id = str(message_data.get("thread_id") or message_id)
-    sender = str(message_data.get("from") or "Unknown customer")
-    subject = str(message_data.get("subject") or "Email support request")
-    body = _clean_email_text(str(
-        message_data.get("extracted_text")
-        or message_data.get("text")
-        or message_data.get("preview")
-        or ""
-    ))
-    if not message_id or not body:
-        return {"accepted": True, "ignored": "Event did not contain an inbound message"}
-
-    profile = await get_profile(db)
-    conversation = await db.scalar(
-        select(Conversation)
-        .options(selectinload(Conversation.messages))
-        .where(Conversation.external_thread_id == thread_id)
-    )
-    history: list[Message] = list(conversation.messages) if conversation else []
-    if conversation and any(
-        item.metadata_json.get("external_message_id") == message_id for item in conversation.messages
-    ):
-        return {"accepted": True, "duplicate": True, "conversation_id": conversation.id}
-    if not conversation:
-        conversation = Conversation(
-            channel="email",
-            customer_name=sender.split("<", 1)[0].strip(' "') or sender,
-            customer_email=sender,
-            subject=subject,
-            external_thread_id=thread_id,
-            ticket_number=await _next_ticket_number(db),
-        )
-        db.add(conversation)
-        await db.flush()
-    db.add(
-        Message(
-            conversation_id=conversation.id,
-            sender_type="customer",
-            sender_name=sender,
-            body=body,
-            metadata_json={"external_message_id": message_id},
-        )
-    )
-    answer = await run_agent(db, profile, body, history)
-    db.add(
-        Message(
-            conversation_id=conversation.id,
-            sender_type="agent",
-            sender_name=profile.display_name,
-            body=answer.text,
-            citations=answer.citations,
-            metadata_json={"confidence": answer.confidence, "reason": answer.reason},
-        )
-    )
-    conversation.confidence = answer.confidence
-    _apply_outcome(conversation, profile, answer)
-    conversation.summary = body[:240]
-    await db.commit()
-
-    # Email conversations get Mike's reply sent back to the sender — whether it is an
-    # answer, a clarifying question, or an acknowledgement that a human will follow up.
-    delivery_id = None
-    delivery_error = None
-    if profile.auto_reply:
-        try:
-            # On escalation, copy the support manager into the loop on the reply thread.
-            cc = [profile.manager_email] if (answer.escalated and profile.manager_email) else None
-            delivery_id = await reply_to_email(message_id, answer.text, cc=cc)
-        except Exception as exc:  # noqa: BLE001 - never fail the webhook on a send error
-            delivery_error = str(exc)
-    return {
-        "accepted": True,
-        "conversation_id": conversation.id,
-        "escalated": answer.escalated,
-        "delivery_id": delivery_id,
-        "delivery_error": delivery_error,
-    }

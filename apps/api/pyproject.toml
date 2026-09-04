@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Agent Mike support runtime"
 requires-python = ">=3.11"
 dependencies = [
-  "agentmail>=0.1.0",
   "aiosqlite>=0.20.0",
   "asyncpg>=0.30.0",
   "claude-agent-sdk>=0.1.0",
@@ -18,7 +17,6 @@ dependencies = [
   "python-frontmatter>=1.1.0",
   "python-multipart>=0.0.20",
   "sqlalchemy[asyncio]>=2.0.36",
-  "svix>=1.40.0",
   "uvicorn[standard]>=0.34.0"
 ]
 

@@ -188,3 +188,29 @@ export const knowledgeChunks = pgTable(
     documentIdx: index("knowledge_chunks_document_id_idx").on(table.documentId),
   }),
 );
+
+/**
+ * Nylas grant ↔ Clerk organization mapping.
+ * One active mailbox per org (v1). Webhooks resolve org from grant_id;
+ * outbound send/reply resolves grant from organization_id.
+ * Staging can bootstrap the first row from NYLAS_GRANT_ID + NYLAS_ORG_ID.
+ */
+export const nylasMailboxes = pgTable(
+  "nylas_mailboxes",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id),
+    grantId: text("grant_id").notNull(),
+    email: text("email").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    grantUnique: uniqueIndex("uq_nylas_mailboxes_grant").on(table.grantId),
+    orgUnique: uniqueIndex("uq_nylas_mailboxes_org").on(table.organizationId),
+    orgIdx: index("nylas_mailboxes_org_id_idx").on(table.organizationId),
+  }),
+);

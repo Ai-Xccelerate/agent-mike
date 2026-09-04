@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { conversations, messages } from "@/db/schema";
-import { replyToEmail } from "@/lib/agentmail";
+import { replyToEmail } from "@/lib/nylas-mail";
 import { loadConversation } from "@/lib/conversations";
 import { db } from "@/lib/db";
 import { json, withTenant } from "@/lib/http";
@@ -52,9 +52,9 @@ export async function POST(
       const externalId = lastCustomer?.metadata?.external_message_id;
       if (typeof externalId === "string" && externalId) {
         try {
-          await replyToEmail(externalId, body);
+          await replyToEmail(tenant.orgId, externalId, body);
         } catch (err) {
-          console.warn("[human-reply] AgentMail send failed", err);
+          console.warn("[human-reply] Nylas send failed", err);
         }
       }
     }

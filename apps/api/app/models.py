@@ -23,7 +23,7 @@ class AgentProfile(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(120), default="Mike")
     display_name: Mapped[str] = mapped_column(String(120), default="Agent Mike")
-    email: Mapped[str] = mapped_column(String(255), default="mike@agentmail.to")
+    email: Mapped[str] = mapped_column(String(255), default="agent.mike@wkr.email")
     role: Mapped[str] = mapped_column(
         Text,
         default="Level 1 product support specialist for trained products and solutions.",

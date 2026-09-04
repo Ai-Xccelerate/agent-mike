@@ -8,6 +8,13 @@
       "when": 1756800000000,
       "tag": "0000_mike_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788515021009,
+      "tag": "0001_nylas_mailboxes",
+      "breakpoints": true
     }
   ]
 }

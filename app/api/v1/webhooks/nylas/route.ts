@@ -3,9 +3,18 @@ import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { conversations, messages } from "@/db/schema";
 import { runAgent } from "@/lib/agent";
-import { agentmailOrgId, replyToEmail, verifyWebhook } from "@/lib/agentmail";
 import { nextTicketNumber } from "@/lib/conversations";
 import { db } from "@/lib/db";
+import {
+  bodyFromMessage,
+  fetchMessage,
+  isMikeOutbound,
+  replyToEmail,
+  senderFromMessage,
+  verifyWebhook,
+  type NylasMessage,
+} from "@/lib/nylas-mail";
+import { mailboxByGrantId } from "@/lib/nylas-mailboxes";
 import { getProfile } from "@/lib/profile";
 import { applyOutcome } from "@/lib/serialize";
 import { ensureOrganization } from "@/lib/tenant-sync";
@@ -21,6 +30,27 @@ function cleanEmailText(text: string) {
     .trim();
 }
 
+/** Nylas webhook challenge handshake — must echo the raw challenge string. */
+export async function GET(req: NextRequest) {
+  const challenge = req.nextUrl.searchParams.get("challenge");
+  if (!challenge) {
+    return NextResponse.json({ ok: true, service: "mike-nylas-webhook" });
+  }
+  return new NextResponse(challenge, {
+    status: 200,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+function extractMessageStub(event: Record<string, unknown>): Partial<NylasMessage> | null {
+  const data = event.data as Record<string, unknown> | undefined;
+  const object = (data?.object || data?.message || event.message || event) as
+    | Record<string, unknown>
+    | undefined;
+  if (!object || typeof object !== "object") return null;
+  return object as Partial<NylasMessage>;
+}
+
 export async function POST(req: NextRequest) {
   const raw = Buffer.from(await req.arrayBuffer());
   if (!verifyWebhook(raw, req.headers)) {
@@ -34,41 +64,58 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const orgId = agentmailOrgId();
-  if (!orgId) {
-    return NextResponse.json({ error: "AGENTMAIL_ORG_ID is not configured" }, { status: 500 });
-  }
-  await ensureOrganization(orgId, "AgentMail inbox");
-
-  const messageData = (event.message ||
-    (event.data as Record<string, unknown> | undefined)?.message ||
-    event.data ||
-    event) as Record<string, unknown>;
-
-  const configuredInbox = (process.env.AGENTMAIL_INBOX_ID || "").trim().toLowerCase();
-  if (configuredInbox) {
-    const targetInbox = String(messageData.inbox_id || "").trim().toLowerCase();
-    const recipients = messageData.to || [];
-    const recipientText = (
-      Array.isArray(recipients) ? recipients.join(" ") : String(recipients)
-    ).toLowerCase();
-    if (targetInbox !== configuredInbox && !recipientText.includes(configuredInbox)) {
-      return NextResponse.json({
-        accepted: true,
-        ignored: `Not addressed to ${process.env.AGENTMAIL_INBOX_ID}`,
-      });
-    }
+  const type = String(event.type || event.trigger || "");
+  if (type && type !== "message.created" && type !== "message.created.truncated") {
+    return NextResponse.json({ accepted: true, ignored: `Unhandled event type: ${type}` });
   }
 
-  const messageId = String(messageData.message_id || messageData.id || "");
-  const threadId = String(messageData.thread_id || messageId);
-  const sender = String(messageData.from || "Unknown customer");
-  const subject = String(messageData.subject || "Email support request");
-  const body = cleanEmailText(
-    String(messageData.extracted_text || messageData.text || messageData.preview || ""),
-  );
+  const stub = extractMessageStub(event);
+  const stubId = String(stub?.id || "");
+  if (!stubId) {
+    return NextResponse.json({ accepted: true, ignored: "Event did not contain a message id" });
+  }
+
+  const grantId = String(stub?.grant_id || "").trim();
+  if (!grantId) {
+    return NextResponse.json({
+      accepted: true,
+      ignored: "Event did not contain a grant_id",
+    });
+  }
+
+  const mailbox = await mailboxByGrantId(grantId);
+  if (!mailbox) {
+    return NextResponse.json({
+      accepted: true,
+      ignored: "Unknown Nylas grant — no org mapping",
+    });
+  }
+
+  const orgId = mailbox.organizationId;
+  await ensureOrganization(orgId, "Nylas inbox");
+
+  let message: NylasMessage | null = null;
+  try {
+    message = await fetchMessage(mailbox.grantId, stubId);
+  } catch (err) {
+    console.warn("[nylas-webhook] fetchMessage failed; falling back to stub", err);
+  }
+  message = message || (stub as NylasMessage);
+
+  if (isMikeOutbound(message, mailbox.email)) {
+    return NextResponse.json({ accepted: true, ignored: "Skipping Mike outbound message" });
+  }
+
+  const messageId = String(message.id || stubId);
+  const threadId = String(message.thread_id || messageId);
+  const sender = senderFromMessage(message);
+  const subject = String(message.subject || "Email support request");
+  const body = cleanEmailText(bodyFromMessage(message));
   if (!messageId || !body) {
-    return NextResponse.json({ accepted: true, ignored: "Event did not contain an inbound message" });
+    return NextResponse.json({
+      accepted: true,
+      ignored: "Event did not contain an inbound message body",
+    });
   }
 
   const profile = await getProfile(orgId);
@@ -150,7 +197,11 @@ export async function POST(req: NextRequest) {
   if (profile.autoReply) {
     try {
       const cc = answer.escalated && profile.managerEmail ? [profile.managerEmail] : null;
-      deliveryId = await replyToEmail(messageId, answer.text, cc);
+      deliveryId = await replyToEmail(orgId, messageId, answer.text, {
+        to: message.from?.[0]?.email,
+        subject,
+        cc,
+      });
     } catch (err) {
       deliveryError = err instanceof Error ? err.message : String(err);
     }
@@ -160,6 +211,7 @@ export async function POST(req: NextRequest) {
     {
       accepted: true,
       conversation_id: conversation.id,
+      organization_id: orgId,
       escalated: answer.escalated,
       delivery_id: deliveryId,
       delivery_error: deliveryError,

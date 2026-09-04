@@ -10,9 +10,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./mike.db"
     anthropic_api_key: str | None = None
     claude_model: str = "claude-sonnet-4-5"
-    agentmail_api_key: str | None = None
-    agentmail_inbox_id: str | None = None
-    agentmail_webhook_secret: str | None = None
     cors_origins: list[str] | str = ["http://localhost:3000"]
     knowledge_path: str = "../../knowledge"
     demo_mode: bool = True
