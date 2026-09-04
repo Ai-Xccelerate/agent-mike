@@ -39,8 +39,8 @@ function badgeFor(conversation: Conversation): BadgeInfo {
 
 function ticketRef(conversation: Conversation) {
   return conversation.ticket_number
-    ? `EAPX-${conversation.ticket_number}`
-    : "EAPX-" + conversation.id.replace(/-/g, "").slice(0, 8).toUpperCase();
+    ? `AIX-${conversation.ticket_number}`
+    : "AIX-" + conversation.id.replace(/-/g, "").slice(0, 8).toUpperCase();
 }
 
 function initials(name: string) {

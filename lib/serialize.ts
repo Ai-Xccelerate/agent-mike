@@ -64,8 +64,8 @@ export function serializeKnowledge(
 }
 
 export function ticketRef(conversation: typeof conversations.$inferSelect) {
-  if (conversation.ticketNumber) return `EAPX-${conversation.ticketNumber}`;
-  return "EAPX-" + conversation.id.replace(/-/g, "").slice(0, 8).toUpperCase();
+  if (conversation.ticketNumber) return `AIX-${conversation.ticketNumber}`;
+  return "AIX-" + conversation.id.replace(/-/g, "").slice(0, 8).toUpperCase();
 }
 
 export function applyOutcome(

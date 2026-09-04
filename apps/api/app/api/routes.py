@@ -28,8 +28,8 @@ router = APIRouter()
 
 def _ticket_ref(conversation: Conversation) -> str:
     if conversation.ticket_number:
-        return f"EAPX-{conversation.ticket_number}"
-    return "EAPX-" + conversation.id.replace("-", "")[:8].upper()
+        return f"AIX-{conversation.ticket_number}"
+    return "AIX-" + conversation.id.replace("-", "")[:8].upper()
 
 
 async def _next_ticket_number(db: AsyncSession) -> int:

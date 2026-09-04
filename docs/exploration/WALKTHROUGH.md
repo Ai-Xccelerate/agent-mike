@@ -73,7 +73,7 @@ Without knowledge, demo answers escalate on low confidence. A sample OKF doc was
 
 - Instant agent reply with excerpt from the sign-in guide.
 - Citation chips: **Sign-in and access codes**.
-- New conversation `channel=chat`, ticket like `EAPX-10xx`.
+- New conversation `channel=chat`, ticket like `AIX-10xx`.
 - In demo mode, high retrieval score → usually **open** (not escalated).
 
 ### Verify
