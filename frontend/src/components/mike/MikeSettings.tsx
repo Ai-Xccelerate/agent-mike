@@ -137,9 +137,9 @@ export default function MikeSettings() {
         </div>
       </header>
 
-      <div className="mt-5 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain md:mt-6 md:gap-6 lg:flex-row">
-        <aside className="lg:w-60 lg:shrink-0">
-          <nav className="flex flex-wrap gap-1 lg:sticky lg:top-0 lg:flex-col">
+      <div className="mt-5 flex min-h-0 flex-1 flex-col gap-5 md:mt-6 md:gap-6 lg:flex-row">
+        <aside className="shrink-0 lg:w-60">
+          <nav className="flex flex-wrap gap-1 lg:flex-col">
             {sections.map((section) => {
               const Icon = section.icon;
               return (
@@ -160,7 +160,7 @@ export default function MikeSettings() {
           </nav>
         </aside>
 
-        <div className="min-w-0 flex-1 space-y-5 pb-2 md:space-y-6">
+        <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto overscroll-contain pb-2 md:space-y-6">
           <section id="identity" onMouseEnter={() => setActive("identity")} className={cardClass}>
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
               <AgentAvatar name="Mike" size="lg" showStatus />
