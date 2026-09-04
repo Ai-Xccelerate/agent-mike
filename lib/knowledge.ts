@@ -179,9 +179,17 @@ export async function ingestUpload(organizationId: string, filename: string, raw
 }
 
 export async function retrieve(organizationId: string, query: string, limit = 5): Promise<RetrievedChunk[]> {
+  // Normalize brand / punctuation so queries like "Ai-Xccelerate" still hit AIX docs.
+  const normalized = query
+    .replace(/ai[-\s]?xccelerate/gi, "AI Xccelerate AIX")
+    .replace(/aixccelerate/gi, "AI Xccelerate AIX")
+    .replace(/[-_/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
   const result = await db.execute(sql`
     WITH q AS (
-      SELECT NULLIF(replace(websearch_to_tsquery('english', ${query})::text, '&', '|'), '')::tsquery AS tsq
+      SELECT NULLIF(replace(websearch_to_tsquery('english', ${normalized})::text, '&', '|'), '')::tsquery AS tsq
     )
     SELECT kc.document_id, kc.heading, kc.content,
            kd.concept_id, kd.title, kd.resource,

@@ -65,9 +65,11 @@ function MicIcon({ className }: { className?: string }) {
 export function ChatPanel({
   compact = false,
   onReady,
+  onClose,
 }: {
   compact?: boolean;
   onReady?: (api: { sendPrompt: (text: string) => void }) => void;
+  onClose?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([welcome]);
   const [conversationId, setConversationId] = useState<string>();
@@ -306,6 +308,24 @@ export function ChatPanel({
           <Badge size="sm" color={escalated ? "warning" : "success"}>
             {escalated ? "Manager notified" : "Typically replies instantly"}
           </Badge>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close chat"
+              title="Close chat"
+              className="flex size-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-white/5 dark:hover:text-gray-200"
+            >
+              <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          )}
         </div>
       </header>
 
@@ -419,6 +439,28 @@ export function ChatPanel({
 
 export default function ChatExperience() {
   const chatApiRef = useRef<{ sendPrompt: (text: string) => void } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  function embedSnippet() {
+    const origin = window.location.origin;
+    return `<!-- Agent Mike website widget -->
+<iframe
+  src="${origin}/widget"
+  title="Chat with Mike"
+  allow="microphone"
+  style="position:fixed;right:0;bottom:0;width:420px;height:720px;max-width:100vw;max-height:100vh;border:0;z-index:2147483646;background:transparent;color-scheme:light"
+></iframe>`;
+  }
+
+  async function copyEmbed() {
+    try {
+      await navigator.clipboard.writeText(embedSnippet());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-5 overflow-hidden xl:grid-cols-[minmax(0,1fr)_280px] md:gap-6">
@@ -453,20 +495,17 @@ export default function ChatExperience() {
         <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-white/90">Website install</h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Embed ready at <code className="font-mono text-xs text-gray-700 dark:text-gray-300">/widget</code>.
+            Paste before <code className="font-mono text-xs">&lt;/body&gt;</code>. Opens as a floating
+            launcher on your site.
           </p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-4 w-full"
-            onClick={() =>
-              navigator.clipboard?.writeText(
-                `<iframe src="${window.location.origin}/widget" title="Chat with Mike"></iframe>`,
-              )
-            }
-          >
-            Copy embed snippet
+          <Button size="sm" variant="outline" className="mt-4 w-full" onClick={() => void copyEmbed()}>
+            {copied ? "Copied!" : "Copy embed snippet"}
           </Button>
+          {copied && (
+            <p className="mt-2 text-center text-xs font-medium text-success-600 dark:text-success-400">
+              Widget snippet copied to clipboard
+            </p>
+          )}
         </div>
       </aside>
     </div>

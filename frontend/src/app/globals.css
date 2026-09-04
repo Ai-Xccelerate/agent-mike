@@ -290,6 +290,16 @@ html[data-density='compact'] {
     /* Inter stylistic set + tabular numerals for tables/KPIs. */
     font-feature-settings: 'cv11', 'ss01', 'tnum';
   }
+
+  /* Public embed: hide ambient chrome so host pages show through the iframe. */
+  html[data-mike-widget="1"],
+  body[data-mike-widget="1"] {
+    background: transparent !important;
+  }
+  html[data-mike-widget="1"] .liquid-backdrop {
+    display: none !important;
+  }
+
   /* Display type — Geist with Apple-style tighter tracking. */
   .font-display {
     letter-spacing: -0.022em;
