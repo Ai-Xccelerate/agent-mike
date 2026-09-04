@@ -91,6 +91,11 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
+  // Let the browser set multipart boundaries for FormData uploads.
+  if (init?.body instanceof FormData) {
+    headers.delete("Content-Type");
+  }
+
   const requestInit: RequestInit = { ...(init ?? {}) };
   delete (requestInit as ApiFetchOptions).widget;
   const response = await fetch(`/api/v1${path}`, {

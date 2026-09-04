@@ -18,14 +18,14 @@ function AdminShell({ children }: { children: React.ReactNode }) {
       : "lg:ml-[80px]";
 
   return (
-    <div className="min-h-screen xl:flex">
+    <div className="h-dvh overflow-hidden xl:flex">
       <AppSidebar />
       <Backdrop />
       <div
-        className={`flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300 ease-in-out ${mainContentMargin}`}
+        className={`flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-all duration-300 ease-in-out ${mainContentMargin}`}
       >
         <AppHeader />
-        <div data-aix-id="AIX-F4" className="flex w-full min-h-0 flex-1 flex-col p-4 md:p-6">
+        <div data-aix-id="AIX-F4" className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto p-4 md:p-6">
           {children}
         </div>
       </div>
