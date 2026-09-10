@@ -5,6 +5,9 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 
+// Reads/writes the DB per request — never statically prerender or cache this route.
+export const dynamic = "force-dynamic";
+
 async function loadOwned(id: string, orgId: string) {
   const [conversation] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
   if (!conversation || conversation.organizationId !== orgId) return null;

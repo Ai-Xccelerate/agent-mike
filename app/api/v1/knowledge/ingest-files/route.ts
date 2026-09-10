@@ -3,6 +3,9 @@ import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { ingestOkf, InvalidOKFDocument, wrapAsOkf } from "@/lib/knowledge";
 
+// Reads/writes the DB per request — never statically prerender or cache this route.
+export const dynamic = "force-dynamic";
+
 type UploadedFile = {
   name: string;
   arrayBuffer: () => Promise<ArrayBuffer>;

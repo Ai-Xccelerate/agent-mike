@@ -7,6 +7,9 @@ import { widgetSites } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { ensureOrganization } from "@/lib/bootstrap";
 
+// Reads/writes the DB per request — never statically prerender or cache this route.
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   await ensureOrganization(tenant.orgId);

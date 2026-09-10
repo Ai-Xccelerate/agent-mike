@@ -9,6 +9,9 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { retrieve } from "@/lib/knowledge";
 import { runAgent } from "@/lib/agent";
 
+// Reads/writes the DB per request — never statically prerender or cache this route.
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   const identity = getIdentityAdapter();
   const isWidget = Boolean(req.headers.get("x-worker-site-token"));

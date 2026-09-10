@@ -7,6 +7,9 @@ import { workerProfiles } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 
+// Reads/writes the DB per request — never statically prerender or cache this route.
+export const dynamic = "force-dynamic";
+
 const patchSchema = z
   .object({
     name: z.string().min(1),

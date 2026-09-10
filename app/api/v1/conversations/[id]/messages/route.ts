@@ -6,6 +6,9 @@ import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 
+// Reads/writes the DB per request — never statically prerender or cache this route.
+export const dynamic = "force-dynamic";
+
 /**
  * A manager replying directly — no agent turn runs. Distinct from
  * /api/v1/chat, which always invokes the harness.
