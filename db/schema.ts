@@ -38,7 +38,15 @@ export const workerProfiles = pgTable(
     name: text("name").notNull().default("Worker"),
     displayName: text("display_name").notNull().default("AI Worker"),
     avatarInitials: text("avatar_initials").notNull().default("AW"),
+    slug: text("slug").notNull().default("worker"),
+    status: text("status").notNull().default("active"), // active | paused
+    avatarUrl: text("avatar_url"),
+    accentColor: text("accent_color").notNull().default("#4F46E5"),
+    bio: text("bio").notNull().default(""),
+    timezone: text("timezone").notNull().default("UTC"),
+    locale: text("locale").notNull().default("en-US"),
     email: text("email"),
+    emailSignature: text("email_signature").notNull().default(""),
     tone: text("tone").notNull().default("Warm, concise, and honest about uncertainty."),
 
     // Role (settings > Role)
@@ -90,6 +98,7 @@ export const workerProfiles = pgTable(
   },
   (table) => ({
     orgUnique: uniqueIndex("worker_profiles_org_unique").on(table.organizationId),
+    slugUnique: uniqueIndex("worker_profiles_slug_unique").on(table.slug),
   }),
 );
 

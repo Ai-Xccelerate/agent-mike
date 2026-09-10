@@ -11,6 +11,8 @@ export interface WorkerProfileLike {
   maxAgentTurns: number;
   confidenceThreshold: number;
   managerName: string;
+  timezone?: string;
+  emailSignature?: string;
 }
 
 function fillTemplate(template: string, vars: Record<string, string>): string {
@@ -38,8 +40,16 @@ function buildInstructions(
         knowledge.map((k) => `### ${k.title}${k.heading ? ` — ${k.heading}` : ""}\n${k.content}`).join("\n\n")
       : "\n\nNo matching reference material was found for this question.";
 
+  const identityBlock = [
+    profile.timezone ? `Timezone: ${profile.timezone}.` : "",
+    profile.emailSignature ? `Email sign-off:\n${profile.emailSignature}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   return (
     base +
+    (identityBlock ? `\n\n${identityBlock}` : "") +
     knowledgeBlock +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."
