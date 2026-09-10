@@ -1,0 +1,2574 @@
+{
+  "$schema": "aix-manifest",
+  "name": "AIX Theme",
+  "version": "1.0.0",
+  "description": "Reusable AIX UI/UX component library on Next.js. Every page/block/primitive has a stable reference ID.",
+  "conventions": {
+    "pageId": "AIX-### (ranges: 010-049 dashboards, 050-099 ecommerce, 100-149 apps, 150-199 ai-tools, 200-299 ui-elements, 300-349 forms-tables, 350-399 charts-maps, 400-449 misc-pages, 450-499 auth, 500-549 errors, 550-599 layouts)",
+    "blockId": "AIX-###.N \u2014 Nth top-level block on the page",
+    "frameId": "AIX-F1 sidebar, AIX-F2 topbar, AIX-F3 breadcrumb, AIX-F4 content, AIX-F5 sidebar-cta",
+    "domAttribute": "data-aix-id"
+  },
+  "pages": [
+    {
+      "id": "AIX-001",
+      "title": "Design System",
+      "route": "/design-system",
+      "area": "global-chrome",
+      "file": "src/app/(admin)/(others-pages)/design-system/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-001.1",
+          "description": "Design system overview / intro card"
+        },
+        {
+          "id": "AIX-001.2",
+          "description": "Brand color scale (AIX orange)"
+        },
+        {
+          "id": "AIX-001.3",
+          "description": "Agent identity colors grid"
+        },
+        {
+          "id": "AIX-001.4",
+          "description": "Semantic colors (success/warning/error/info)"
+        },
+        {
+          "id": "AIX-001.5",
+          "description": "Typography specimen (Open Sans)"
+        },
+        {
+          "id": "AIX-001.6",
+          "description": "Shape and elevation tokens"
+        },
+        {
+          "id": "AIX-001.7",
+          "description": "Spacing and layout scale"
+        },
+        {
+          "id": "AIX-001.8",
+          "description": "Motion / transition guidance"
+        },
+        {
+          "id": "AIX-001.9",
+          "description": "Voice and content do/don't table"
+        },
+        {
+          "id": "AIX-001.10",
+          "description": "Reference ID system explainer"
+        }
+      ],
+      "keywords": [
+        "design system",
+        "brand",
+        "colors",
+        "typography",
+        "tokens",
+        "style guide"
+      ]
+    },
+    {
+      "id": "AIX-002",
+      "title": "Reference Index",
+      "route": "/reference",
+      "area": "global-chrome",
+      "file": "src/app/(admin)/(others-pages)/reference/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-002.1",
+          "description": "Searchable index of all pages, blocks, and primitives (rendered from aix-manifest.json)"
+        }
+      ],
+      "keywords": [
+        "reference",
+        "index",
+        "ids",
+        "catalog",
+        "search",
+        "documentation"
+      ]
+    },
+    {
+      "id": "AIX-010",
+      "title": "Ecommerce (Home)",
+      "route": "/",
+      "area": "dashboards",
+      "file": "src/app/(admin)/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-010.1",
+          "description": "Ecommerce metrics KPI cards (customers, orders)"
+        },
+        {
+          "id": "AIX-010.2",
+          "description": "Monthly sales bar chart"
+        },
+        {
+          "id": "AIX-010.3",
+          "description": "Monthly target radial gauge card"
+        },
+        {
+          "id": "AIX-010.4",
+          "description": "Statistics area chart with period tabs"
+        },
+        {
+          "id": "AIX-010.5",
+          "description": "Customer demographics map card"
+        },
+        {
+          "id": "AIX-010.6",
+          "description": "Recent orders table"
+        }
+      ],
+      "keywords": [
+        "dashboard",
+        "ecommerce",
+        "home",
+        "sales",
+        "kpi",
+        "orders"
+      ]
+    },
+    {
+      "id": "AIX-011",
+      "title": "Workforce Overview",
+      "route": "/workforce",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/workforce/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-011.1",
+          "description": "Workforce KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-011.2",
+          "description": "Workforce activity chart + agent roster grid"
+        },
+        {
+          "id": "AIX-011.3",
+          "description": "Recent handoffs + top accounts grid"
+        }
+      ],
+      "keywords": [
+        "workforce",
+        "agents",
+        "overview",
+        "kpi",
+        "roster",
+        "activity"
+      ]
+    },
+    {
+      "id": "AIX-012",
+      "title": "Demand Gen \u2014 Nick",
+      "route": "/demand-gen",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/demand-gen/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-012.1",
+          "description": "AgentHero banner for Nick"
+        },
+        {
+          "id": "AIX-012.2",
+          "description": "KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-012.3",
+          "description": "Leads sourced chart + top campaigns panel"
+        },
+        {
+          "id": "AIX-012.4",
+          "description": "Qualified leads table"
+        }
+      ],
+      "keywords": [
+        "demand gen",
+        "nick",
+        "leads",
+        "campaigns",
+        "marketing",
+        "agent dashboard"
+      ]
+    },
+    {
+      "id": "AIX-013",
+      "title": "Outbound \u2014 Jules",
+      "route": "/outbound",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/outbound/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-013.1",
+          "description": "AgentHero banner for Jules"
+        },
+        {
+          "id": "AIX-013.2",
+          "description": "KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-013.3",
+          "description": "Replies-by-week chart + best sequences panel"
+        },
+        {
+          "id": "AIX-013.4",
+          "description": "Upcoming meetings table"
+        }
+      ],
+      "keywords": [
+        "outbound",
+        "jules",
+        "sequences",
+        "meetings",
+        "sdr",
+        "agent dashboard"
+      ]
+    },
+    {
+      "id": "AIX-014",
+      "title": "Inbound \u2014 Pepper",
+      "route": "/inbound",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/inbound/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-014.1",
+          "description": "AgentHero banner for Pepper"
+        },
+        {
+          "id": "AIX-014.2",
+          "description": "KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-014.3",
+          "description": "Conversations-by-hour chart + routing donut"
+        },
+        {
+          "id": "AIX-014.4",
+          "description": "Recent conversations table"
+        }
+      ],
+      "keywords": [
+        "inbound",
+        "pepper",
+        "conversations",
+        "routing",
+        "chat",
+        "agent dashboard"
+      ]
+    },
+    {
+      "id": "AIX-015",
+      "title": "Technical \u2014 Tony",
+      "route": "/technical",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/technical/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-015.1",
+          "description": "AgentHero banner for Tony"
+        },
+        {
+          "id": "AIX-015.2",
+          "description": "KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-015.3",
+          "description": "Deflections chart + top topics panel"
+        },
+        {
+          "id": "AIX-015.4",
+          "description": "Recent escalations table"
+        }
+      ],
+      "keywords": [
+        "technical",
+        "tony",
+        "escalations",
+        "deflection",
+        "support",
+        "agent dashboard"
+      ]
+    },
+    {
+      "id": "AIX-016",
+      "title": "Deal Ops \u2014 Joy",
+      "route": "/deal-ops",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/deal-ops/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-016.1",
+          "description": "AgentHero banner for Joy"
+        },
+        {
+          "id": "AIX-016.2",
+          "description": "KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-016.3",
+          "description": "Cycle time chart + deals-needing-attention panel"
+        },
+        {
+          "id": "AIX-016.4",
+          "description": "Pipeline by stage table"
+        }
+      ],
+      "keywords": [
+        "deal ops",
+        "joy",
+        "pipeline",
+        "deals",
+        "cycle time",
+        "agent dashboard"
+      ]
+    },
+    {
+      "id": "AIX-017",
+      "title": "Retention \u2014 George",
+      "route": "/retention",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/retention/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-017.1",
+          "description": "AgentHero banner for George"
+        },
+        {
+          "id": "AIX-017.2",
+          "description": "KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-017.3",
+          "description": "Health score chart + at-risk accounts panel"
+        },
+        {
+          "id": "AIX-017.4",
+          "description": "Renewal timeline table"
+        }
+      ],
+      "keywords": [
+        "retention",
+        "george",
+        "churn",
+        "renewals",
+        "health score",
+        "agent dashboard"
+      ]
+    },
+    {
+      "id": "AIX-018",
+      "title": "Revenue",
+      "route": "/revenue",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/revenue/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-018.1",
+          "description": "Company revenue KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-018.2",
+          "description": "Revenue by quarter chart"
+        },
+        {
+          "id": "AIX-018.3",
+          "description": "Pipeline by stage + revenue by agent grid"
+        }
+      ],
+      "keywords": [
+        "revenue",
+        "pipeline",
+        "quarterly",
+        "company metrics",
+        "finance"
+      ]
+    },
+    {
+      "id": "AIX-019",
+      "title": "Client Account",
+      "route": "/client-account",
+      "area": "dashboards",
+      "file": "src/app/(admin)/(dashboards)/client-account/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-019.1",
+          "description": "Client welcome band"
+        },
+        {
+          "id": "AIX-019.2",
+          "description": "Client KPI StatCard grid (3-up)"
+        },
+        {
+          "id": "AIX-019.3",
+          "description": "Deployed agents panel"
+        },
+        {
+          "id": "AIX-019.4",
+          "description": "Client activity timeline"
+        }
+      ],
+      "keywords": [
+        "client",
+        "account",
+        "deployed agents",
+        "timeline",
+        "customer view"
+      ]
+    },
+    {
+      "id": "AIX-050",
+      "title": "Products List",
+      "route": "/products",
+      "area": "ecommerce",
+      "file": "src/app/(admin)/(ecommerce)/products/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-050.1",
+          "description": "Product KPI StatCard grid"
+        },
+        {
+          "id": "AIX-050.2",
+          "description": "Products table"
+        }
+      ],
+      "keywords": [
+        "products",
+        "catalog",
+        "table",
+        "inventory",
+        "ecommerce"
+      ]
+    },
+    {
+      "id": "AIX-051",
+      "title": "Add Product",
+      "route": "/add-product",
+      "area": "ecommerce",
+      "file": "src/app/(admin)/(ecommerce)/add-product/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-051.1",
+          "description": "Add product form"
+        }
+      ],
+      "keywords": [
+        "product",
+        "form",
+        "create",
+        "catalog",
+        "ecommerce"
+      ]
+    },
+    {
+      "id": "AIX-052",
+      "title": "Billing",
+      "route": "/billing",
+      "area": "ecommerce",
+      "file": "src/app/(admin)/(ecommerce)/billing/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-052.1",
+          "description": "Current plan + payment method cards grid"
+        },
+        {
+          "id": "AIX-052.2",
+          "description": "Billing history table + billing contacts grid"
+        }
+      ],
+      "keywords": [
+        "billing",
+        "plan",
+        "payment",
+        "subscription",
+        "invoices"
+      ]
+    },
+    {
+      "id": "AIX-053",
+      "title": "Invoices",
+      "route": "/invoices",
+      "area": "ecommerce",
+      "file": "src/app/(admin)/(ecommerce)/invoices/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-053.1",
+          "description": "Invoice KPI StatCard grid"
+        },
+        {
+          "id": "AIX-053.2",
+          "description": "Invoices table"
+        }
+      ],
+      "keywords": [
+        "invoices",
+        "billing",
+        "table",
+        "payments",
+        "finance"
+      ]
+    },
+    {
+      "id": "AIX-054",
+      "title": "Single Invoice",
+      "route": "/invoice-detail",
+      "area": "ecommerce",
+      "file": "src/app/(admin)/(ecommerce)/invoice-detail/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-054.1",
+          "description": "Invoice detail card (line items, totals, actions)"
+        }
+      ],
+      "keywords": [
+        "invoice",
+        "detail",
+        "line items",
+        "pdf",
+        "billing"
+      ]
+    },
+    {
+      "id": "AIX-055",
+      "title": "Create Invoice",
+      "route": "/create-invoice",
+      "area": "ecommerce",
+      "file": "src/app/(admin)/(ecommerce)/create-invoice/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-055.1",
+          "description": "Create invoice form"
+        }
+      ],
+      "keywords": [
+        "invoice",
+        "create",
+        "form",
+        "billing",
+        "send"
+      ]
+    },
+    {
+      "id": "AIX-056",
+      "title": "Transactions",
+      "route": "/transactions",
+      "area": "ecommerce",
+      "file": "src/app/(admin)/(ecommerce)/transactions/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-056.1",
+          "description": "Transaction KPI StatCard grid"
+        },
+        {
+          "id": "AIX-056.2",
+          "description": "Transactions table"
+        }
+      ],
+      "keywords": [
+        "transactions",
+        "payments",
+        "table",
+        "finance",
+        "history"
+      ]
+    },
+    {
+      "id": "AIX-057",
+      "title": "Single Transaction",
+      "route": "/transaction-detail",
+      "area": "ecommerce",
+      "file": "src/app/(admin)/(ecommerce)/transaction-detail/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-057.1",
+          "description": "Transaction detail card with event timeline"
+        }
+      ],
+      "keywords": [
+        "transaction",
+        "detail",
+        "payment",
+        "timeline",
+        "receipt"
+      ]
+    },
+    {
+      "id": "AIX-100",
+      "title": "Calendar",
+      "route": "/calendar",
+      "area": "apps",
+      "file": "src/app/(admin)/(others-pages)/calendar/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-100.1",
+          "description": "Left rail: orange Create button, mini month picker synced to main calendar, My calendars checklist with colored checkboxes that filter events"
+        },
+        {
+          "id": "AIX-100.2",
+          "description": "Main calendar: custom toolbar (Today, prev/next, range title, Month/Week/Day/List switcher) driving FullCalendar \u2014 Google-style colored event chips, now indicator, +N more popover, drag-select quick create, event modal with per-calendar colors"
+        }
+      ],
+      "keywords": [
+        "calendar",
+        "events",
+        "google calendar",
+        "mini month",
+        "schedule",
+        "meetings"
+      ]
+    },
+    {
+      "id": "AIX-101",
+      "title": "User Profile",
+      "route": "/profile",
+      "area": "apps",
+      "file": "src/app/(admin)/(others-pages)/profile/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-101.1",
+          "description": "Profile card containing user meta, personal info, and address sections"
+        }
+      ],
+      "keywords": [
+        "profile",
+        "user",
+        "account",
+        "settings",
+        "personal info"
+      ]
+    },
+    {
+      "id": "AIX-102",
+      "title": "Task List",
+      "route": "/task-list",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/task-list/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-102.1",
+          "description": "Task list with grouped statuses"
+        }
+      ],
+      "keywords": [
+        "tasks",
+        "todo",
+        "list",
+        "status",
+        "productivity"
+      ]
+    },
+    {
+      "id": "AIX-103",
+      "title": "Task Kanban",
+      "route": "/kanban",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/kanban/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-103.1",
+          "description": "Kanban board with task columns"
+        }
+      ],
+      "keywords": [
+        "kanban",
+        "board",
+        "tasks",
+        "columns",
+        "drag"
+      ]
+    },
+    {
+      "id": "AIX-104",
+      "title": "File Manager",
+      "route": "/file-manager",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/file-manager/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-104.1",
+          "description": "File manager (folders, files, storage)"
+        }
+      ],
+      "keywords": [
+        "files",
+        "file manager",
+        "folders",
+        "storage",
+        "documents"
+      ]
+    },
+    {
+      "id": "AIX-105",
+      "title": "Chat",
+      "route": "/chat",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/chat/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-105.1",
+          "description": "Chat app (conversation list + message pane)"
+        }
+      ],
+      "keywords": [
+        "chat",
+        "messages",
+        "conversation",
+        "messaging",
+        "agents"
+      ]
+    },
+    {
+      "id": "AIX-106",
+      "title": "Support Tickets",
+      "route": "/support-tickets",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/support-tickets/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-106.1",
+          "description": "Ticket KPI StatCard grid (4-up)"
+        },
+        {
+          "id": "AIX-106.2",
+          "description": "Tickets table"
+        }
+      ],
+      "keywords": [
+        "support",
+        "tickets",
+        "helpdesk",
+        "table",
+        "queue"
+      ]
+    },
+    {
+      "id": "AIX-107",
+      "title": "Ticket Reply",
+      "route": "/ticket-reply",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/ticket-reply/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-107.1",
+          "description": "Ticket header"
+        },
+        {
+          "id": "AIX-107.2",
+          "description": "Ticket message thread"
+        },
+        {
+          "id": "AIX-107.3",
+          "description": "Ticket reply box"
+        },
+        {
+          "id": "AIX-107.4",
+          "description": "Ticket meta sidebar"
+        }
+      ],
+      "keywords": [
+        "ticket",
+        "reply",
+        "thread",
+        "support",
+        "conversation"
+      ]
+    },
+    {
+      "id": "AIX-108",
+      "title": "Inbox",
+      "route": "/inbox",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/inbox/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-108.1",
+          "description": "Folder rail: orange Compose button, folders with counts, colored label filters; collapses to chips on mobile"
+        },
+        {
+          "id": "AIX-108.2",
+          "description": "Mail surface: select-all/bulk-action toolbar, Primary/Team/Updates tabs, Gmail rows (star, unread dot, hover swaps time for archive/delete/read/snooze), in-place thread view with prev/next and quick reply, 1-15 of 128 paging"
+        },
+        {
+          "id": "AIX-108.3",
+          "description": "Compose card docked bottom-right (minimizable, To/Subject/body, orange Send); full-width sheet on mobile"
+        }
+      ],
+      "keywords": [
+        "inbox",
+        "email",
+        "gmail",
+        "compose",
+        "threads",
+        "labels"
+      ]
+    },
+    {
+      "id": "AIX-109",
+      "title": "Inbox Details",
+      "route": "/inbox-detail",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/inbox-detail/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-109.1",
+          "description": "Email message detail with reply"
+        }
+      ],
+      "keywords": [
+        "email",
+        "message",
+        "detail",
+        "reply",
+        "mail"
+      ]
+    },
+    {
+      "id": "AIX-110",
+      "title": "Transcripts",
+      "route": "/transcripts",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/transcripts/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-110.1",
+          "description": "Four StatCards: transcripts synced, hours transcribed, action items extracted, awaiting sync"
+        },
+        {
+          "id": "AIX-110.2",
+          "description": "Scribe sync info banner with last-sync timestamp"
+        },
+        {
+          "id": "AIX-110.3",
+          "description": "Transcript list table: meeting title, date, duration, participant avatar stack, Zoom/Meet/Teams source badge, Synced/Processing status, Open link"
+        }
+      ],
+      "keywords": [
+        "transcripts",
+        "scribe",
+        "meetings",
+        "recordings",
+        "notes",
+        "sync"
+      ]
+    },
+    {
+      "id": "AIX-111",
+      "title": "Transcript Detail",
+      "route": "/transcript-detail",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/transcript-detail/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-111.1",
+          "description": "Meeting header: title, source badge, date/duration, participant avatars, Download/Share"
+        },
+        {
+          "id": "AIX-111.2",
+          "description": "AI summary card with key-point bullets"
+        },
+        {
+          "id": "AIX-111.3",
+          "description": "Action items checklist with owner avatars and due chips"
+        },
+        {
+          "id": "AIX-111.4",
+          "description": "Key moments with orange mono timestamp chips"
+        },
+        {
+          "id": "AIX-111.5",
+          "description": "Full transcript speaker turns with expand button"
+        },
+        {
+          "id": "AIX-111.6",
+          "description": "Ask-about-this-meeting AI composer with mock answer"
+        }
+      ],
+      "keywords": [
+        "transcript",
+        "meeting detail",
+        "ai summary",
+        "action items",
+        "key moments",
+        "ask ai"
+      ]
+    },
+    {
+      "id": "AIX-150",
+      "title": "Text Generator",
+      "route": "/text-generator",
+      "area": "ai-tools",
+      "file": "src/app/(admin)/(ai)/text-generator/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-150.1",
+          "description": "Text generator panel (prompt composer + output)"
+        }
+      ],
+      "keywords": [
+        "ai",
+        "text",
+        "copywriting",
+        "generator",
+        "prompt"
+      ]
+    },
+    {
+      "id": "AIX-151",
+      "title": "Image Generator",
+      "route": "/image-generator",
+      "area": "ai-tools",
+      "file": "src/app/(admin)/(ai)/image-generator/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-151.1",
+          "description": "Image generator panel (prompt composer + gallery)"
+        }
+      ],
+      "keywords": [
+        "ai",
+        "image",
+        "generator",
+        "creative",
+        "prompt"
+      ]
+    },
+    {
+      "id": "AIX-152",
+      "title": "Code Generator",
+      "route": "/code-generator",
+      "area": "ai-tools",
+      "file": "src/app/(admin)/(ai)/code-generator/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-152.1",
+          "description": "Code generator panel (prompt composer + code output)"
+        }
+      ],
+      "keywords": [
+        "ai",
+        "code",
+        "generator",
+        "integration",
+        "automation"
+      ]
+    },
+    {
+      "id": "AIX-153",
+      "title": "Video Generator",
+      "route": "/video-generator",
+      "area": "ai-tools",
+      "file": "src/app/(admin)/(ai)/video-generator/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-153.1",
+          "description": "Video generator panel (prompt composer + video previews)"
+        }
+      ],
+      "keywords": [
+        "ai",
+        "video",
+        "generator",
+        "social",
+        "prompt"
+      ]
+    },
+    {
+      "id": "AIX-154",
+      "title": "AI Settings",
+      "route": "/ai-settings",
+      "area": "ai-tools",
+      "file": "src/app/(admin)/(ai)/ai-settings/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-154.1",
+          "description": "AI settings panel (model, behavior, brand voice)"
+        }
+      ],
+      "keywords": [
+        "ai",
+        "settings",
+        "model",
+        "configuration",
+        "brand voice"
+      ]
+    },
+    {
+      "id": "AIX-155",
+      "title": "AI Assistant",
+      "route": "/assistant",
+      "area": "ai-tools",
+      "file": "src/app/(admin)/(ai)/assistant/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-155.1",
+          "description": "Sam conversation thread with source chips, action items, context toggle chips, composer"
+        },
+        {
+          "id": "AIX-155.2",
+          "description": "Context card: surfaces Sam can see (transcripts, inbox, tasks, calendar) with counts and links"
+        },
+        {
+          "id": "AIX-155.3",
+          "description": "Suggested prompts card, chips prefill the composer"
+        },
+        {
+          "id": "AIX-155.4",
+          "description": "Recent conversations card"
+        }
+      ],
+      "keywords": [
+        "assistant",
+        "sam",
+        "chat",
+        "chief of staff",
+        "context",
+        "prompts"
+      ]
+    },
+    {
+      "id": "AIX-200",
+      "title": "Alerts",
+      "route": "/alerts",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/alerts/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-200.1",
+          "description": "Success alert examples"
+        },
+        {
+          "id": "AIX-200.2",
+          "description": "Warning alert examples"
+        },
+        {
+          "id": "AIX-200.3",
+          "description": "Error alert examples"
+        },
+        {
+          "id": "AIX-200.4",
+          "description": "Info alert examples"
+        }
+      ],
+      "keywords": [
+        "alert",
+        "success",
+        "warning",
+        "error",
+        "info",
+        "banner"
+      ]
+    },
+    {
+      "id": "AIX-201",
+      "title": "Avatars",
+      "route": "/avatars",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/avatars/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-201.1",
+          "description": "Default avatars in six sizes"
+        },
+        {
+          "id": "AIX-201.2",
+          "description": "Avatars with online indicator"
+        },
+        {
+          "id": "AIX-201.3",
+          "description": "Avatars with offline indicator"
+        },
+        {
+          "id": "AIX-201.4",
+          "description": "Avatars with busy indicator"
+        }
+      ],
+      "keywords": [
+        "avatar",
+        "user image",
+        "status indicator",
+        "sizes",
+        "profile picture"
+      ]
+    },
+    {
+      "id": "AIX-202",
+      "title": "Badge",
+      "route": "/badge",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/badge/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-202.1",
+          "description": "Light background badges (7 colors)"
+        },
+        {
+          "id": "AIX-202.2",
+          "description": "Solid background badges (7 colors)"
+        },
+        {
+          "id": "AIX-202.3",
+          "description": "Light badges with left icon"
+        },
+        {
+          "id": "AIX-202.4",
+          "description": "Solid badges with left icon"
+        },
+        {
+          "id": "AIX-202.5",
+          "description": "Light badges with right icon"
+        },
+        {
+          "id": "AIX-202.6",
+          "description": "Solid badges with right icon"
+        }
+      ],
+      "keywords": [
+        "badge",
+        "label",
+        "pill",
+        "tag",
+        "status color"
+      ]
+    },
+    {
+      "id": "AIX-203",
+      "title": "Buttons",
+      "route": "/buttons",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/buttons/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-203.1",
+          "description": "Primary buttons (sm/md)"
+        },
+        {
+          "id": "AIX-203.2",
+          "description": "Primary buttons with left icon"
+        },
+        {
+          "id": "AIX-203.3",
+          "description": "Primary buttons with right icon"
+        },
+        {
+          "id": "AIX-203.4",
+          "description": "Secondary/outline buttons"
+        },
+        {
+          "id": "AIX-203.5",
+          "description": "Outline buttons with left icon"
+        },
+        {
+          "id": "AIX-203.6",
+          "description": "Outline buttons with right icon"
+        }
+      ],
+      "keywords": [
+        "button",
+        "primary",
+        "outline",
+        "icon button",
+        "cta"
+      ]
+    },
+    {
+      "id": "AIX-204",
+      "title": "Images",
+      "route": "/images",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/images/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-204.1",
+          "description": "Responsive image"
+        },
+        {
+          "id": "AIX-204.2",
+          "description": "Two-column image grid"
+        },
+        {
+          "id": "AIX-204.3",
+          "description": "Three-column image grid"
+        }
+      ],
+      "keywords": [
+        "image",
+        "responsive",
+        "grid",
+        "media",
+        "gallery"
+      ]
+    },
+    {
+      "id": "AIX-205",
+      "title": "Videos",
+      "route": "/videos",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/videos/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-205.1",
+          "description": "Embedded video examples in aspect-ratio grids"
+        }
+      ],
+      "keywords": [
+        "video",
+        "embed",
+        "youtube",
+        "aspect ratio",
+        "media"
+      ]
+    },
+    {
+      "id": "AIX-206",
+      "title": "Tabs",
+      "route": "/tabs",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/tabs/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-206.1",
+          "description": "Underline tabs"
+        },
+        {
+          "id": "AIX-206.2",
+          "description": "Pill tabs"
+        }
+      ],
+      "keywords": [
+        "tabs",
+        "navigation",
+        "underline",
+        "pill",
+        "switcher"
+      ]
+    },
+    {
+      "id": "AIX-207",
+      "title": "Breadcrumb",
+      "route": "/breadcrumb",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/breadcrumb/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-207.1",
+          "description": "Default chevron breadcrumb"
+        },
+        {
+          "id": "AIX-207.2",
+          "description": "Breadcrumb with icons"
+        },
+        {
+          "id": "AIX-207.3",
+          "description": "Slash separator breadcrumb"
+        }
+      ],
+      "keywords": [
+        "breadcrumb",
+        "navigation",
+        "path",
+        "chevron",
+        "slash"
+      ]
+    },
+    {
+      "id": "AIX-208",
+      "title": "Buttons Group",
+      "route": "/buttons-group",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/buttons-group/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-208.1",
+          "description": "Button group sizes"
+        },
+        {
+          "id": "AIX-208.2",
+          "description": "Button group with icons"
+        },
+        {
+          "id": "AIX-208.3",
+          "description": "Button group selected state"
+        }
+      ],
+      "keywords": [
+        "button group",
+        "segmented control",
+        "toggle",
+        "toolbar",
+        "selection"
+      ]
+    },
+    {
+      "id": "AIX-209",
+      "title": "Cards",
+      "route": "/cards",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/cards/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-209.1",
+          "description": "Basic cards"
+        },
+        {
+          "id": "AIX-209.2",
+          "description": "Horizontal card with image"
+        },
+        {
+          "id": "AIX-209.3",
+          "description": "Stats / KPI cards"
+        }
+      ],
+      "keywords": [
+        "card",
+        "panel",
+        "kpi",
+        "horizontal card",
+        "container"
+      ]
+    },
+    {
+      "id": "AIX-210",
+      "title": "Carousel",
+      "route": "/carousel",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/carousel/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-210.1",
+          "description": "Single slide with navigation arrows"
+        },
+        {
+          "id": "AIX-210.2",
+          "description": "Responsive multi-slide carousel"
+        },
+        {
+          "id": "AIX-210.3",
+          "description": "Carousel with pagination dots"
+        }
+      ],
+      "keywords": [
+        "carousel",
+        "slider",
+        "swiper",
+        "slides",
+        "gallery"
+      ]
+    },
+    {
+      "id": "AIX-211",
+      "title": "Dropdowns",
+      "route": "/dropdowns",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/dropdowns/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-211.1",
+          "description": "Basic dropdown menu"
+        },
+        {
+          "id": "AIX-211.2",
+          "description": "Dropdown with dividers and icons"
+        },
+        {
+          "id": "AIX-211.3",
+          "description": "Notification dropdown"
+        }
+      ],
+      "keywords": [
+        "dropdown",
+        "menu",
+        "popup",
+        "actions",
+        "notification menu"
+      ]
+    },
+    {
+      "id": "AIX-212",
+      "title": "Links",
+      "route": "/links",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/links/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-212.1",
+          "description": "Default and muted links"
+        },
+        {
+          "id": "AIX-212.2",
+          "description": "Links with icons"
+        },
+        {
+          "id": "AIX-212.3",
+          "description": "List of links"
+        }
+      ],
+      "keywords": [
+        "link",
+        "anchor",
+        "hyperlink",
+        "icon link",
+        "navigation"
+      ]
+    },
+    {
+      "id": "AIX-213",
+      "title": "List",
+      "route": "/list",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/list/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-213.1",
+          "description": "Unordered list"
+        },
+        {
+          "id": "AIX-213.2",
+          "description": "Ordered list"
+        },
+        {
+          "id": "AIX-213.3",
+          "description": "List with leading icons"
+        },
+        {
+          "id": "AIX-213.4",
+          "description": "Checklist"
+        }
+      ],
+      "keywords": [
+        "list",
+        "bullet",
+        "ordered",
+        "checklist",
+        "icons"
+      ]
+    },
+    {
+      "id": "AIX-214",
+      "title": "Modals",
+      "route": "/modals",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/modals/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-214.1",
+          "description": "Default modal"
+        },
+        {
+          "id": "AIX-214.2",
+          "description": "Vertically centered modal"
+        },
+        {
+          "id": "AIX-214.3",
+          "description": "Form in modal"
+        },
+        {
+          "id": "AIX-214.4",
+          "description": "Full screen modal"
+        },
+        {
+          "id": "AIX-214.5",
+          "description": "Modal-based alerts"
+        }
+      ],
+      "keywords": [
+        "modal",
+        "dialog",
+        "popup",
+        "overlay",
+        "fullscreen",
+        "form modal"
+      ]
+    },
+    {
+      "id": "AIX-215",
+      "title": "Notifications",
+      "route": "/notifications",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/notifications/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-215.1",
+          "description": "Notification variants (success/error/warning/info)"
+        },
+        {
+          "id": "AIX-215.2",
+          "description": "Dismissible notifications"
+        },
+        {
+          "id": "AIX-215.3",
+          "description": "Notification with action button"
+        }
+      ],
+      "keywords": [
+        "notification",
+        "toast",
+        "alert",
+        "dismissible",
+        "action"
+      ]
+    },
+    {
+      "id": "AIX-216",
+      "title": "Pagination",
+      "route": "/pagination",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/pagination/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-216.1",
+          "description": "Default pagination"
+        },
+        {
+          "id": "AIX-216.2",
+          "description": "Pagination with prev/next"
+        },
+        {
+          "id": "AIX-216.3",
+          "description": "Compact pagination"
+        }
+      ],
+      "keywords": [
+        "pagination",
+        "pager",
+        "pages",
+        "navigation",
+        "compact"
+      ]
+    },
+    {
+      "id": "AIX-217",
+      "title": "Popovers",
+      "route": "/popovers",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/popovers/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-217.1",
+          "description": "Popover placements (top/bottom/left/right)"
+        }
+      ],
+      "keywords": [
+        "popover",
+        "overlay",
+        "placement",
+        "click",
+        "tooltip panel"
+      ]
+    },
+    {
+      "id": "AIX-218",
+      "title": "Progress Bar",
+      "route": "/progress-bar",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/progress-bar/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-218.1",
+          "description": "Progress bar sizes"
+        },
+        {
+          "id": "AIX-218.2",
+          "description": "Progress bar colors"
+        },
+        {
+          "id": "AIX-218.3",
+          "description": "Progress bar with label"
+        }
+      ],
+      "keywords": [
+        "progress",
+        "bar",
+        "percentage",
+        "loading",
+        "meter"
+      ]
+    },
+    {
+      "id": "AIX-219",
+      "title": "Ribbons",
+      "route": "/ribbons",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/ribbons/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-219.1",
+          "description": "Corner ribbons on cards"
+        },
+        {
+          "id": "AIX-219.2",
+          "description": "Rounded ribbon tabs on cards"
+        }
+      ],
+      "keywords": [
+        "ribbon",
+        "corner",
+        "card decoration",
+        "label",
+        "featured"
+      ]
+    },
+    {
+      "id": "AIX-220",
+      "title": "Spinners",
+      "route": "/spinners",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/spinners/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-220.1",
+          "description": "Ring spinner sizes"
+        },
+        {
+          "id": "AIX-220.2",
+          "description": "Spinner colors"
+        },
+        {
+          "id": "AIX-220.3",
+          "description": "Bordered ring spinner for inline/button loaders"
+        },
+        {
+          "id": "AIX-220.4",
+          "description": "Bouncing dots loader"
+        }
+      ],
+      "keywords": [
+        "spinner",
+        "loader",
+        "loading",
+        "ring",
+        "dots"
+      ]
+    },
+    {
+      "id": "AIX-221",
+      "title": "Tooltips",
+      "route": "/tooltips",
+      "area": "ui-elements",
+      "file": "src/app/(admin)/(ui-elements)/tooltips/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-221.1",
+          "description": "Tooltip placements (top/bottom/left/right)"
+        }
+      ],
+      "keywords": [
+        "tooltip",
+        "hover",
+        "hint",
+        "placement",
+        "label"
+      ]
+    },
+    {
+      "id": "AIX-300",
+      "title": "Form Elements",
+      "route": "/form-elements",
+      "area": "forms-tables",
+      "file": "src/app/(admin)/(others-pages)/(forms)/form-elements/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-300.1",
+          "description": "Default inputs"
+        },
+        {
+          "id": "AIX-300.2",
+          "description": "Select inputs"
+        },
+        {
+          "id": "AIX-300.3",
+          "description": "Textarea inputs"
+        },
+        {
+          "id": "AIX-300.4",
+          "description": "Input validation states"
+        },
+        {
+          "id": "AIX-300.5",
+          "description": "Input groups"
+        },
+        {
+          "id": "AIX-300.6",
+          "description": "File input"
+        },
+        {
+          "id": "AIX-300.7",
+          "description": "Checkboxes"
+        },
+        {
+          "id": "AIX-300.8",
+          "description": "Radio buttons"
+        },
+        {
+          "id": "AIX-300.9",
+          "description": "Toggle switches"
+        },
+        {
+          "id": "AIX-300.10",
+          "description": "Dropzone file upload"
+        }
+      ],
+      "keywords": [
+        "form",
+        "input",
+        "select",
+        "checkbox",
+        "radio",
+        "toggle",
+        "dropzone"
+      ]
+    },
+    {
+      "id": "AIX-301",
+      "title": "Form Layout",
+      "route": "/form-layout",
+      "area": "forms-tables",
+      "file": "src/app/(admin)/(others-pages)/(forms)/form-layout/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-301.1",
+          "description": "Add agent form (full-width layout)"
+        },
+        {
+          "id": "AIX-301.2",
+          "description": "Two-column form grid (contact form column)"
+        },
+        {
+          "id": "AIX-301.3",
+          "description": "Invite teammate form"
+        }
+      ],
+      "keywords": [
+        "form",
+        "layout",
+        "two column",
+        "add agent",
+        "invite"
+      ]
+    },
+    {
+      "id": "AIX-310",
+      "title": "Basic Tables",
+      "route": "/basic-tables",
+      "area": "forms-tables",
+      "file": "src/app/(admin)/(others-pages)/(tables)/basic-tables/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-310.1",
+          "description": "Basic table card (BasicTableOne)"
+        }
+      ],
+      "keywords": [
+        "table",
+        "basic",
+        "rows",
+        "static",
+        "list view"
+      ]
+    },
+    {
+      "id": "AIX-311",
+      "title": "Data Tables",
+      "route": "/data-tables",
+      "area": "forms-tables",
+      "file": "src/app/(admin)/(others-pages)/(tables)/data-tables/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-311.1",
+          "description": "Deployments data table (search/sort/paginate)"
+        }
+      ],
+      "keywords": [
+        "table",
+        "datatable",
+        "sortable",
+        "search",
+        "pagination"
+      ]
+    },
+    {
+      "id": "AIX-350",
+      "title": "Line Chart",
+      "route": "/line-chart",
+      "area": "charts-maps",
+      "file": "src/app/(admin)/(others-pages)/(chart)/line-chart/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-350.1",
+          "description": "Line chart card (LineChartOne)"
+        }
+      ],
+      "keywords": [
+        "chart",
+        "line",
+        "trend",
+        "apexcharts",
+        "time series"
+      ]
+    },
+    {
+      "id": "AIX-351",
+      "title": "Bar Chart",
+      "route": "/bar-chart",
+      "area": "charts-maps",
+      "file": "src/app/(admin)/(others-pages)/(chart)/bar-chart/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-351.1",
+          "description": "Bar chart card (BarChartOne)"
+        }
+      ],
+      "keywords": [
+        "chart",
+        "bar",
+        "comparison",
+        "apexcharts",
+        "columns"
+      ]
+    },
+    {
+      "id": "AIX-352",
+      "title": "Pie Chart",
+      "route": "/pie-chart",
+      "area": "charts-maps",
+      "file": "src/app/(admin)/(others-pages)/(chart)/pie-chart/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-352.1",
+          "description": "Conversations by agent pie chart"
+        },
+        {
+          "id": "AIX-352.2",
+          "description": "Pipeline by source pie chart"
+        }
+      ],
+      "keywords": [
+        "chart",
+        "pie",
+        "donut",
+        "share",
+        "distribution"
+      ]
+    },
+    {
+      "id": "AIX-353",
+      "title": "Radar Chart",
+      "route": "/radar-chart",
+      "area": "charts-maps",
+      "file": "src/app/(admin)/(others-pages)/(chart)/radar-chart/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-353.1",
+          "description": "Agent capability radar chart"
+        }
+      ],
+      "keywords": [
+        "chart",
+        "radar",
+        "capabilities",
+        "comparison",
+        "spider"
+      ]
+    },
+    {
+      "id": "AIX-354",
+      "title": "Radial Chart",
+      "route": "/radial-chart",
+      "area": "charts-maps",
+      "file": "src/app/(admin)/(others-pages)/(chart)/radial-chart/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-354.1",
+          "description": "Quota attainment by agent radial chart"
+        },
+        {
+          "id": "AIX-354.2",
+          "description": "Overall target radial gauge"
+        }
+      ],
+      "keywords": [
+        "chart",
+        "radial",
+        "gauge",
+        "target",
+        "attainment"
+      ]
+    },
+    {
+      "id": "AIX-360",
+      "title": "Map",
+      "route": "/maps",
+      "area": "charts-maps",
+      "file": "src/app/(admin)/(others-pages)/maps/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-360.1",
+          "description": "Customer distribution map card"
+        }
+      ],
+      "keywords": [
+        "map",
+        "customers",
+        "distribution",
+        "geography",
+        "world"
+      ]
+    },
+    {
+      "id": "AIX-361",
+      "title": "Vector Map",
+      "route": "/vector-maps",
+      "area": "charts-maps",
+      "file": "src/app/(admin)/(others-pages)/vector-maps/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-361.1",
+          "description": "World vector map"
+        },
+        {
+          "id": "AIX-361.2",
+          "description": "Top regions card"
+        }
+      ],
+      "keywords": [
+        "map",
+        "vector",
+        "world",
+        "regions",
+        "geo"
+      ]
+    },
+    {
+      "id": "AIX-400",
+      "title": "Blank",
+      "route": "/blank",
+      "area": "misc-pages",
+      "file": "src/app/(admin)/(others-pages)/blank/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-400.1",
+          "description": "Empty starter card"
+        }
+      ],
+      "keywords": [
+        "blank",
+        "starter",
+        "empty",
+        "template",
+        "placeholder"
+      ]
+    },
+    {
+      "id": "AIX-401",
+      "title": "Pricing Tables",
+      "route": "/pricing-tables",
+      "area": "misc-pages",
+      "file": "src/app/(admin)/(others-pages)/pricing-tables/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-401.1",
+          "description": "Pricing plan tiers"
+        }
+      ],
+      "keywords": [
+        "pricing",
+        "plans",
+        "tiers",
+        "subscription",
+        "compare"
+      ]
+    },
+    {
+      "id": "AIX-402",
+      "title": "FAQ",
+      "route": "/faq",
+      "area": "misc-pages",
+      "file": "src/app/(admin)/(others-pages)/faq/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-402.1",
+          "description": "FAQ accordion content"
+        }
+      ],
+      "keywords": [
+        "faq",
+        "questions",
+        "accordion",
+        "help",
+        "answers"
+      ]
+    },
+    {
+      "id": "AIX-403",
+      "title": "API Keys",
+      "route": "/api-keys",
+      "area": "misc-pages",
+      "file": "src/app/(admin)/(others-pages)/api-keys/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-403.1",
+          "description": "API keys manager (create/revoke keys)"
+        },
+        {
+          "id": "AIX-403.2",
+          "description": "API usage guidance card"
+        }
+      ],
+      "keywords": [
+        "api keys",
+        "tokens",
+        "developer",
+        "security",
+        "credentials"
+      ]
+    },
+    {
+      "id": "AIX-404",
+      "title": "Integrations",
+      "route": "/integrations",
+      "area": "misc-pages",
+      "file": "src/app/(admin)/(others-pages)/integrations/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-404.1",
+          "description": "Intro description text"
+        },
+        {
+          "id": "AIX-404.2",
+          "description": "Integrations grid (connect/disconnect apps)"
+        }
+      ],
+      "keywords": [
+        "integrations",
+        "apps",
+        "connect",
+        "marketplace",
+        "tools"
+      ]
+    },
+    {
+      "id": "AIX-450",
+      "title": "Sign In",
+      "route": "/signin",
+      "area": "auth",
+      "file": "src/app/(full-width-pages)/(auth)/signin/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-450.1",
+          "description": "Sign-in form (email/password, social)"
+        }
+      ],
+      "keywords": [
+        "signin",
+        "login",
+        "auth",
+        "form",
+        "password"
+      ]
+    },
+    {
+      "id": "AIX-451",
+      "title": "Sign Up",
+      "route": "/signup",
+      "area": "auth",
+      "file": "src/app/(full-width-pages)/(auth)/signup/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-451.1",
+          "description": "Sign-up form (registration)"
+        }
+      ],
+      "keywords": [
+        "signup",
+        "register",
+        "auth",
+        "form",
+        "create account"
+      ]
+    },
+    {
+      "id": "AIX-452",
+      "title": "Reset Password",
+      "route": "/reset-password",
+      "area": "auth",
+      "file": "src/app/(full-width-pages)/(auth)/reset-password/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-452.1",
+          "description": "Reset password request form"
+        }
+      ],
+      "keywords": [
+        "reset password",
+        "forgot",
+        "auth",
+        "email",
+        "recover"
+      ]
+    },
+    {
+      "id": "AIX-453",
+      "title": "Two Step Verification",
+      "route": "/two-step-verification",
+      "area": "auth",
+      "file": "src/app/(full-width-pages)/(auth)/two-step-verification/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-453.1",
+          "description": "One-time code (OTP) verification form"
+        }
+      ],
+      "keywords": [
+        "otp",
+        "2fa",
+        "verification",
+        "code",
+        "auth"
+      ]
+    },
+    {
+      "id": "AIX-500",
+      "title": "404",
+      "route": "/error-404",
+      "area": "errors",
+      "file": "src/app/(full-width-pages)/(error-pages)/error-404/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-500.1",
+          "description": "404 error content (illustration, message, back-home link)"
+        }
+      ],
+      "keywords": [
+        "404",
+        "not found",
+        "error",
+        "page missing"
+      ]
+    },
+    {
+      "id": "AIX-501",
+      "title": "500",
+      "route": "/error-500",
+      "area": "errors",
+      "file": "src/app/(full-width-pages)/(error-pages)/error-500/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-501.1",
+          "description": "500 error content"
+        }
+      ],
+      "keywords": [
+        "500",
+        "server error",
+        "error",
+        "crash"
+      ]
+    },
+    {
+      "id": "AIX-502",
+      "title": "503",
+      "route": "/error-503",
+      "area": "errors",
+      "file": "src/app/(full-width-pages)/(error-pages)/error-503/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-502.1",
+          "description": "503 error content"
+        }
+      ],
+      "keywords": [
+        "503",
+        "unavailable",
+        "error",
+        "downtime"
+      ]
+    },
+    {
+      "id": "AIX-503",
+      "title": "Coming Soon",
+      "route": "/coming-soon",
+      "area": "errors",
+      "file": "src/app/(full-width-pages)/(error-pages)/coming-soon/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-503.1",
+          "description": "Coming soon content (countdown, notify form)"
+        }
+      ],
+      "keywords": [
+        "coming soon",
+        "countdown",
+        "launch",
+        "teaser"
+      ]
+    },
+    {
+      "id": "AIX-504",
+      "title": "Maintenance",
+      "route": "/maintenance",
+      "area": "errors",
+      "file": "src/app/(full-width-pages)/(error-pages)/maintenance/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-504.1",
+          "description": "Maintenance mode content"
+        }
+      ],
+      "keywords": [
+        "maintenance",
+        "downtime",
+        "status",
+        "offline"
+      ]
+    },
+    {
+      "id": "AIX-505",
+      "title": "Success",
+      "route": "/success",
+      "area": "errors",
+      "file": "src/app/(full-width-pages)/(error-pages)/success/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-505.1",
+          "description": "Success confirmation content"
+        }
+      ],
+      "keywords": [
+        "success",
+        "confirmation",
+        "done",
+        "thank you"
+      ]
+    },
+    {
+      "id": "AIX-550",
+      "title": "Layout One",
+      "route": "/layout-one",
+      "area": "layouts",
+      "file": "src/app/(admin)/(others-pages)/(layouts)/layout-one/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-550.1",
+          "description": "Intro description of the layout one (sidebar + top bar) pattern"
+        },
+        {
+          "id": "AIX-550.2",
+          "description": "Mock layout preview frame (app.aixccelerate.com/agents)"
+        },
+        {
+          "id": "AIX-550.3",
+          "description": "Layout recipe (how to build it with theme primitives)"
+        }
+      ],
+      "keywords": [
+        "layout",
+        "sidebar",
+        "shell",
+        "pattern",
+        "recipe"
+      ]
+    },
+    {
+      "id": "AIX-551",
+      "title": "Layout Two",
+      "route": "/layout-two",
+      "area": "layouts",
+      "file": "src/app/(admin)/(others-pages)/(layouts)/layout-two/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-551.1",
+          "description": "Intro description of the layout two (horizontal nav) pattern"
+        },
+        {
+          "id": "AIX-551.2",
+          "description": "Mock layout preview frame (app.aixccelerate.com/pipeline)"
+        },
+        {
+          "id": "AIX-551.3",
+          "description": "Layout recipe (how to build it with theme primitives)"
+        }
+      ],
+      "keywords": [
+        "layout",
+        "horizontal nav",
+        "shell",
+        "pattern",
+        "recipe"
+      ]
+    },
+    {
+      "id": "AIX-552",
+      "title": "Layout Three",
+      "route": "/layout-three",
+      "area": "layouts",
+      "file": "src/app/(admin)/(others-pages)/(layouts)/layout-three/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-552.1",
+          "description": "Intro description of the layout three (icon rail + panel) pattern"
+        },
+        {
+          "id": "AIX-552.2",
+          "description": "Mock layout preview frame (app.aixccelerate.com/agents/pepper)"
+        },
+        {
+          "id": "AIX-552.3",
+          "description": "Layout recipe (how to build it with theme primitives)"
+        }
+      ],
+      "keywords": [
+        "layout",
+        "icon rail",
+        "shell",
+        "pattern",
+        "recipe"
+      ]
+    },
+    {
+      "id": "AIX-553",
+      "title": "Layout Four",
+      "route": "/layout-four",
+      "area": "layouts",
+      "file": "src/app/(admin)/(others-pages)/(layouts)/layout-four/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-553.1",
+          "description": "Intro description of the layout four (boxed) pattern"
+        },
+        {
+          "id": "AIX-553.2",
+          "description": "Mock layout preview frame (app.aixccelerate.com/settings)"
+        },
+        {
+          "id": "AIX-553.3",
+          "description": "Layout recipe (how to build it with theme primitives)"
+        }
+      ],
+      "keywords": [
+        "layout",
+        "boxed",
+        "shell",
+        "pattern",
+        "recipe"
+      ]
+    },
+    {
+      "id": "AIX-554",
+      "title": "Layout Five",
+      "route": "/layout-five",
+      "area": "layouts",
+      "file": "src/app/(admin)/(others-pages)/(layouts)/layout-five/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-554.1",
+          "description": "Intro description of the layout five (right sidebar) pattern"
+        },
+        {
+          "id": "AIX-554.2",
+          "description": "Mock layout preview frame (app.aixccelerate.com/conversations)"
+        },
+        {
+          "id": "AIX-554.3",
+          "description": "Layout recipe (how to build it with theme primitives)"
+        }
+      ],
+      "keywords": [
+        "layout",
+        "right sidebar",
+        "shell",
+        "pattern",
+        "recipe"
+      ]
+    },
+    {
+      "id": "AIX-555",
+      "title": "Layout Six",
+      "route": "/layout-six",
+      "area": "layouts",
+      "file": "src/app/(admin)/(others-pages)/(layouts)/layout-six/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-555.1",
+          "description": "Intro description of the layout six (focused) pattern"
+        },
+        {
+          "id": "AIX-555.2",
+          "description": "Mock layout preview frame (app.aixccelerate.com/onboarding)"
+        },
+        {
+          "id": "AIX-555.3",
+          "description": "Layout recipe (how to build it with theme primitives)"
+        }
+      ],
+      "keywords": [
+        "layout",
+        "focused",
+        "shell",
+        "pattern",
+        "recipe"
+      ]
+    }
+  ],
+  "primitives": [
+    {
+      "id": "LIB-DATATABLE",
+      "name": "DataTableOne",
+      "path": "src/components/tables/DataTable/DataTableOne.tsx",
+      "props": "columns, data, searchPlaceholder, pageSizeOptions",
+      "description": "Generic client data table with search, sortable columns, pagination"
+    },
+    {
+      "id": "LIB-TABS",
+      "name": "Tabs",
+      "path": "src/components/ui/tabs/Tabs.tsx",
+      "props": "items, variant (underline | pill)",
+      "description": "Tab switcher with underline and pill variants"
+    },
+    {
+      "id": "LIB-BADGE",
+      "name": "Badge",
+      "path": "src/components/ui/badge/Badge.tsx",
+      "props": "variant (light | solid), size, color, startIcon, endIcon, children",
+      "description": "Status/label pill in 7 colors with optional icons"
+    },
+    {
+      "id": "LIB-BUTTON",
+      "name": "Button",
+      "path": "src/components/ui/button/Button.tsx",
+      "props": "children, size (sm | md), variant (primary | outline), startIcon, endIcon, onClick, disabled, className",
+      "description": "Primary/outline button with optional start/end icons"
+    },
+    {
+      "id": "LIB-CARD",
+      "name": "ComponentCard",
+      "path": "src/components/common/ComponentCard.tsx",
+      "props": "title, desc, className, children",
+      "description": "Titled card container with header and bordered body"
+    },
+    {
+      "id": "LIB-TABLE",
+      "name": "Table",
+      "path": "src/components/ui/table/index.tsx",
+      "props": "Table/TableHeader/TableBody/TableRow/TableCell \u2014 children, className, isHeader (cell)",
+      "description": "Composable table primitives (Table, TableHeader, TableBody, TableRow, TableCell)"
+    },
+    {
+      "id": "LIB-MODAL",
+      "name": "Modal",
+      "path": "src/components/ui/modal/index.tsx",
+      "props": "isOpen, onClose, showCloseButton, isFullscreen, className, children",
+      "description": "Overlay modal dialog with escape/backdrop close and fullscreen option"
+    },
+    {
+      "id": "LIB-BREADCRUMB",
+      "name": "Breadcrumb",
+      "path": "src/components/ui/breadcrumb/Breadcrumb.tsx",
+      "props": "items, variant (chevron | slash), className",
+      "description": "Breadcrumb trail with chevron or slash separators and optional item icons"
+    },
+    {
+      "id": "LIB-BUTTONGROUP",
+      "name": "ButtonGroup",
+      "path": "src/components/ui/button-group/ButtonGroup.tsx",
+      "props": "items, size (sm | md), defaultActiveIndex, activeIndex, onChange, className",
+      "description": "Segmented control / grouped buttons with controlled or uncontrolled selection"
+    },
+    {
+      "id": "LIB-CAROUSEL",
+      "name": "Carousel",
+      "path": "src/components/ui/carousel/Carousel.tsx",
+      "props": "slides, slidesPerView, spaceBetween, navigation, pagination, loop, breakpoints, className",
+      "description": "Swiper-based carousel with arrows, dots, looping, and responsive breakpoints"
+    },
+    {
+      "id": "LIB-LIST",
+      "name": "List",
+      "path": "src/components/ui/list/List.tsx",
+      "props": "items, variant (unordered | ordered | icon | check), className",
+      "description": "List in unordered, ordered, leading-icon, and checklist variants"
+    },
+    {
+      "id": "LIB-NOTIFICATION",
+      "name": "Notification",
+      "path": "src/components/ui/notification/Notification.tsx",
+      "props": "variant (success | error | warning | info), title, message, dismissible, actionLabel, onAction",
+      "description": "Toast-style notification in 4 variants with dismiss and action button"
+    },
+    {
+      "id": "LIB-PAGINATION",
+      "name": "Pagination",
+      "path": "src/components/ui/pagination/Pagination.tsx",
+      "props": "currentPage, totalPages, onPageChange, showPrevNext, variant (default | compact)",
+      "description": "Standalone pager with prev/next and compact variant"
+    },
+    {
+      "id": "LIB-POPOVER",
+      "name": "Popover",
+      "path": "src/components/ui/popover/Popover.tsx",
+      "props": "trigger, content, placement (top | bottom | left | right)",
+      "description": "Click-triggered popover panel with 4 placements and outside-click close"
+    },
+    {
+      "id": "LIB-PROGRESS",
+      "name": "ProgressBar",
+      "path": "src/components/ui/progress/ProgressBar.tsx",
+      "props": "value, size (sm | md | lg), color, showLabel, className",
+      "description": "Progress bar with size/color variants and optional percentage label"
+    },
+    {
+      "id": "LIB-RIBBON",
+      "name": "Ribbon",
+      "path": "src/components/ui/ribbon/Ribbon.tsx",
+      "props": "text, variant (corner | rounded), color",
+      "description": "Card ribbon \u2014 diagonal corner or rounded tab, in brand/semantic colors"
+    },
+    {
+      "id": "LIB-SPINNER",
+      "name": "Spinner",
+      "path": "src/components/ui/spinner/Spinner.tsx",
+      "props": "size (sm | md | lg), color (brand | gray), variant (ring | dots)",
+      "description": "Loading spinner \u2014 ring or bouncing dots"
+    },
+    {
+      "id": "LIB-TOOLTIP",
+      "name": "Tooltip",
+      "path": "src/components/ui/tooltip/Tooltip.tsx",
+      "props": "content, placement (top | bottom | left | right), children",
+      "description": "Hover tooltip with 4 placements"
+    },
+    {
+      "id": "LIB-ACCORDION",
+      "name": "Accordion",
+      "path": "src/components/ui/accordion/Accordion.tsx",
+      "props": "items, allowMultiple, defaultOpenIndex, className",
+      "description": "Expandable accordion with single or multi-open behavior"
+    },
+    {
+      "id": "LIB-AGENTAVATAR",
+      "name": "AgentAvatar",
+      "path": "src/components/aix/AgentAvatar.tsx",
+      "props": "name (AgentName), size (sm | md | lg), showStatus, status (active | training | paused)",
+      "description": "Avatar for the 6 AIX agent identities with status dot; exports AGENT_META"
+    },
+    {
+      "id": "LIB-STATCARD",
+      "name": "StatCard",
+      "path": "src/components/aix/StatCard.tsx",
+      "props": "label, value, delta, deltaLabel, icon, invertDelta",
+      "description": "KPI card with value, delta pill (invertible for down-is-good metrics), optional icon"
+    },
+    {
+      "id": "LIB-AGENTHERO",
+      "name": "AgentHero",
+      "path": "src/components/aix/dashboards/AgentHero.tsx",
+      "props": "name (AgentName), tagline, stats, status (active | training | paused)",
+      "description": "Agent dashboard hero band with identity, tagline, inline stats, and status badge"
+    },
+    {
+      "id": "LIB-PROMPTCOMPOSER",
+      "name": "PromptComposer",
+      "path": "src/components/ai/PromptComposer.tsx",
+      "props": "placeholder, buttonLabel, maxLength",
+      "description": "AI prompt input with model selector (Claude Sonnet/Opus/Haiku) and character count"
+    }
+  ]
+}

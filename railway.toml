@@ -1,0 +1,11 @@
+# mike-frontend — set Railway root directory to: frontend
+
+[build]
+builder = "nixpacks"
+buildCommand = "npm run build"
+
+[deploy]
+startCommand = "npm run start -- -H 0.0.0.0 -p $PORT"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
+restartPolicyType = "on_failure"
