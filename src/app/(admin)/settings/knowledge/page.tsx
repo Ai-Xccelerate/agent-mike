@@ -1,32 +1,13 @@
-import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
+import WorkerKnowledge from "@/components/worker/WorkerKnowledge";
 import { cardClass } from "@/components/worker/settings/ui";
-import Link from "next/link";
-import Button from "@/components/ui/button/Button";
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "Knowledge settings | AI Worker" };
+export const metadata: Metadata = { title: "Knowledge | AI Worker" };
 
 export default function KnowledgeSettingsPage() {
   return (
     <>
-      <SettingsPageHeader
-        title="Knowledge"
-        description="How this worker's own operating knowledge is stored and searched."
-      />
-      <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Default: markdown + full-text search</h2>
-        <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-          No vector or graph database for a worker's own operating knowledge. A worker's file count realistically stays
-          in the tens to low hundreds — well under a model's context window — so Postgres full-text search is a
-          low-operations baseline with no embedding provider to run, and it tends to be more accurate for exact
-          product names, error codes, and terminology.
-        </p>
-        <Link href="/knowledge" className="mt-4 inline-block">
-          <Button size="sm" variant="outline">
-            Manage documents
-          </Button>
-        </Link>
-      </section>
+      <WorkerKnowledge />
 
       <section className={cardClass}>
         <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">External knowledge base (vector + graph)</h2>

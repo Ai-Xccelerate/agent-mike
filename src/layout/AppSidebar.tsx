@@ -2,16 +2,18 @@
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
-import { ChatIcon, DocsIcon, GridIcon, MailIcon, UserCircleIcon } from "@/icons";
+import { ChatIcon, GridIcon, MailIcon, UserCircleIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
 
+// Knowledge lives under Settings (R14 lists it as one of the ten dedicated
+// capability pages), not as a top-level operational section like the three
+// below — those are the day-to-day surfaces, not configuration.
 const primaryNav: { name: string; path: string; icon: React.FC }[] = [
   { name: "Overview", path: "/", icon: GridIcon },
   { name: "Inbox", path: "/inbox", icon: MailIcon },
   { name: "Chat", path: "/chat", icon: ChatIcon },
-  { name: "Knowledge", path: "/knowledge", icon: DocsIcon },
 ];
 
 export default function AppSidebar() {
