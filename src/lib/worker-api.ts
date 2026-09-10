@@ -39,13 +39,23 @@ export type ChannelsConfig = {
   voice: boolean;
 };
 
+export type WorkerStatus = "active" | "paused";
+
 export type WorkerProfile = {
   id: string;
   organizationId: string;
   name: string;
   displayName: string;
   avatarInitials: string;
+  slug: string;
+  status: WorkerStatus;
+  avatarUrl: string | null;
+  accentColor: string;
+  bio: string;
+  timezone: string;
+  locale: string;
   email: string | null;
+  emailSignature: string;
   tone: string;
   role: string;
   jobDescription: string | null;
@@ -96,6 +106,18 @@ export type ChatResponse = {
 
 export type ApiFetchOptions = RequestInit & { widgetSiteToken?: string };
 
+export class WorkerApiError extends Error {
+  status: number;
+  errors?: Record<string, string>;
+
+  constructor(message: string, status: number, errors?: Record<string, string>) {
+    super(message);
+    this.name = "WorkerApiError";
+    this.status = status;
+    this.errors = errors;
+  }
+}
+
 /**
  * No auth header, no login redirect — the backend's default identity adapter
  * resolves every manager request to one org with no session required. A
@@ -119,7 +141,16 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
   const response = await fetch(`/api/v1${path}`, { ...requestInit, headers });
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || `Request failed with ${response.status}`);
+    let errors: Record<string, string> | undefined;
+    let message = detail || `Request failed with ${response.status}`;
+    try {
+      const parsed = JSON.parse(detail) as { error?: string; errors?: Record<string, string> };
+      if (parsed?.errors && typeof parsed.errors === "object") errors = parsed.errors;
+      if (typeof parsed?.error === "string") message = parsed.error;
+    } catch {
+      /* keep the raw body as the message */
+    }
+    throw new WorkerApiError(message, response.status, errors);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

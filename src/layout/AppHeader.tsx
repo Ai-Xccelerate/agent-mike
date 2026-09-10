@@ -1,9 +1,11 @@
 "use client";
+import AgentAvatar from "@/components/aix/AgentAvatar";
 import { ThemeToggleButton } from "@/components/common/ThemeToggleButton";
 import DensityDropdown from "@/components/header/DensityDropdown";
 import NotificationDropdown from "@/components/header/NotificationDropdown";
 import UserDropdown from "@/components/header/UserDropdown";
 import { useSidebar } from "@/context/SidebarContext";
+import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import Link from "next/link";
 import React, { useState, useRef } from "react";
@@ -17,6 +19,9 @@ const AppHeader: React.FC = () => {
   });
 
   const { isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
+  const identity = useWorkerIdentity();
+  const displayName = identity?.displayName ?? "AI Worker";
+  const initials = identity?.avatarInitials ?? "AW";
 
   const handleToggle = () => {
     if (window.innerWidth >= 1024) {
@@ -78,8 +83,13 @@ const AppHeader: React.FC = () => {
           </button>
 
           <Link href="/" className="flex items-center gap-2 lg:hidden">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-brand-500 font-display font-bold text-white">AI</span>
-            <span className="font-display text-sm font-semibold text-gray-900 dark:text-white">AI Worker</span>
+            <AgentAvatar
+              initials={initials}
+              size="sm"
+              accentColor={identity?.accentColor}
+              avatarUrl={identity?.avatarUrl}
+            />
+            <span className="font-display text-sm font-semibold text-gray-900 dark:text-white">{displayName}</span>
           </Link>
 
           <button

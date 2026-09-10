@@ -12,7 +12,7 @@ const CHANNEL_LABELS: { key: keyof ChannelsConfig; label: string; description: s
 ];
 
 export default function ChannelsSettings() {
-  const { profile, update, save, saving, notice, noticeError } = useWorkerProfile();
+  const { profile, update, save, discard, dirty, saving, notice, noticeError, lastEditedAt } = useWorkerProfile();
   if (!profile) return null;
 
   function toggle(key: keyof ChannelsConfig) {
@@ -25,9 +25,12 @@ export default function ChannelsSettings() {
         title="Channels"
         description="Attachments, live take-over, and conversation history are standardized across every channel below."
         onSave={() => save(["channelsConfig"])}
+        onDiscard={discard}
+        dirty={dirty}
         saving={saving}
         notice={notice}
         noticeError={noticeError}
+        lastEditedAt={lastEditedAt}
       />
       <section className={cardClass}>
         <div className="divide-y divide-gray-100 dark:divide-gray-800">

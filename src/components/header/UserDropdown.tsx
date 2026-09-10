@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from "react";
+import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
 import { Dropdown } from "../ui/dropdown/Dropdown";
 import { DropdownItem } from "../ui/dropdown/DropdownItem";
 
@@ -11,6 +12,9 @@ import { DropdownItem } from "../ui/dropdown/DropdownItem";
  */
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
+  const identity = useWorkerIdentity();
+  const managerName = identity?.managerName ?? "Manager";
+  const managerInitial = managerName.trim().charAt(0).toUpperCase() || "M";
 
   function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
     e.stopPropagation();
@@ -28,10 +32,10 @@ export default function UserDropdown() {
         className="flex items-center text-gray-700 dark:text-gray-400 dropdown-toggle"
       >
         <span className="mr-3 flex h-11 w-11 items-center justify-center rounded-full bg-gray-200 text-sm font-semibold text-gray-700 dark:bg-gray-700 dark:text-white/90">
-          M
+          {managerInitial}
         </span>
         <span className="mr-1 hidden max-w-[140px] truncate font-medium text-theme-sm sm:block">
-          Manager
+          {managerName}
         </span>
         <svg
           className={`stroke-gray-500 dark:stroke-gray-400 transition-transform duration-200 ${
@@ -60,10 +64,10 @@ export default function UserDropdown() {
       >
         <div>
           <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
-            Manager
+            {managerName}
           </span>
           <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-            Set the manager's name and email under Settings → Human manager.
+            {identity?.managerEmail ?? "Set the manager's name and email under Settings → Human manager."}
           </span>
         </div>
 

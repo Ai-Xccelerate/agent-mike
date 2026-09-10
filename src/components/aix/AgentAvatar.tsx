@@ -1,10 +1,9 @@
 import React from "react";
 
 /**
- * Generic, white-labelable avatar: initials on a deterministic color, not a
- * bespoke portrait for a specific named agent. R16 requires an editable
- * worker name/identity per deployment — a template can't ship with art for
- * one fictional persona baked in.
+ * Generic, white-labelable avatar: initials on a stored accent colour, or an
+ * optional image URL. R16 requires an editable worker name/identity per
+ * deployment — a template can't ship with art for one fictional persona baked in.
  */
 
 interface AgentAvatarProps {
@@ -12,6 +11,8 @@ interface AgentAvatarProps {
   size?: "sm" | "md" | "lg";
   showStatus?: boolean;
   status?: "active" | "training" | "paused";
+  accentColor?: string;
+  avatarUrl?: string | null;
 }
 
 const sizeClasses = {
@@ -39,15 +40,23 @@ export default function AgentAvatar({
   size = "md",
   showStatus = false,
   status = "active",
+  accentColor,
+  avatarUrl,
 }: AgentAvatarProps) {
   const hue = hueFrom(initials || "AW");
+  const background = accentColor || `hsl(${hue} 55% 45%)`;
   return (
     <span className="relative inline-flex shrink-0">
       <span
         className={`relative flex items-center justify-center overflow-hidden rounded-full font-semibold text-white ring-1 ring-black/5 dark:ring-white/10 ${sizeClasses[size]}`}
-        style={{ backgroundColor: `hsl(${hue} 55% 45%)` }}
+        style={{ backgroundColor: background }}
       >
-        {initials.slice(0, 2).toUpperCase()}
+        {avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={avatarUrl} alt="" className="size-full object-cover" />
+        ) : (
+          initials.slice(0, 2).toUpperCase()
+        )}
       </span>
       {showStatus && (
         <span

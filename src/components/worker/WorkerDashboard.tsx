@@ -82,6 +82,9 @@ export default function WorkerDashboard() {
       <WorkerHero
         displayName={profile?.displayName ?? "AI Worker"}
         avatarInitials={profile?.avatarInitials ?? "AW"}
+        accentColor={profile?.accentColor}
+        avatarUrl={profile?.avatarUrl}
+        status={profile?.status}
         tagline={profile?.role ?? "Configure this worker's role under Settings."}
         stats={[
           { label: "Auto-resolved", value: `${stats.autoResolutionRate}%` },

@@ -8,5 +8,9 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Identity | AI Worker" };
 
 export default function IdentitySettingsPage() {
-  return <IdentitySettings />;
+  return (
+    <div data-aix-id="AIX-160">
+      <IdentitySettings />
+    </div>
+  );
 }

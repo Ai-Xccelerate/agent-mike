@@ -233,7 +233,14 @@ export default function WorkerInbox() {
                   return (
                     <article key={message.id} className={`flex gap-3 ${message.senderType === "customer" ? "" : "flex-row-reverse"}`}>
                       {isAgent ? (
-                        <AgentAvatar initials={profile?.avatarInitials ?? "AW"} size="sm" showStatus />
+                        <AgentAvatar
+                          initials={profile?.avatarInitials ?? "AW"}
+                          size="sm"
+                          showStatus
+                          status={profile?.status}
+                          accentColor={profile?.accentColor}
+                          avatarUrl={profile?.avatarUrl}
+                        />
                       ) : (
                         <span
                           className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${

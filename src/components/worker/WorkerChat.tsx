@@ -6,6 +6,7 @@ import WorkerChatRail from "@/components/worker/WorkerChatRail";
 import Badge from "@/components/ui/badge/Badge";
 import { DocsIcon, PaperPlaneIcon } from "@/icons";
 import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
+import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 const SAMPLE_PROMPTS = [
@@ -74,6 +75,12 @@ export function ChatPanel({
   useEffect(() => {
     if (compact) return;
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
+    const update = (event: Event) => {
+      const next = (event as CustomEvent<WorkerProfile>).detail;
+      if (next) setProfile(next);
+    };
+    window.addEventListener(IDENTITY_UPDATED_EVENT, update);
+    return () => window.removeEventListener(IDENTITY_UPDATED_EVENT, update);
   }, [compact]);
 
   // Compact (public widget): unchanged — a single ongoing conversation
@@ -214,6 +221,8 @@ export function ChatPanel({
 
   const displayName = profile?.displayName ?? "AI Worker";
   const avatarInitials = profile?.avatarInitials ?? "AW";
+  const accentColor = profile?.accentColor;
+  const avatarUrl = profile?.avatarUrl;
   const isBlank = !compact && !externalConversationId && messages.length <= 1;
 
   if (compact && !siteToken?.trim()) {
@@ -245,7 +254,14 @@ export function ChatPanel({
               </svg>
             </button>
           )}
-          <AgentAvatar initials={avatarInitials} size="md" showStatus />
+          <AgentAvatar
+            initials={avatarInitials}
+            size="md"
+            showStatus
+            status={profile?.status}
+            accentColor={accentColor}
+            avatarUrl={avatarUrl}
+          />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">{displayName}</p>
             <p className="truncate text-xs text-gray-500 dark:text-gray-400">Online</p>
@@ -291,7 +307,7 @@ export function ChatPanel({
           return (
             <div key={message.id} className={`flex gap-2.5 ${isAgent ? "" : "flex-row-reverse"}`}>
               {isAgent ? (
-                <AgentAvatar initials={avatarInitials} size="sm" />
+                <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
               ) : (
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gray-800 text-xs font-semibold text-white dark:bg-gray-200 dark:text-gray-800">
                   Y
@@ -346,7 +362,7 @@ export function ChatPanel({
 
         {loading && (
           <div className="flex items-center gap-2.5">
-            <AgentAvatar initials={avatarInitials} size="sm" />
+            <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
             <div className="flex gap-1 rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-white/[0.04]">
               <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
               <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />

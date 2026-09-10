@@ -7,7 +7,7 @@ import { useWorkerProfile } from "@/lib/use-worker-profile";
 const MODELS = ["gpt-5.6-luna", "gpt-5.6-sol"];
 
 export default function AgentConfigurationSettings() {
-  const { profile, update, save, saving, notice, noticeError } = useWorkerProfile();
+  const { profile, update, save, discard, dirty, saving, notice, noticeError, lastEditedAt } = useWorkerProfile();
   if (!profile) return null;
 
   return (
@@ -16,9 +16,12 @@ export default function AgentConfigurationSettings() {
         title="Agent configuration"
         description="The underlying model and system prompt — exposed and editable without a code deployment (R15)."
         onSave={() => save(["model", "maxAgentTurns", "systemPromptTemplate"])}
+        onDiscard={discard}
+        dirty={dirty}
         saving={saving}
         notice={notice}
         noticeError={noticeError}
+        lastEditedAt={lastEditedAt}
       />
 
       <section className={cardClass}>

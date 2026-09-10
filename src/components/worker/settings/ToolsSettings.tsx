@@ -13,7 +13,7 @@ const TOOL_LABELS: { key: keyof ToolsConfig; label: string; description: string 
 ];
 
 export default function ToolsSettings() {
-  const { profile, update, save, saving, notice, noticeError } = useWorkerProfile();
+  const { profile, update, save, discard, dirty, saving, notice, noticeError, lastEditedAt } = useWorkerProfile();
   if (!profile) return null;
 
   function toggle(key: keyof ToolsConfig) {
@@ -26,9 +26,12 @@ export default function ToolsSettings() {
         title="Tools"
         description="Toggle general-purpose capabilities. Each one is a decoupled, externally-connected integration — never baked into the harness."
         onSave={() => save(["toolsConfig"])}
+        onDiscard={discard}
+        dirty={dirty}
         saving={saving}
         notice={notice}
         noticeError={noticeError}
+        lastEditedAt={lastEditedAt}
       />
       <section className={cardClass}>
         <div className="divide-y divide-gray-100 dark:divide-gray-800">

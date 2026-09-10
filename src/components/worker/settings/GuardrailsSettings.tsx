@@ -5,7 +5,7 @@ import { cardClass, fieldClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
 export default function GuardrailsSettings() {
-  const { profile, update, save, saving, notice, noticeError } = useWorkerProfile();
+  const { profile, update, save, discard, dirty, saving, notice, noticeError, lastEditedAt } = useWorkerProfile();
   if (!profile) return null;
 
   return (
@@ -14,9 +14,12 @@ export default function GuardrailsSettings() {
         title="Guardrails"
         description="Deterministic checks that run before the model — low-confidence answers never auto-send."
         onSave={() => save(["confidenceThreshold", "escalationTerms", "allowedDomains", "requireUserVerification"])}
+        onDiscard={discard}
+        dirty={dirty}
         saving={saving}
         notice={notice}
         noticeError={noticeError}
+        lastEditedAt={lastEditedAt}
       />
 
       <section className={cardClass}>

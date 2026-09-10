@@ -2,6 +2,7 @@
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
+import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
 import { ChatIcon, GridIcon, MailIcon, UserCircleIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -21,6 +22,9 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const showLabels = isExpanded || isHovered || isMobileOpen;
   const settingsActive = pathname.startsWith("/settings");
+  const identity = useWorkerIdentity();
+  const displayName = identity?.displayName ?? "AI Worker";
+  const initials = identity?.avatarInitials ?? "AW";
 
   return (
     <aside
@@ -33,14 +37,21 @@ export default function AppSidebar() {
     >
       <Link
         href="/"
-        title={!showLabels ? "AI Worker" : undefined}
+        title={!showLabels ? displayName : undefined}
         className={`flex h-20 items-center gap-3 px-2 ${showLabels ? "justify-start" : "justify-center"}`}
       >
-        <AgentAvatar initials="AW" size="md" />
+        <AgentAvatar
+          initials={initials}
+          size="md"
+          accentColor={identity?.accentColor}
+          avatarUrl={identity?.avatarUrl}
+          status={identity?.status}
+          showStatus
+        />
         {showLabels && (
           <span className="min-w-0">
-            <span className="block font-display text-base font-semibold tracking-tight text-gray-900 dark:text-white">
-              AI Worker
+            <span className="block truncate font-display text-base font-semibold tracking-tight text-gray-900 dark:text-white">
+              {displayName}
             </span>
             <span className="block text-xs text-gray-500 dark:text-gray-400">AI Xccelerate</span>
           </span>

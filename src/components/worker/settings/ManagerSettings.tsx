@@ -5,7 +5,7 @@ import { cardClass, fieldClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
 export default function ManagerSettings() {
-  const { profile, update, save, saving, notice, noticeError } = useWorkerProfile();
+  const { profile, update, save, discard, dirty, saving, notice, noticeError, lastEditedAt } = useWorkerProfile();
   if (!profile) return null;
 
   return (
@@ -14,9 +14,12 @@ export default function ManagerSettings() {
         title="Human manager"
         description="This worker routes sensitive or unsupported conversations to this person."
         onSave={() => save(["managerName", "managerEmail"])}
+        onDiscard={discard}
+        dirty={dirty}
         saving={saving}
         notice={notice}
         noticeError={noticeError}
+        lastEditedAt={lastEditedAt}
       />
       <section className={cardClass}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

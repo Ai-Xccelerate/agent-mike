@@ -993,6 +993,35 @@
       ]
     },
     {
+      "id": "AIX-160",
+      "title": "Worker Identity",
+      "route": "/settings/identity",
+      "area": "ai-tools",
+      "file": "src/app/(admin)/settings/identity/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-160.1",
+          "description": "Identity basics: names, slug, status, initials, accent colour, avatar URL"
+        },
+        {
+          "id": "AIX-160.2",
+          "description": "Voice: tone and short bio"
+        },
+        {
+          "id": "AIX-160.3",
+          "description": "Sign-off: timezone, locale, email, email signature"
+        }
+      ],
+      "keywords": [
+        "identity",
+        "settings",
+        "worker",
+        "avatar",
+        "slug",
+        "white-label"
+      ]
+    },
+    {
       "id": "AIX-155",
       "title": "AI Assistant",
       "route": "/assistant",
