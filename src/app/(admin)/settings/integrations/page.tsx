@@ -5,6 +5,9 @@ import { PlugInIcon } from "@/icons";
 import Badge from "@/components/ui/badge/Badge";
 import type { Metadata } from "next";
 
+// Never let this page get stuck as stale prerendered/cached HTML across deploys.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = { title: "Integrations | AI Worker" };
 
 const platformIntegrations = [

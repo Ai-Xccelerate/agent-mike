@@ -2,6 +2,9 @@ import WorkerKnowledge from "@/components/worker/WorkerKnowledge";
 import { cardClass } from "@/components/worker/settings/ui";
 import type { Metadata } from "next";
 
+// Never let this page get stuck as stale prerendered/cached HTML across deploys.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = { title: "Knowledge | AI Worker" };
 
 export default function KnowledgeSettingsPage() {
