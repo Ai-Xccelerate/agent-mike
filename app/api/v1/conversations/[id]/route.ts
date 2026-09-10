@@ -32,13 +32,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const status = body?.status as string | undefined;
-  if (!status || !VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])) {
+  const subject = body?.subject as string | undefined;
+
+  if (status === undefined && subject === undefined) {
+    return NextResponse.json({ error: "Provide status and/or subject" }, { status: 400 });
+  }
+  if (status !== undefined && !VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])) {
     return NextResponse.json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }, { status: 400 });
+  }
+  if (subject !== undefined && !subject.trim()) {
+    return NextResponse.json({ error: "subject cannot be empty" }, { status: 400 });
   }
 
   const [updated] = await db
     .update(conversations)
-    .set({ status, updatedAt: new Date() })
+    .set({
+      ...(status !== undefined ? { status } : {}),
+      ...(subject !== undefined ? { subject: subject.trim() } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(conversations.id, conversation.id))
     .returning();
 
