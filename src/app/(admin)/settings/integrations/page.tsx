@@ -1,4 +1,5 @@
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
+import WidgetInstallCard from "@/components/worker/settings/WidgetInstallCard";
 import { cardClass } from "@/components/worker/settings/ui";
 import { PlugInIcon } from "@/icons";
 import Badge from "@/components/ui/badge/Badge";
@@ -35,6 +36,16 @@ export default function IntegrationsSettingsPage() {
               </Badge>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className={cardClass}>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Website widget</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Grouped here with other connected-tool cards — Channels stays pure on/off toggles, nothing to copy-paste.
+        </p>
+        <div className="mt-4">
+          <WidgetInstallCard />
         </div>
       </section>
 

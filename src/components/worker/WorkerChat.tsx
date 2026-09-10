@@ -2,11 +2,11 @@
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import Markdown from "@/components/worker/Markdown";
+import WorkerChatRail from "@/components/worker/WorkerChatRail";
 import Badge from "@/components/ui/badge/Badge";
-import Button from "@/components/ui/button/Button";
 import { DocsIcon, PaperPlaneIcon } from "@/icons";
-import { apiFetch, ChatResponse, Conversation, Message, WidgetSite, WorkerProfile } from "@/lib/worker-api";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 const SAMPLE_PROMPTS = [
   "My sign-in code never arrived",
@@ -38,27 +38,36 @@ function welcomeMessage(profile: WorkerProfile | null): Message {
 
 export function ChatPanel({
   compact = false,
-  onReady,
   onClose,
   siteToken,
+  conversationId: externalConversationId = null,
+  onConversationCreated,
+  onConversationChanged,
+  onToggleRail,
 }: {
   compact?: boolean;
-  onReady?: (api: { sendPrompt: (text: string) => void }) => void;
   onClose?: () => void;
   /** Required for public widget embeds — org is resolved from this token. */
   siteToken?: string;
+  /** Manager mode only: which test conversation the rail has selected. null = new/untitled. */
+  conversationId?: string | null;
+  onConversationCreated?: (id: string) => void;
+  onConversationChanged?: () => void;
+  onToggleRail?: () => void;
 }) {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [conversationId, setConversationId] = useState<string>();
+  const [compactConversationId, setCompactConversationId] = useState<string>();
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [escalated, setEscalated] = useState(false);
   const [preview, setPreview] = useState(false);
-  const [restoring, setRestoring] = useState(true);
+  const [restoring, setRestoring] = useState(compact);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const sendTextRef = useRef<(text: string) => Promise<void>>(async () => undefined);
+  const loadedIdRef = useRef<string | null>(null);
+
+  const conversationId = compact ? compactConversationId : (externalConversationId ?? undefined);
 
   // Profile isn't needed for widget embeds (org identity is generic there),
   // only for the manager test bench where it drives the welcome message.
@@ -67,34 +76,24 @@ export function ChatPanel({
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
   }, [compact]);
 
+  // Compact (public widget): unchanged — a single ongoing conversation
+  // restored from sessionStorage, no rail to select from.
   useEffect(() => {
+    if (!compact) return;
     let cancelled = false;
     async function restore() {
       try {
-        const raw = sessionStorage.getItem(storageKey(compact));
+        const raw = sessionStorage.getItem(storageKey(true));
         if (!raw) {
           setMessages([welcomeMessage(profile)]);
           return;
         }
         const stored = JSON.parse(raw) as StoredChat;
-        if (!stored.conversationId) {
-          setMessages(stored.messages?.length ? stored.messages : [welcomeMessage(profile)]);
-          setEscalated(Boolean(stored.escalated));
-          return;
-        }
-        setConversationId(stored.conversationId);
-        if (compact) {
-          setMessages(stored.messages?.length ? stored.messages : [welcomeMessage(profile)]);
-          setEscalated(Boolean(stored.escalated));
-          return;
-        }
-        const conversation = await apiFetch<Conversation>(`/conversations/${stored.conversationId}`);
-        if (cancelled) return;
-        setEscalated(conversation.status === "needs_human");
-        const restored = conversation.messages?.length ? conversation.messages : stored.messages;
-        setMessages(restored?.length ? restored : [welcomeMessage(profile)]);
+        setCompactConversationId(stored.conversationId);
+        setMessages(stored.messages?.length ? stored.messages : [welcomeMessage(profile)]);
+        setEscalated(Boolean(stored.escalated));
       } catch {
-        sessionStorage.removeItem(storageKey(compact));
+        sessionStorage.removeItem(storageKey(true));
         setMessages([welcomeMessage(profile)]);
       } finally {
         if (!cancelled) setRestoring(false);
@@ -108,9 +107,42 @@ export function ChatPanel({
   }, [compact, profile === null]);
 
   useEffect(() => {
-    if (restoring) return;
-    sessionStorage.setItem(storageKey(compact), JSON.stringify({ conversationId, messages, escalated } satisfies StoredChat));
-  }, [compact, conversationId, messages, escalated, restoring]);
+    if (!compact || restoring) return;
+    sessionStorage.setItem(
+      storageKey(true),
+      JSON.stringify({ conversationId: compactConversationId, messages, escalated } satisfies StoredChat),
+    );
+  }, [compact, compactConversationId, messages, escalated, restoring]);
+
+  // Manager mode: the rail owns which conversation is selected. Load its
+  // transcript when the selection changes; reset to a blank slate when
+  // nothing is selected (a "New" conversation, not yet sent).
+  useEffect(() => {
+    if (compact) return;
+    if (!externalConversationId) {
+      loadedIdRef.current = null;
+      setMessages([welcomeMessage(profile)]);
+      setEscalated(false);
+      setPreview(false);
+      return;
+    }
+    if (loadedIdRef.current === externalConversationId) return; // already showing it (e.g. just created)
+    loadedIdRef.current = externalConversationId;
+    let cancelled = false;
+    (async () => {
+      try {
+        const conversation = await apiFetch<Conversation>(`/conversations/${externalConversationId}`);
+        if (cancelled) return;
+        setEscalated(conversation.status === "needs_human");
+        setMessages(conversation.messages?.length ? conversation.messages : [welcomeMessage(profile)]);
+      } catch {
+        if (!cancelled) setMessages([welcomeMessage(profile)]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [compact, externalConversationId, profile]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -139,7 +171,13 @@ export function ChatPanel({
         widgetSiteToken: compact ? siteToken : undefined,
         body: JSON.stringify({ message: trimmed, conversation_id: conversationId }),
       });
-      setConversationId(response.conversation_id);
+      if (compact) {
+        setCompactConversationId(response.conversation_id);
+      } else {
+        loadedIdRef.current = response.conversation_id;
+        if (!externalConversationId) onConversationCreated?.(response.conversation_id);
+        onConversationChanged?.();
+      }
       setMessages((items) => [...items, response.message]);
       setEscalated(response.escalated);
       setPreview(false);
@@ -163,15 +201,10 @@ export function ChatPanel({
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
-  sendTextRef.current = sendText;
 
-  useEffect(() => {
-    onReady?.({ sendPrompt: (text: string) => void sendTextRef.current(text) });
-  }, [onReady]);
-
-  async function startNewChat() {
-    sessionStorage.removeItem(storageKey(compact));
-    setConversationId(undefined);
+  async function startNewCompactChat() {
+    sessionStorage.removeItem(storageKey(true));
+    setCompactConversationId(undefined);
     setMessages([{ ...welcomeMessage(profile), createdAt: new Date().toISOString() }]);
     setEscalated(false);
     setPreview(false);
@@ -181,6 +214,7 @@ export function ChatPanel({
 
   const displayName = profile?.displayName ?? "AI Worker";
   const avatarInitials = profile?.avatarInitials ?? "AW";
+  const isBlank = !compact && !externalConversationId && messages.length <= 1;
 
   if (compact && !siteToken?.trim()) {
     return (
@@ -195,12 +229,22 @@ export function ChatPanel({
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-gray-900 ${
-        compact ? "rounded-2xl" : "rounded-2xl border border-gray-200 dark:border-gray-800"
-      }`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-gray-900 ${compact ? "rounded-2xl" : ""}`}
     >
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
         <div className="flex min-w-0 items-center gap-3">
+          {onToggleRail && (
+            <button
+              type="button"
+              onClick={onToggleRail}
+              aria-label="Show conversation list"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 lg:hidden"
+            >
+              <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
           <AgentAvatar initials={avatarInitials} size="md" showStatus />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">{displayName}</p>
@@ -208,10 +252,10 @@ export function ChatPanel({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {(conversationId || messages.length > 1) && (
+          {compact && (compactConversationId || messages.length > 1) && (
             <button
               type="button"
-              onClick={() => void startNewChat()}
+              onClick={() => void startNewCompactChat()}
               className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-white/5 dark:hover:text-gray-200"
             >
               New chat
@@ -228,7 +272,7 @@ export function ChatPanel({
               title="Close chat"
               className="flex size-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-white/5 dark:hover:text-gray-200"
             >
-              <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </button>
@@ -280,6 +324,26 @@ export function ChatPanel({
             </div>
           );
         })}
+
+        {isBlank && !loading && (
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 pt-2 text-center">
+            <p className="text-sm font-semibold text-gray-800 dark:text-white/90">Try the customer experience</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Live identity, guardrails, and knowledge.</p>
+            <div className="mt-1 flex w-full flex-col gap-2">
+              {SAMPLE_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => void sendText(prompt)}
+                  className="block w-full rounded-lg border border-gray-200 px-3 py-2.5 text-left text-xs text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
+                >
+                  "{prompt}"
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {loading && (
           <div className="flex items-center gap-2.5">
             <AgentAvatar initials={avatarInitials} size="sm" />
@@ -334,83 +398,28 @@ export function ChatPanel({
 }
 
 export default function WorkerChat() {
-  const chatApiRef = useRef<{ sendPrompt: (text: string) => void } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState("");
-
-  const embedSnippet = useMemo(
-    () => (siteToken: string) => {
-      const origin = window.location.origin;
-      const src = `${origin}/widget?site=${encodeURIComponent(siteToken)}`;
-      return `<!-- AI Worker website widget (bound to your organization) -->
-<iframe
-  src="${src}"
-  title="Chat"
-  style="position:fixed;right:0;bottom:0;width:420px;height:720px;max-width:100vw;max-height:100vh;border:0;z-index:2147483646;background:transparent;color-scheme:light"
-></iframe>`;
-    },
-    [],
-  );
-
-  async function copyEmbed() {
-    setCopyError("");
-    try {
-      const site = await apiFetch<WidgetSite>("/widget-site");
-      if (!site.siteToken) throw new Error("No site token");
-      await navigator.clipboard.writeText(embedSnippet(site.siteToken));
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-      setCopyError("Could not create your org embed. Try again.");
-    }
-  }
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [railOpen, setRailOpen] = useState(false);
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 gap-5 overflow-hidden xl:grid-cols-[minmax(0,1fr)_280px] md:gap-6">
-      <div className="min-h-0 min-w-0 h-full">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800">
+      <WorkerChatRail
+        selectedId={selectedId}
+        refreshKey={refreshKey}
+        open={railOpen}
+        onClose={() => setRailOpen(false)}
+        onSelect={setSelectedId}
+        onNew={() => setSelectedId(null)}
+      />
+      <div className="min-h-0 min-w-0 flex-1">
         <ChatPanel
-          onReady={(api) => {
-            chatApiRef.current = api;
-          }}
+          conversationId={selectedId}
+          onConversationCreated={setSelectedId}
+          onConversationChanged={() => setRefreshKey((k) => k + 1)}
+          onToggleRail={() => setRailOpen(true)}
         />
       </div>
-      <aside className="hidden min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain xl:flex">
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-          <Badge size="sm" color="info">
-            Test bench
-          </Badge>
-          <h1 className="mt-3 font-display text-xl font-semibold tracking-tight text-gray-900 dark:text-white">
-            Try the customer experience
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-            Live identity, guardrails, and knowledge. Prompts send into the chat.
-          </p>
-          <div className="mt-5 space-y-2">
-            {SAMPLE_PROMPTS.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                className="block w-full rounded-lg border border-gray-200 px-3 py-2.5 text-left text-xs text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
-                onClick={() => chatApiRef.current?.sendPrompt(prompt)}
-              >
-                "{prompt}"
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-white/90">Website install</h2>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            The snippet is bound to this organization — anyone who embeds it talks to your knowledge and inbox.
-          </p>
-          <Button size="sm" variant="outline" className="mt-4 w-full" onClick={() => void copyEmbed()}>
-            {copied ? "Copied!" : "Copy embed snippet"}
-          </Button>
-          {copied && <p className="mt-2 text-center text-xs font-medium text-success-600 dark:text-success-400">Widget snippet copied to clipboard</p>}
-          {copyError && <p className="mt-2 text-center text-xs font-medium text-error-600 dark:text-error-400">{copyError}</p>}
-        </div>
-      </aside>
     </div>
   );
 }
