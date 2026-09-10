@@ -1,0 +1,11 @@
+# AI-worker-backend
+
+[build]
+builder = "nixpacks"
+buildCommand = "npm run build"
+
+[deploy]
+startCommand = "npx drizzle-kit migrate && npm run start -- -H 0.0.0.0 -p $PORT"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
+restartPolicyType = "on_failure"
