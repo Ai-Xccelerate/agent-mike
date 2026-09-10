@@ -225,6 +225,60 @@ export const workerUsers = pgTable(
   }),
 );
 
+export const integrationCredentials = pgTable(
+  "integration_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    integrationType: text("integration_type").notNull(), // crm | helpdesk | slack
+    system: text("system").notNull(), // zoho | zendesk | linear
+    accessToken: text("access_token").notNull(),
+    refreshToken: text("refresh_token"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    scopes: jsonb("scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    connectedBy: text("connected_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsed: timestamp("last_used", { withTimezone: true }),
+  },
+  (table) => ({
+    orgTypeSystemIdx: index("integration_credentials_org_type_system_idx").on(
+      table.organizationId,
+      table.integrationType,
+      table.system,
+    ),
+  }),
+);
+
+export const toolCalls = pgTable(
+  "tool_calls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    calledBy: text("called_by"),
+    input: jsonb("input")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    output: jsonb("output").$type<Record<string, unknown>>(),
+    status: text("status").notNull().default("success"), // success | error | escalated
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("tool_calls_org_idx").on(table.organizationId),
+  }),
+);
+
 export const conversationsRelations = relations(conversations, ({ many }) => ({
   messages: many(messages),
 }));
