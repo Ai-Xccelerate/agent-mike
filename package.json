@@ -1,0 +1,40 @@
+{
+  "name": "ai-worker-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Worker Foundation — API (harness, knowledge, guardrails, settings surface)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.17.0",
+    "drizzle-orm": "^0.41.0",
+    "gray-matter": "^4.0.3",
+    "next": "^14.2.35",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.22.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^18.3.0",
+    "dotenv": "^16.4.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

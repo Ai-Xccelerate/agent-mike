@@ -1,0 +1,232 @@
+import { relations, sql } from "drizzle-orm";
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  real,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+/**
+ * Every table below is org-scoped (`organizationId`). The default identity
+ * adapter (lib/identity.ts) resolves every manager request to a single
+ * "default" org, so a fresh deployment works with zero login — but the
+ * schema is multi-tenant-ready from day one, per R16, without assuming any
+ * particular auth vendor.
+ */
+
+export const organizations = pgTable("organizations", {
+  id: text("id").primaryKey(), // slug-shaped, e.g. "default"
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workerProfiles = pgTable(
+  "worker_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+
+    // Identity (R14 / settings > Identity)
+    name: text("name").notNull().default("Worker"),
+    displayName: text("display_name").notNull().default("AI Worker"),
+    avatarInitials: text("avatar_initials").notNull().default("AW"),
+    email: text("email"),
+    tone: text("tone").notNull().default("Warm, concise, and honest about uncertainty."),
+
+    // Role (settings > Role)
+    role: text("role").notNull().default("Configure this worker's role and responsibilities."),
+    jobDescription: text("job_description"),
+
+    // Agent Configuration (settings > Agent Configuration) — R15: system prompt
+    // must be exposed and editable without a code deployment.
+    systemPromptTemplate: text("system_prompt_template").notNull().default(
+      "You are {{displayName}}, an AI worker for {{organizationName}}.\n" +
+        "Role: {{role}}\n" +
+        "Tone: {{tone}}\n" +
+        "Only use the supplied knowledge when making factual claims. If you are not confident, say so and escalate.",
+    ),
+    model: text("model").notNull().default("gpt-5.6-luna"),
+    maxAgentTurns: integer("max_agent_turns").notNull().default(3),
+    confidenceThreshold: real("confidence_threshold").notNull().default(0.72),
+
+    // Guardrails (settings > Guardrails) — R10: domain/user restriction is a
+    // standard, foundation-level feature, not built per-worker.
+    escalationTerms: jsonb("escalation_terms").$type<string[]>().notNull().default(
+      sql`'["refund","chargeback","lawyer","breach","security incident","delete my account","cancel subscription"]'::jsonb`,
+    ),
+    allowedDomains: jsonb("allowed_domains").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    requireUserVerification: boolean("require_user_verification").notNull().default(false),
+
+    // Human manager (settings > Human Manager)
+    managerName: text("manager_name").notNull().default("Manager"),
+    managerEmail: text("manager_email"),
+    autoReply: boolean("auto_reply").notNull().default(true),
+
+    // Tools (settings > Tools) — toggles only; each tool is a decoupled,
+    // externally-connected integration per R6, never baked into the harness.
+    toolsConfig: jsonb("tools_config")
+      .$type<Record<string, boolean>>()
+      .notNull()
+      .default(sql`'{"browser_use":false,"internet":false,"scribe":false,"artifacts":false}'::jsonb`),
+
+    // Channels (settings > Channels)
+    channelsConfig: jsonb("channels_config")
+      .$type<{ email: boolean; chat: boolean; voice: boolean }>()
+      .notNull()
+      .default(sql`'{"email":false,"chat":true,"voice":false}'::jsonb`),
+
+    ticketPrefix: text("ticket_prefix").notNull().default("TCK"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgUnique: uniqueIndex("worker_profiles_org_unique").on(table.organizationId),
+  }),
+);
+
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ticketNumber: integer("ticket_number").notNull(),
+    channel: text("channel").notNull().default("chat"), // "chat" | "email" | "widget"
+    customerName: text("customer_name").notNull().default("Website visitor"),
+    customerEmail: text("customer_email"),
+    subject: text("subject"),
+    status: text("status").notNull().default("open"), // open | needs_human | resolved | closed
+    priority: text("priority").notNull().default("normal"),
+    assignedTo: text("assigned_to"),
+    confidence: real("confidence"),
+    summary: text("summary"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("conversations_org_idx").on(table.organizationId),
+    orgTicketUnique: uniqueIndex("conversations_org_ticket_unique").on(
+      table.organizationId,
+      table.ticketNumber,
+    ),
+  }),
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    senderType: text("sender_type").notNull(), // "customer" | "agent" | "manager"
+    senderName: text("sender_name").notNull(),
+    body: text("body").notNull(),
+    citations: jsonb("citations").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    conversationIdx: index("messages_conversation_idx").on(table.conversationId),
+  }),
+);
+
+export const knowledgeDocuments = pgTable(
+  "knowledge_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    conceptId: text("concept_id").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    tags: jsonb("tags").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    body: text("body").notNull(),
+    checksum: text("checksum").notNull(),
+    resource: text("resource"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgConceptUnique: uniqueIndex("knowledge_documents_org_concept_unique").on(
+      table.organizationId,
+      table.conceptId,
+    ),
+  }),
+);
+
+export const knowledgeChunks = pgTable(
+  "knowledge_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => knowledgeDocuments.id, { onDelete: "cascade" }),
+    heading: text("heading"),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    documentIdx: index("knowledge_chunks_document_idx").on(table.documentId),
+  }),
+);
+
+export const widgetSites = pgTable(
+  "widget_sites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteToken: text("site_token").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgUnique: uniqueIndex("widget_sites_org_unique").on(table.organizationId),
+    tokenUnique: uniqueIndex("widget_sites_token_unique").on(table.siteToken),
+  }),
+);
+
+export const workerUsers = pgTable(
+  "worker_users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    role: text("role").notNull().default("member"), // owner | admin | member
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgEmailUnique: uniqueIndex("worker_users_org_email_unique").on(
+      table.organizationId,
+      table.email,
+    ),
+  }),
+);
+
+export const conversationsRelations = relations(conversations, ({ many }) => ({
+  messages: many(messages),
+}));
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [messages.conversationId],
+    references: [conversations.id],
+  }),
+}));
+
+export const knowledgeDocumentsRelations = relations(knowledgeDocuments, ({ many }) => ({
+  chunks: many(knowledgeChunks),
+}));
