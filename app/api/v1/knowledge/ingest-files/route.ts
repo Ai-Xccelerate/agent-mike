@@ -1,0 +1,60 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { getIdentityAdapter } from "@/lib/identity";
+import { ingestOkf, InvalidOKFDocument, wrapAsOkf } from "@/lib/knowledge";
+
+type UploadedFile = {
+  name: string;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+  text: () => Promise<string>;
+};
+
+function slugify(filename: string): string {
+  return filename
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+export async function POST(req: NextRequest) {
+  const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+
+  const form = await req.formData().catch(() => null);
+  // Cast rather than `instanceof File` — Node's global File (buffer) and the
+  // fetch-spec File type FormData actually returns don't structurally match
+  // in this tsconfig (no "dom" lib). Non-string entries are always files here
+  // since the client only ever appends File objects under "files".
+  const files = (form?.getAll("files") ?? []).filter((f) => typeof f !== "string") as unknown as UploadedFile[];
+  if (!files.length) {
+    return NextResponse.json({ error: "No files provided" }, { status: 400 });
+  }
+
+  const results = await Promise.all(
+    files.map(async (file) => {
+      const conceptId = slugify(file.name) || `doc-${Date.now()}`;
+      try {
+        let raw: string;
+        if (file.name.toLowerCase().endsWith(".pdf")) {
+          const { default: pdfParse } = await import("pdf-parse");
+          const buffer = Buffer.from(await file.arrayBuffer());
+          const parsed = await pdfParse(buffer);
+          raw = wrapAsOkf(conceptId, file.name.replace(/\.pdf$/i, ""), parsed.text);
+        } else if (file.name.toLowerCase().endsWith(".md") || file.name.toLowerCase().endsWith(".markdown")) {
+          raw = await file.text();
+        } else {
+          const text = await file.text();
+          raw = wrapAsOkf(conceptId, file.name, text);
+        }
+
+        const document = await ingestOkf(tenant.orgId, conceptId, raw);
+        return { filename: file.name, ok: true, document };
+      } catch (err) {
+        const message = err instanceof InvalidOKFDocument ? err.message : err instanceof Error ? err.message : "Unknown error";
+        return { filename: file.name, ok: false, error: message };
+      }
+    }),
+  );
+
+  return NextResponse.json(results);
+}
