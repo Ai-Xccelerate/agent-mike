@@ -179,3 +179,7 @@ export function connectIntegration(type: string, system: string): Promise<{ redi
     body: JSON.stringify({ system }),
   });
 }
+
+export async function disconnectIntegration(type: string): Promise<void> {
+  await apiFetch<unknown>(`/integrations/${type}`, { method: "DELETE" });
+}

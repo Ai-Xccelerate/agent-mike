@@ -6,6 +6,7 @@ import Button from "@/components/ui/button/Button";
 import { cardClass } from "@/components/worker/settings/ui";
 import {
   connectIntegration,
+  disconnectIntegration,
   getIntegrationConnection,
   type IntegrationConnection,
 } from "@/lib/worker-api";
@@ -19,6 +20,7 @@ export default function CrmConnectionCard() {
   const [connection, setConnection] = useState<IntegrationConnection>(null);
   const [loaded, setLoaded] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -40,6 +42,19 @@ export default function CrmConnectionCard() {
     }
   }
 
+  async function disconnectCrm() {
+    setError("");
+    setDisconnecting(true);
+    try {
+      await disconnectIntegration("crm");
+      setConnection(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not disconnect CRM.");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
   const status = connection?.status;
   const showConnect = !connection || status === "disabled" || status === "failed";
   const pending = status === "pending";
@@ -57,11 +72,20 @@ export default function CrmConnectionCard() {
       {!loaded ? (
         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Checking connection…</p>
       ) : active ? (
-        <div className="mt-4 flex items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <p className="text-sm font-medium text-gray-800 dark:text-white/90">Connected to {vendor}</p>
           <Badge size="sm" color="success">
             Connected
           </Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void disconnectCrm()}
+            loading={disconnecting}
+            disabled={disconnecting}
+          >
+            Disconnect
+          </Button>
         </div>
       ) : pending ? (
         <div className="mt-4">
