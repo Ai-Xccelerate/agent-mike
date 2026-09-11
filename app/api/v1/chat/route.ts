@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
         escalate: true,
         citations: [] as string[],
       }
-    : await runAgent(profile, tenant.orgId, message, knowledgeMatches);
+    : await runAgent(profile, tenant.orgId, message, knowledgeMatches, tenant.orgId);
 
   const [reply] = await db
     .insert(messages)
