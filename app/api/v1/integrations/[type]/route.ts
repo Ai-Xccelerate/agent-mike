@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getAccountStatus } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg, markConnectionActive } from "@/lib/tools-integrations/connection-repository";
+import { disconnectIntegration } from "@/lib/tools-integrations/disconnect";
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
 
 export const dynamic = "force-dynamic";
@@ -27,4 +28,18 @@ export async function GET(req: NextRequest, { params }: { params: { type: string
   }
 
   return NextResponse.json(row);
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: { type: string } }) {
+  const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!getIntegrationType(params.type)) {
+    return NextResponse.json({ error: `Unknown integration type "${params.type}"` }, { status: 400 });
+  }
+
+  const disconnected = await disconnectIntegration(tenant.orgId, params.type);
+  if (!disconnected) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
 }
