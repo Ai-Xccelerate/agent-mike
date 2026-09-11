@@ -28,7 +28,7 @@ export type Conversation = {
 
 export type ToolsConfig = {
   browser_use: boolean;
-  internet: boolean;
+  internet_search: boolean;
   scribe: boolean;
   artifacts: boolean;
 };
