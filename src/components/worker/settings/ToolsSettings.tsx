@@ -7,7 +7,7 @@ import type { ToolsConfig } from "@/lib/worker-api";
 
 const TOOL_LABELS: { key: keyof ToolsConfig; label: string; description: string }[] = [
   { key: "browser_use", label: "Browser use", description: "Navigate and read live web pages." },
-  { key: "internet", label: "Internet", description: "General web search." },
+  { key: "internet_search", label: "Internet", description: "General web search." },
   { key: "scribe", label: "Scribe", description: "AI Xccelerate's note-taking tool." },
   { key: "artifacts", label: "Artifacts", description: "Generate and share rich outputs." },
 ];
