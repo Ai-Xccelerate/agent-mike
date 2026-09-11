@@ -1,6 +1,6 @@
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import WidgetInstallCard from "@/components/worker/settings/WidgetInstallCard";
-import CrmConnectionCard from "@/components/worker/settings/CrmConnectionCard";
+import IntegrationConnectionCard from "@/components/worker/settings/IntegrationConnectionCard";
 import { cardClass } from "@/components/worker/settings/ui";
 import { PlugInIcon } from "@/icons";
 import Badge from "@/components/ui/badge/Badge";
@@ -53,7 +53,20 @@ export default function IntegrationsSettingsPage() {
         </div>
       </section>
 
-      <CrmConnectionCard />
+      <IntegrationConnectionCard
+        integrationType="crm"
+        system="zoho"
+        vendorLabel="Zoho"
+        title="Business system of record"
+        description="CRM, helpdesk, ticketing, or project-management tool — always a decoupled, external integration, never hard-coded into the worker."
+      />
+      <IntegrationConnectionCard
+        integrationType="project_management"
+        system="linear"
+        vendorLabel="Linear"
+        title="Project management"
+        description="Linear issues, searchable by the worker — always a decoupled, external integration, never hard-coded into the worker."
+      />
     </>
   );
 }
