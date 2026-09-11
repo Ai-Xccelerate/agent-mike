@@ -155,3 +155,27 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+export type IntegrationConnection = {
+  id: string;
+  organizationId: string;
+  integrationType: string;
+  system: string;
+  status: "pending" | "active" | "failed" | "disabled";
+  composioConnectedAccountId: string | null;
+  connectedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastUsed: string | null;
+} | null;
+
+export function getIntegrationConnection(type: string): Promise<IntegrationConnection> {
+  return apiFetch<IntegrationConnection>(`/integrations/${type}`);
+}
+
+export function connectIntegration(type: string, system: string): Promise<{ redirectUrl: string }> {
+  return apiFetch<{ redirectUrl: string }>(`/integrations/${type}/connect`, {
+    method: "POST",
+    body: JSON.stringify({ system }),
+  });
+}
