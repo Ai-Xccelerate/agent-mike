@@ -1,4 +1,5 @@
-import { Agent, run } from "@openai/agents";
+import { Agent, run, webSearchTool } from "@openai/agents";
+import type { Tool } from "@openai/agents";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { isDemoMode } from "@/lib/env";
 
@@ -13,6 +14,15 @@ export interface WorkerProfileLike {
   managerName: string;
   timezone?: string;
   emailSignature?: string;
+  toolsConfig?: Record<string, boolean>;
+}
+
+export function buildAgentTools(profile: Pick<WorkerProfileLike, "toolsConfig">): Tool[] {
+  const tools: Tool[] = [];
+  if (profile.toolsConfig?.internet_search) {
+    tools.push(webSearchTool());
+  }
+  return tools;
 }
 
 function fillTemplate(template: string, vars: Record<string, string>): string {
@@ -104,9 +114,8 @@ export async function runAgent(
     name: profile.displayName,
     instructions: buildInstructions(profile, organizationName, knowledge),
     model: profile.model,
-    // No tools registered by default — business-system/tool integrations are
-    // decoupled, external additions per R6, not baked into the base harness.
-    tools: [],
+    // Tools are built from the worker's toolsConfig, per the Tools & Integrations registry.
+    tools: buildAgentTools(profile),
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
   });
 
