@@ -41,6 +41,21 @@ export async function upsertPendingConnection(
   return row;
 }
 
+export async function attachConnectedAccountId(
+  id: string,
+  composioConnectedAccountId: string,
+): Promise<IntegrationConnection> {
+  const [row] = await db
+    .update(integrationConnections)
+    .set({
+      composioConnectedAccountId,
+      updatedAt: new Date(),
+    })
+    .where(eq(integrationConnections.id, id))
+    .returning();
+  return row;
+}
+
 export async function markConnectionActive(
   id: string,
   composioConnectedAccountId: string,

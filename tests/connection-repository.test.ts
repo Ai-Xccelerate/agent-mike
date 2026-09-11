@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { integrationConnections } from "@/db/schema";
 import { ensureOrganization } from "@/lib/bootstrap";
 import {
+  attachConnectedAccountId,
   getConnectionForOrg,
   markConnectionActive,
   upsertPendingConnection,
@@ -28,6 +29,10 @@ describe("connection repository", () => {
     expect(fetched!.status).toBe("pending");
     expect(fetched!.system).toBe("zoho");
     expect(fetched!.composioConnectedAccountId).toBeNull();
+
+    const attached = await attachConnectedAccountId(pending.id, "ca_pending_123");
+    expect(attached.status).toBe("pending");
+    expect(attached.composioConnectedAccountId).toBe("ca_pending_123");
 
     const switched = await upsertPendingConnection({
       organizationId: orgId,
