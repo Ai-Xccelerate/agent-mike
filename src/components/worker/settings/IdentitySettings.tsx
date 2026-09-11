@@ -1,6 +1,7 @@
 "use client";
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
+import AvatarUploadCard from "@/components/worker/settings/AvatarUploadCard";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import { cardClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
 import { EnvelopeIcon } from "@/icons";
@@ -29,8 +30,19 @@ function FieldError({ message }: { message?: string }) {
 }
 
 export default function IdentitySettings() {
-  const { profile, update, save, discard, dirty, saving, notice, noticeError, fieldErrors, lastEditedAt } =
-    useWorkerProfile();
+  const {
+    profile,
+    update,
+    save,
+    discard,
+    applyServerUpdate,
+    dirty,
+    saving,
+    notice,
+    noticeError,
+    fieldErrors,
+    lastEditedAt,
+  } = useWorkerProfile();
   if (!profile) return null;
 
   return (
@@ -135,23 +147,32 @@ export default function IdentitySettings() {
             </div>
             <FieldError message={fieldErrors.accentColor} />
           </label>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
-            Avatar URL
+        </div>
+      </section>
+
+      <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-160.2">
+        <AvatarUploadCard profile={profile} onUpdated={applyServerUpdate} />
+
+        <div className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Or use an external image URL
             <input
               value={profile.avatarUrl ?? ""}
               onChange={(e) => update("avatarUrl", e.target.value || null)}
               placeholder="https://…"
-              className={`${fieldClass} mt-2`}
+              className={`${fieldClass} mt-2 font-mono text-xs`}
             />
             <span className="mt-1.5 block text-xs font-normal text-gray-500">
-              Optional image URL. File upload waits on object storage.
+              Uploading fills this in for you. Uploads live on the API service&apos;s own disk, so on
+              a host with an ephemeral filesystem a CDN URL is the one that survives a redeploy.
+              Saved with the button above.
             </span>
             <FieldError message={fieldErrors.avatarUrl} />
           </label>
         </div>
       </section>
 
-      <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-160.2">
+      <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-160.3">
         <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Voice</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">How it sounds when it talks to a customer.</p>
         <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -173,7 +194,7 @@ export default function IdentitySettings() {
         </label>
       </section>
 
-      <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-160.3">
+      <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-160.4">
         <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">How it signs off</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Regional formatting and email identity.</p>
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">

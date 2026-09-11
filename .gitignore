@@ -41,3 +41,6 @@ next-env.d.ts
 *.png
 !public/**/*.png
 !src/**/*.png
+
+# Browser profile captured by local tooling — not source, and may hold session data.
+/artifacts/

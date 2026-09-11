@@ -39,6 +39,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     title: "Controls",
     items: [
       { href: "/settings/guardrails", label: "Guardrails", available: true },
+      { href: "/settings/email-domains", label: "Email domains", available: true },
       { href: "/settings/verification", label: "Verification" },
       { href: "/settings/manager", label: "Human manager", available: true },
     ],
