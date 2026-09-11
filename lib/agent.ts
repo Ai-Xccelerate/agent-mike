@@ -5,6 +5,7 @@ import type { KnowledgeMatch } from "@/lib/knowledge";
 import { isDemoMode } from "@/lib/env";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
+import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
 
 export interface WorkerProfileLike {
   displayName: string;
@@ -24,6 +25,69 @@ export const ZOHO_SEARCH_CONTACTS_SLUG = "ZOHO_SEARCH_CONTACTS";
 /** Toolkit version from https://docs.composio.dev/toolkits/zoho (Version: 20260724_00). */
 export const ZOHO_TOOLKIT_VERSION = "20260724_00";
 export const CRM_LOOKUP_TOOL_NAME = "lookup_crm_contact";
+export const CRM_LOOKUP_RETRY_BACKOFF_MS = 500;
+export const CRM_LOOKUP_FAILURE_MESSAGE =
+  "CRM lookup failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function toLogOutput(result: unknown): Record<string, unknown> | null {
+  if (result == null) return null;
+  if (typeof result === "object" && !Array.isArray(result)) {
+    return result as Record<string, unknown>;
+  }
+  return { value: result };
+}
+
+export async function executeCrmLookup(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      ZOHO_SEARCH_CONTACTS_SLUG,
+      { word: query },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: ZOHO_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(CRM_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: CRM_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return CRM_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: CRM_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
 
 export async function buildAgentTools(
   profile: Pick<WorkerProfileLike, "toolsConfig">,
@@ -51,18 +115,8 @@ export async function buildAgentTools(
             .string()
             .describe("Name, email, phone, or keyword to search for in Zoho CRM contacts"),
         }),
-        execute: async ({ query }) => {
-          const result = await executeTool(
-            ZOHO_SEARCH_CONTACTS_SLUG,
-            { word: query },
-            {
-              connectedAccountId,
-              userId: organizationId,
-              version: ZOHO_TOOLKIT_VERSION,
-            },
-          );
-          return JSON.stringify(result);
-        },
+        execute: async ({ query }) =>
+          executeCrmLookup(query, organizationId, connectedAccountId),
       }),
     );
   }
@@ -107,6 +161,7 @@ function buildInstructions(
     (identityBlock ? `\n\n${identityBlock}` : "") +
     knowledgeBlock +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
+    "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."
   );
 }
