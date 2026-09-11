@@ -1,7 +1,10 @@
-import { Agent, run, webSearchTool } from "@openai/agents";
+import { Agent, run, tool, webSearchTool } from "@openai/agents";
 import type { Tool } from "@openai/agents";
+import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { isDemoMode } from "@/lib/env";
+import { executeTool } from "@/lib/tools-integrations/composio-client";
+import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 
 export interface WorkerProfileLike {
   displayName: string;
@@ -17,11 +20,53 @@ export interface WorkerProfileLike {
   toolsConfig?: Record<string, boolean>;
 }
 
-export function buildAgentTools(profile: Pick<WorkerProfileLike, "toolsConfig">): Tool[] {
+export const ZOHO_SEARCH_CONTACTS_SLUG = "ZOHO_SEARCH_CONTACTS";
+/** Toolkit version from https://docs.composio.dev/toolkits/zoho (Version: 20260724_00). */
+export const ZOHO_TOOLKIT_VERSION = "20260724_00";
+export const CRM_LOOKUP_TOOL_NAME = "lookup_crm_contact";
+
+export async function buildAgentTools(
+  profile: Pick<WorkerProfileLike, "toolsConfig">,
+  organizationId: string,
+): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
     tools.push(webSearchTool());
   }
+
+  const connection = await getConnectionForOrg(organizationId, "crm");
+  if (
+    connection?.status === "active" &&
+    connection.composioConnectedAccountId &&
+    connection.system === "zoho"
+  ) {
+    const connectedAccountId = connection.composioConnectedAccountId;
+    tools.push(
+      tool({
+        name: CRM_LOOKUP_TOOL_NAME,
+        description:
+          "Look up a contact in the connected Zoho CRM by name, email, phone, or keyword. Read-only search; does not create or update records.",
+        parameters: z.object({
+          query: z
+            .string()
+            .describe("Name, email, phone, or keyword to search for in Zoho CRM contacts"),
+        }),
+        execute: async ({ query }) => {
+          const result = await executeTool(
+            ZOHO_SEARCH_CONTACTS_SLUG,
+            { word: query },
+            {
+              connectedAccountId,
+              userId: organizationId,
+              version: ZOHO_TOOLKIT_VERSION,
+            },
+          );
+          return JSON.stringify(result);
+        },
+      }),
+    );
+  }
+
   return tools;
 }
 
@@ -105,6 +150,7 @@ export async function runAgent(
   organizationName: string,
   message: string,
   knowledge: KnowledgeMatch[],
+  organizationId: string,
 ): Promise<RunAgentResult> {
   if (isDemoMode() || !process.env.OPENAI_API_KEY) {
     return demoAnswer(profile, knowledge);
@@ -115,7 +161,7 @@ export async function runAgent(
     instructions: buildInstructions(profile, organizationName, knowledge),
     model: profile.model,
     // Tools are built from the worker's toolsConfig, per the Tools & Integrations registry.
-    tools: buildAgentTools(profile),
+    tools: await buildAgentTools(profile, organizationId),
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
   });
 
