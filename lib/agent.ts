@@ -89,6 +89,62 @@ export async function executeCrmLookup(
   return JSON.stringify(result);
 }
 
+export const LINEAR_SEARCH_ISSUES_SLUG = "LINEAR_SEARCH_ISSUES";
+/** Toolkit version from composio.toolkits.get("linear") (Version: 20260911_00). */
+export const LINEAR_TOOLKIT_VERSION = "20260911_00";
+export const LINEAR_LOOKUP_TOOL_NAME = "lookup_linear_issue";
+export const LINEAR_LOOKUP_RETRY_BACKOFF_MS = 500;
+export const LINEAR_LOOKUP_FAILURE_MESSAGE =
+  "Linear issue search failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+
+export async function executeLinearSearch(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      LINEAR_SEARCH_ISSUES_SLUG,
+      { query },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: LINEAR_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(LINEAR_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: LINEAR_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return LINEAR_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: LINEAR_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
 export async function buildAgentTools(
   profile: Pick<WorkerProfileLike, "toolsConfig">,
   organizationId: string,
@@ -117,6 +173,29 @@ export async function buildAgentTools(
         }),
         execute: async ({ query }) =>
           executeCrmLookup(query, organizationId, connectedAccountId),
+      }),
+    );
+  }
+
+  const linearConnection = await getConnectionForOrg(organizationId, "project_management");
+  if (
+    linearConnection?.status === "active" &&
+    linearConnection.composioConnectedAccountId &&
+    linearConnection.system === "linear"
+  ) {
+    const connectedAccountId = linearConnection.composioConnectedAccountId;
+    tools.push(
+      tool({
+        name: LINEAR_LOOKUP_TOOL_NAME,
+        description:
+          "Search issues in the connected Linear workspace by keyword or identifier (e.g. ENG-123). Read-only full-text search across identifier, title, and description; does not create or update issues.",
+        parameters: z.object({
+          query: z
+            .string()
+            .describe("Keyword or issue identifier to search for in Linear"),
+        }),
+        execute: async ({ query }) =>
+          executeLinearSearch(query, organizationId, connectedAccountId),
       }),
     );
   }

@@ -1,5 +1,6 @@
 const AUTH_CONFIG_ENV: Record<string, string> = {
   zoho: "COMPOSIO_ZOHO_AUTH_CONFIG_ID",
+  linear: "COMPOSIO_LINEAR_AUTH_CONFIG_ID",
 };
 
 export function getAuthConfigId(system: string): string {

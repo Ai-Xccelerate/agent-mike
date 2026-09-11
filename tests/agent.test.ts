@@ -6,6 +6,12 @@ import {
   CRM_LOOKUP_RETRY_BACKOFF_MS,
   CRM_LOOKUP_TOOL_NAME,
   executeCrmLookup,
+  executeLinearSearch,
+  LINEAR_LOOKUP_FAILURE_MESSAGE,
+  LINEAR_LOOKUP_RETRY_BACKOFF_MS,
+  LINEAR_LOOKUP_TOOL_NAME,
+  LINEAR_SEARCH_ISSUES_SLUG,
+  LINEAR_TOOLKIT_VERSION,
   ZOHO_SEARCH_CONTACTS_SLUG,
   ZOHO_TOOLKIT_VERSION,
 } from "@/lib/agent";
@@ -46,6 +52,12 @@ function isCrmLookupTool(tool: unknown): boolean {
   return candidate.type === "function" && candidate.name === CRM_LOOKUP_TOOL_NAME;
 }
 
+function isLinearLookupTool(tool: unknown): boolean {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as { type?: string; name?: string };
+  return candidate.type === "function" && candidate.name === LINEAR_LOOKUP_TOOL_NAME;
+}
+
 function activeZohoConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
   return {
     id: "11111111-1111-1111-1111-111111111111",
@@ -54,6 +66,24 @@ function activeZohoConnection(overrides: Partial<IntegrationConnection> = {}): I
     system: "zoho",
     composioAuthConfigId: "ac_test",
     composioConnectedAccountId: "ca_test",
+    status: "active",
+    connectedBy: null,
+    metadata: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: null,
+    ...overrides,
+  };
+}
+
+function activeLinearConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
+  return {
+    id: "22222222-2222-2222-2222-222222222222",
+    organizationId: "org-1",
+    integrationType: "project_management",
+    system: "linear",
+    composioAuthConfigId: "ac_linear_test",
+    composioConnectedAccountId: "ca_linear_test",
     status: "active",
     connectedBy: null,
     metadata: {},
@@ -198,6 +228,117 @@ describe("CRM lookup retry-once and tool_calls logging", () => {
       organizationId: "org-1",
       toolId: CRM_LOOKUP_TOOL_NAME,
       input: { query: "carol" },
+      output: null,
+      status: "error",
+      errorMessage: "still unauthorized",
+    });
+  });
+});
+
+describe("agent Linear lookup tool wiring", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+  });
+
+  it("includes the Linear lookup tool when the org has an active Linear connection", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "project_management" ? activeLinearConnection() : null,
+    );
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(getConnectionForOrgMock).toHaveBeenCalledWith("org-1", "project_management");
+    expect(tools.some(isLinearLookupTool)).toBe(true);
+    expect(tools.some(isCrmLookupTool)).toBe(false);
+  });
+
+  it("omits the Linear lookup tool when there is no connection", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isLinearLookupTool)).toBe(false);
+  });
+
+  it("omits the Linear lookup tool when the connection is still pending", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "project_management" ? activeLinearConnection({ status: "pending" }) : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isLinearLookupTool)).toBe(false);
+  });
+});
+
+describe("Linear issue search retry-once and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("logs success on the first call and does not retry", async () => {
+    const payload = { data: { issues: [] }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeLinearSearch("ENG-1", "org-1", "ca_linear_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      LINEAR_SEARCH_ISSUES_SLUG,
+      { query: "ENG-1" },
+      { connectedAccountId: "ca_linear_test", userId: "org-1", version: LINEAR_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: LINEAR_LOOKUP_TOOL_NAME,
+      input: { query: "ENG-1" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries once after a failure then logs success for the recovered result", async () => {
+    vi.useFakeTimers();
+    const payload = { data: { issues: [{ id: "1" }] }, error: null, successful: true };
+    executeToolMock.mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce(payload);
+
+    const pending = executeLinearSearch("bug", "org-1", "ca_linear_test");
+    await vi.advanceTimersByTimeAsync(LINEAR_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: LINEAR_LOOKUP_TOOL_NAME,
+      input: { query: "bug" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and returns an escalation string when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock
+      .mockRejectedValueOnce(new Error("auth expired"))
+      .mockRejectedValueOnce(new Error("still unauthorized"));
+
+    const pending = executeLinearSearch("timeout", "org-1", "ca_linear_test");
+    await vi.advanceTimersByTimeAsync(LINEAR_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(LINEAR_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: LINEAR_LOOKUP_TOOL_NAME,
+      input: { query: "timeout" },
       output: null,
       status: "error",
       errorMessage: "still unauthorized",
