@@ -19,17 +19,25 @@ function loadEncryptionKey(): Buffer {
   return key;
 }
 
-const ENCRYPTION_KEY = loadEncryptionKey();
+let cachedKey: Buffer | null = null;
+
+function getEncryptionKey(): Buffer {
+  if (cachedKey) return cachedKey;
+  cachedKey = loadEncryptionKey();
+  return cachedKey;
+}
 
 export function encrypt(value: string): string {
+  const key = getEncryptionKey();
   const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv("aes-256-gcm", ENCRYPTION_KEY, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
   const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return Buffer.concat([iv, authTag, ciphertext]).toString("base64");
 }
 
 export function decrypt(value: string): string {
+  const key = getEncryptionKey();
   const packed = Buffer.from(value, "base64");
   if (packed.length < IV_LENGTH + AUTH_TAG_LENGTH) {
     throw new Error("Encrypted value is malformed");
@@ -37,7 +45,7 @@ export function decrypt(value: string): string {
   const iv = packed.subarray(0, IV_LENGTH);
   const authTag = packed.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
   const ciphertext = packed.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
-  const decipher = createDecipheriv("aes-256-gcm", ENCRYPTION_KEY, iv);
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(authTag);
   try {
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
