@@ -18,6 +18,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@composio/core": "^0.18.1",
     "@openai/agents": "^0.17.0",
     "drizzle-orm": "^0.41.0",
     "gray-matter": "^4.0.3",
