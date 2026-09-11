@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { fieldErrors, identityFieldSchemas } from "@/lib/identity-fields";
+import { integrationsConfigSchema } from "@/lib/integrations";
 
 const emptyToNull = (schema: z.ZodType<string | null>) =>
   z.union([z.literal(""), schema]).transform((value) => (value === "" ? null : value));
@@ -33,6 +34,7 @@ export const workerPatchSchema = z
     autoReply: z.boolean(),
     toolsConfig: z.record(z.string(), z.boolean()),
     channelsConfig: z.object({ email: z.boolean(), chat: z.boolean(), voice: z.boolean() }),
+    integrationsConfig: integrationsConfigSchema,
     ticketPrefix: z.string().min(1).max(12),
   })
   .partial();

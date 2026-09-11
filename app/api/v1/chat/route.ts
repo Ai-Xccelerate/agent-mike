@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { conversations, messages } from "@/db/schema";
+import { conversations, emailDomains, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { evaluateMessage } from "@/lib/guardrails";
-import { retrieve } from "@/lib/knowledge";
+import { approvedDomains } from "@/lib/email-domains";
+import { retrieveKnowledge } from "@/lib/retrieval";
 import { runAgent } from "@/lib/agent";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
@@ -60,15 +61,24 @@ export async function POST(req: NextRequest) {
     body: message,
   });
 
+  const domainRows = await db
+    .select({ status: emailDomains.status, domain: emailDomains.domain })
+    .from(emailDomains)
+    .where(eq(emailDomains.organizationId, tenant.orgId));
+
   const guardrail = evaluateMessage({
     message,
     senderEmail: conversation.customerEmail,
     escalationTerms: profile.escalationTerms,
-    allowedDomains: profile.allowedDomains,
+    allowedDomains: approvedDomains(domainRows),
     requireUserVerification: profile.requireUserVerification,
   });
 
-  const knowledgeMatches = await retrieve(tenant.orgId, message);
+  // Local knowledge plus any enabled knowledge integration (e.g. Parchment).
+  const { matches: knowledgeMatches, sources: knowledgeSources } = await retrieveKnowledge(
+    profile,
+    message,
+  );
 
   const result = guardrail.escalate
     ? {
@@ -107,5 +117,6 @@ export async function POST(req: NextRequest) {
     status,
     confidence: result.confidence,
     escalated: result.escalate,
+    knowledge_sources: knowledgeSources,
   });
 }

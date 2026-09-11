@@ -43,6 +43,48 @@
       "when": 1789377099871,
       "tag": "0005_tool_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789480000000,
+      "tag": "0006_parchment_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789560000000,
+      "tag": "0007_agentdb_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789620000000,
+      "tag": "0008_scribe_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789740000000,
+      "tag": "0009_agent_artifacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789800000000,
+      "tag": "0010_agent_wiki",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789860000000,
+      "tag": "0011_email_domains",
+      "breakpoints": true
     }
   ]
 }
