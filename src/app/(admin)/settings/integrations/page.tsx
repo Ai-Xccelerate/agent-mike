@@ -1,5 +1,6 @@
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import WidgetInstallCard from "@/components/worker/settings/WidgetInstallCard";
+import CrmConnectionCard from "@/components/worker/settings/CrmConnectionCard";
 import { cardClass } from "@/components/worker/settings/ui";
 import { PlugInIcon } from "@/icons";
 import Badge from "@/components/ui/badge/Badge";
@@ -52,16 +53,7 @@ export default function IntegrationsSettingsPage() {
         </div>
       </section>
 
-      <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Business system of record</h2>
-        <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
-          CRM, helpdesk, ticketing, or project-management tool — always a decoupled, external integration, never
-          hard-coded into the worker. No business-system connector is configured for this deployment yet.
-        </p>
-        <span className="mt-4 inline-flex w-fit items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500 dark:bg-white/5 dark:text-gray-400">
-          Not connected
-        </span>
-      </section>
+      <CrmConnectionCard />
     </>
   );
 }
