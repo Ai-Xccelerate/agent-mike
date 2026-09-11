@@ -27,10 +27,17 @@ export const INTEGRATION_TYPES: IntegrationTypeDefinition[] = [
   { type: "crm", name: "CRM" },
   { type: "helpdesk", name: "Helpdesk" },
   { type: "ticketing", name: "Ticketing" },
+  { type: "project_management", name: "Project Management" },
 ];
 
 export const INTEGRATIONS: IntegrationDefinition[] = [
   { id: "crm_zoho", integrationType: "crm", system: "zoho", requiresAuth: true },
+  {
+    id: "project_management_linear",
+    integrationType: "project_management",
+    system: "linear",
+    requiresAuth: true,
+  },
 ];
 
 export function getTool(toolId: string): ToolDefinition | undefined {
