@@ -83,7 +83,7 @@ export const workerProfiles = pgTable(
     toolsConfig: jsonb("tools_config")
       .$type<Record<string, boolean>>()
       .notNull()
-      .default(sql`'{"browser_use":false,"internet":false,"scribe":false,"artifacts":false}'::jsonb`),
+      .default(sql`'{"browser_use":false,"internet_search":false,"scribe":false,"artifacts":false}'::jsonb`),
 
     // Channels (settings > Channels)
     channelsConfig: jsonb("channels_config")
@@ -222,6 +222,55 @@ export const workerUsers = pgTable(
       table.organizationId,
       table.email,
     ),
+  }),
+);
+
+export const integrationConnections = pgTable(
+  "integration_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    integrationType: text("integration_type").notNull(), // crm | helpdesk | ticketing
+    system: text("system").notNull(), // Composio toolkit slug, e.g. "zoho"
+    composioAuthConfigId: text("composio_auth_config_id").notNull(),
+    composioConnectedAccountId: text("composio_connected_account_id"), // null until OAuth completes
+    status: text("status").notNull().default("pending"), // pending | active | failed | disabled
+    connectedBy: text("connected_by"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsed: timestamp("last_used", { withTimezone: true }),
+  },
+  (table) => ({
+    orgTypeUnique: uniqueIndex("integration_connections_org_type_unique").on(
+      table.organizationId,
+      table.integrationType,
+    ),
+  }),
+);
+
+export const toolCalls = pgTable(
+  "tool_calls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    calledBy: text("called_by"),
+    input: jsonb("input")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    output: jsonb("output").$type<Record<string, unknown>>(),
+    status: text("status").notNull().default("success"), // success | error | escalated
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("tool_calls_org_idx").on(table.organizationId),
   }),
 );
 
