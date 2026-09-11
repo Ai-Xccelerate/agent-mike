@@ -83,7 +83,7 @@ export const workerProfiles = pgTable(
     toolsConfig: jsonb("tools_config")
       .$type<Record<string, boolean>>()
       .notNull()
-      .default(sql`'{"browser_use":false,"internet":false,"scribe":false,"artifacts":false}'::jsonb`),
+      .default(sql`'{"browser_use":false,"internet_search":false,"scribe":false,"artifacts":false}'::jsonb`),
 
     // Channels (settings > Channels)
     channelsConfig: jsonb("channels_config")

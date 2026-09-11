@@ -4,6 +4,11 @@ export interface ToolDefinition {
   requiresAuth: boolean;
 }
 
+export interface IntegrationTypeDefinition {
+  type: string;
+  name: string;
+}
+
 export interface IntegrationDefinition {
   id: string;
   integrationType: string;
@@ -12,7 +17,16 @@ export interface IntegrationDefinition {
 }
 
 export const TOOLS: ToolDefinition[] = [
+  { id: "browser_use", name: "Browser", requiresAuth: false },
   { id: "internet_search", name: "Internet Search", requiresAuth: false },
+  { id: "scribe", name: "Scribe", requiresAuth: false },
+  { id: "artifacts", name: "Artifacts", requiresAuth: false },
+];
+
+export const INTEGRATION_TYPES: IntegrationTypeDefinition[] = [
+  { type: "crm", name: "CRM" },
+  { type: "helpdesk", name: "Helpdesk" },
+  { type: "ticketing", name: "Ticketing" },
 ];
 
 export const INTEGRATIONS: IntegrationDefinition[] = [
@@ -21,6 +35,10 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
 
 export function getTool(toolId: string): ToolDefinition | undefined {
   return TOOLS.find((tool) => tool.id === toolId);
+}
+
+export function getIntegrationType(type: string): IntegrationTypeDefinition | undefined {
+  return INTEGRATION_TYPES.find((entry) => entry.type === type);
 }
 
 export function getIntegration(integrationId: string): IntegrationDefinition | undefined {
