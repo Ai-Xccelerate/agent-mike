@@ -225,33 +225,28 @@ export const workerUsers = pgTable(
   }),
 );
 
-export const integrationCredentials = pgTable(
-  "integration_credentials",
+export const integrationConnections = pgTable(
+  "integration_connections",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    integrationType: text("integration_type").notNull(), // crm | helpdesk | slack
-    system: text("system").notNull(), // zoho | zendesk | linear
-    accessToken: text("access_token").notNull(),
-    refreshToken: text("refresh_token"),
-    expiresAt: timestamp("expires_at", { withTimezone: true }),
-    scopes: jsonb("scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
-    metadata: jsonb("metadata")
-      .$type<Record<string, unknown>>()
-      .notNull()
-      .default(sql`'{}'::jsonb`),
+    integrationType: text("integration_type").notNull(), // crm | helpdesk | ticketing
+    system: text("system").notNull(), // Composio toolkit slug, e.g. "zoho"
+    composioAuthConfigId: text("composio_auth_config_id").notNull(),
+    composioConnectedAccountId: text("composio_connected_account_id"), // null until OAuth completes
+    status: text("status").notNull().default("pending"), // pending | active | failed | disabled
     connectedBy: text("connected_by"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     lastUsed: timestamp("last_used", { withTimezone: true }),
   },
   (table) => ({
-    orgTypeSystemIdx: index("integration_credentials_org_type_system_idx").on(
+    orgTypeUnique: uniqueIndex("integration_connections_org_type_unique").on(
       table.organizationId,
       table.integrationType,
-      table.system,
     ),
   }),
 );
