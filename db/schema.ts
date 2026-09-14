@@ -72,6 +72,9 @@ export const workerProfiles = pgTable(
     ),
     allowedDomains: jsonb("allowed_domains").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     requireUserVerification: boolean("require_user_verification").notNull().default(false),
+    // Fail-closed: write tools (create/update in an external system) wait for a
+    // human unless this worker is explicitly set to auto-execute.
+    requireWriteApproval: boolean("require_write_approval").notNull().default(true),
 
     // Human manager (settings > Human Manager)
     managerName: text("manager_name").notNull().default("Manager"),
@@ -271,6 +274,31 @@ export const toolCalls = pgTable(
   },
   (table) => ({
     orgIdx: index("tool_calls_org_idx").on(table.organizationId),
+  }),
+);
+
+export const toolApprovals = pgTable(
+  "tool_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    input: jsonb("input")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    status: text("status").notNull().default("pending"), // pending | approved | rejected
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    errorMessage: text("error_message"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgStatusIdx: index("tool_approvals_org_status_idx").on(table.organizationId, table.status),
   }),
 );
 
