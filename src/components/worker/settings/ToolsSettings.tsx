@@ -1,9 +1,11 @@
 "use client";
 
+import { Suspense } from "react";
 import ArtifactsIntegrationCard from "@/components/worker/settings/ArtifactsIntegrationCard";
 import AgentDbIntegrationCard from "@/components/worker/settings/AgentDbIntegrationCard";
 import AgentWikiIntegrationCard from "@/components/worker/settings/AgentWikiIntegrationCard";
 import ExternalToolCard from "@/components/worker/settings/ExternalToolCard";
+import MailboxCard from "@/components/worker/settings/MailboxCard";
 import type { ExternalTool } from "@/components/worker/settings/ExternalToolCard";
 import ParchmentIntegrationCard from "@/components/worker/settings/ParchmentIntegrationCard";
 import ScribeIntegrationCard from "@/components/worker/settings/ScribeIntegrationCard";
@@ -37,14 +39,6 @@ const TOOL_LABELS: { key: keyof ToolsConfig; label: string; description: string 
  * somewhere else — each one links to the vendor's own docs.
  */
 const EXTERNAL_TOOLS: ExternalTool[] = [
-  {
-    name: "Nylas",
-    description:
-      "One connection to a person's real mailbox, calendar and contacts — so the worker can read a thread and put a meeting in the right diary.",
-    detail: "Not wired up yet. Read what it covers in the",
-    docsUrl: "https://developer.nylas.com/",
-    docsLabel: "Nylas developer docs",
-  },
   {
     name: "Evermind.ai",
     description:
@@ -127,10 +121,14 @@ export default function ToolsSettings() {
       <section className={cardClass}>
         <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">External tools</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Third-party systems this worker could connect to. None of them are connected yet — these
-          are placeholders for what is coming, not switches.
+          Third-party systems this worker connects to. Nylas is live; the rest are placeholders for
+          what is coming, not switches.
         </p>
         <div className="mt-4 space-y-4">
+          {/* Nylas is real, so it gets the card that actually connects a mailbox. */}
+          <Suspense fallback={null}>
+            <MailboxCard />
+          </Suspense>
           {EXTERNAL_TOOLS.map((tool) => (
             <ExternalToolCard key={tool.name} tool={tool} />
           ))}

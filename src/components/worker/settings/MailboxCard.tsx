@@ -10,12 +10,12 @@ import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import type { MailboxConnectionTest, MailboxStatus } from "@/lib/worker-api";
 
 /**
- * The worker's own mailbox and calendar.
+ * The worker's own mailbox and calendar, connected through Nylas.
  *
- * This is identity, not an integration, which is why it sits on Identity next
- * to the name and the signature rather than under Tools: it is the address the
- * agent speaks as. A worker with no mailbox is a worker that cannot be emailed
- * and cannot reply.
+ * Sits under Tools > External tools, in place of the Nylas placeholder it
+ * replaced. Worth remembering what it actually is, though: not a tool the
+ * worker borrows, but the address it speaks as. A worker with no mailbox
+ * cannot be emailed and cannot reply, which is why Identity points here.
  *
  * Connecting leaves the app — Nylas hosts the provider consent screen — so the
  * flow is: ask the API for a URL, send the browser there, and pick the result
@@ -146,7 +146,7 @@ export default function MailboxCard() {
   if (phase === "failed" || !status) {
     return (
       <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-        <p className="text-sm font-medium text-gray-800 dark:text-white/90">Mailbox</p>
+        <p className="text-sm font-medium text-gray-800 dark:text-white/90">Nylas</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Could not load the mailbox — check that the API is running.
         </p>
@@ -170,7 +170,7 @@ export default function MailboxCard() {
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium text-gray-800 dark:text-white/90">Mailbox</p>
+            <p className="text-sm font-medium text-gray-800 dark:text-white/90">Nylas</p>
             <Badge size="sm" color={badge.color}>
               {badge.label}
             </Badge>
