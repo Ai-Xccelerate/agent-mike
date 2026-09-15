@@ -55,17 +55,30 @@ export default function IntegrationsSettingsPage() {
 
       <IntegrationConnectionCard
         integrationType="crm"
-        system="zoho"
-        vendorLabel="Zoho"
+        vendors={[{ system: "zoho", label: "Zoho" }]}
         title="Business system of record"
         description="CRM, helpdesk, ticketing, or project-management tool — always a decoupled, external integration, never hard-coded into the worker."
       />
       <IntegrationConnectionCard
         integrationType="project_management"
-        system="linear"
-        vendorLabel="Linear"
+        vendors={[{ system: "linear", label: "Linear" }]}
         title="Project management"
         description="Linear issues, searchable by the worker — always a decoupled, external integration, never hard-coded into the worker."
+      />
+      <IntegrationConnectionCard
+        integrationType="email"
+        vendors={[
+          { system: "gmail", label: "Gmail" },
+          { system: "outlook", label: "Outlook" },
+        ]}
+        title="Email"
+        description="Search the connected mailbox — always a decoupled, external integration, never hard-coded into the worker."
+      />
+      <IntegrationConnectionCard
+        integrationType="calendar"
+        vendors={[{ system: "googlecalendar", label: "Google Calendar" }]}
+        title="Calendar"
+        description="Search events on the connected calendar — always a decoupled, external integration, never hard-coded into the worker."
       />
     </>
   );
