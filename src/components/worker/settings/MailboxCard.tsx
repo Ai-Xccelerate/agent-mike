@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { EnvelopeIcon } from "@/icons";
+import { ChevronDownIcon, EnvelopeIcon } from "@/icons";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import type { MailboxConnectionTest, MailboxStatus } from "@/lib/worker-api";
 
@@ -51,10 +51,11 @@ export default function MailboxCard() {
   const [test, setTest] = useState<MailboxConnectionTest | null>(null);
   const [testing, setTesting] = useState(false);
 
-  // The setup form opens automatically when nothing is configured; once an
-  // application is in place it is tucked away behind "Change application",
-  // because it is not what a manager comes to this card to do twice.
-  const [showSetup, setShowSetup] = useState(false);
+  // Null means the manager has not decided, so the form follows the state of
+  // the card: open when there is nothing configured and something must be done,
+  // shut once an application is in place. Either way it can be toggled — an
+  // unconfigured card that cannot be collapsed is a wall, not a form.
+  const [setupOverride, setSetupOverride] = useState<boolean | null>(null);
   const [clientId, setClientId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiUri, setApiUri] = useState("https://api.us.nylas.com");
@@ -105,7 +106,7 @@ export default function MailboxCard() {
       setClientId("");
       setApiKey("");
       setSavingCreds("idle");
-      setShowSetup(false);
+      setSetupOverride(false);
       await load();
       setNoticeError(false);
       setNotice("Nylas application saved. You can connect a mailbox now.");
@@ -125,7 +126,7 @@ export default function MailboxCard() {
     try {
       await apiFetch("/mailbox/credentials", { method: "DELETE" });
       setSavingCreds("idle");
-      setShowSetup(false);
+      setSetupOverride(false);
       await load();
       setNoticeError(false);
       setNotice("Now using the shared Nylas application.");
@@ -211,6 +212,7 @@ export default function MailboxCard() {
 
   const badge = statusBadge(status);
   const mailbox = status.mailbox;
+  const setupOpen = setupOverride ?? !status.available;
   const needsReconnect = Boolean(mailbox) && !status.connected;
 
   return (
@@ -250,29 +252,50 @@ export default function MailboxCard() {
         An agent can bring its own Nylas application; if it does not, it uses
         the fleet's. Either way this is where it is decided, with no redeploy.
       */}
-      {(!status.available || showSetup) && (
-        <div className="mt-4 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Nylas application
-              </p>
+      <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-800">
+        <button
+          type="button"
+          aria-expanded={setupOpen}
+          onClick={() => setSetupOverride(!setupOpen)}
+          className="flex w-full items-start justify-between gap-3 p-4 text-left"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Nylas application
+            </p>
+            {!setupOpen && (
               <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                {status.credentials.source === "env"
-                  ? "Using the shared application configured on the API service. Enter values below to give this agent its own instead."
-                  : status.credentials.source === "org"
-                    ? "This agent has its own application. Clear it to fall back to the shared one."
-                    : "Paste the client ID and API key from your Nylas dashboard."}
+                {status.credentials.source === "org"
+                  ? "This agent has its own."
+                  : status.credentials.source === "env"
+                    ? "Using the shared application."
+                    : "Not set up yet."}
               </p>
-            </div>
+            )}
+          </div>
+          <span className="flex shrink-0 items-center gap-2">
             {status.credentials.source !== "none" && (
               <Badge size="sm" color="light">
                 {status.credentials.source === "org" ? "Own application" : "Shared"}
               </Badge>
             )}
-          </div>
+            <ChevronDownIcon
+              className={`size-4 text-gray-400 transition-transform ${setupOpen ? "rotate-180" : ""}`}
+            />
+          </span>
+        </button>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {setupOpen && (
+          <div className="border-t border-gray-100 p-4 dark:border-gray-800">
+            <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {status.credentials.source === "env"
+                  ? "Using the shared application configured on the API service. Enter values below to give this agent its own instead."
+                  : status.credentials.source === "org"
+                    ? "This agent has its own application. Clear it to fall back to the shared one."
+                    : "Paste the client ID and API key from your Nylas dashboard."}
+            </p>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
               Client ID
               <input
@@ -332,11 +355,6 @@ export default function MailboxCard() {
                 Use the shared one
               </Button>
             )}
-            {status.available && (
-              <Button size="sm" variant="outline" onClick={() => setShowSetup(false)}>
-                Cancel
-              </Button>
-            )}
           </div>
 
           <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
@@ -344,11 +362,12 @@ export default function MailboxCard() {
             <code className="break-all font-mono text-[11px] text-gray-600 dark:text-gray-400">
               {status.callback_uri}
             </code>{" "}
-            as a callback URI on the application, and add a connector for the provider you use —
-            Nylas cannot create a grant without one.
-          </p>
-        </div>
-      )}
+              as a callback URI on the application, and add a connector for the provider you use —
+              Nylas cannot create a grant without one.
+            </p>
+          </div>
+        )}
+      </div>
 
       {needsReconnect && (
         <p className="mt-3 text-xs font-medium leading-5 text-warning-600 dark:text-warning-400">
@@ -383,7 +402,7 @@ export default function MailboxCard() {
                 <Button size="sm" loading={busy} onClick={() => void connect()}>
                   {needsReconnect ? "Reconnect mailbox" : "Connect mailbox"}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => setShowSetup(true)}>
+                <Button size="sm" variant="outline" onClick={() => setSetupOverride(true)}>
                   Change application
                 </Button>
               </>
@@ -395,7 +414,7 @@ export default function MailboxCard() {
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => void disconnect()}>
                   Disconnect
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => setShowSetup(true)}>
+                <Button size="sm" variant="outline" onClick={() => setSetupOverride(true)}>
                   Change application
                 </Button>
               </>
