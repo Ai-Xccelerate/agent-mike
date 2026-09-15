@@ -6,7 +6,9 @@ import { isDemoMode } from "@/lib/env";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
-import { getSkill, loadSkills } from "@/lib/tools-integrations/skills-loader";
+import { getSkillForOrg } from "@/lib/tools-integrations/skills-catalog";
+import { listCustomSkills } from "@/lib/tools-integrations/custom-skills-repository";
+import { loadSkills } from "@/lib/tools-integrations/skills-loader";
 
 export interface WorkerProfileLike {
   displayName: string;
@@ -31,10 +33,15 @@ export const LOAD_SKILL_TOOL_NAME = "load_skill";
  * full body only loads when the agent calls load_skill — progressive
  * disclosure, per the plan's Skills design.
  */
-export function buildSkillsBlock(enabledSkillIds: string[] | undefined): string {
+export async function buildSkillsBlock(
+  enabledSkillIds: string[] | undefined,
+  organizationId: string,
+): Promise<string> {
   if (!enabledSkillIds || enabledSkillIds.length === 0) return "";
 
-  const enabled = loadSkills().filter((skill) => enabledSkillIds.includes(skill.id));
+  const custom = await listCustomSkills(organizationId);
+  const combined = [...loadSkills(), ...custom];
+  const enabled = combined.filter((skill) => enabledSkillIds.includes(skill.id));
   if (enabled.length === 0) return "";
 
   const list = enabled.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
@@ -45,7 +52,7 @@ export function buildSkillsBlock(enabledSkillIds: string[] | undefined): string 
   );
 }
 
-function buildLoadSkillTool(enabledSkillIds: string[] | undefined): Tool {
+function buildLoadSkillTool(enabledSkillIds: string[] | undefined, organizationId: string): Tool {
   return tool({
     name: LOAD_SKILL_TOOL_NAME,
     description:
@@ -58,7 +65,7 @@ function buildLoadSkillTool(enabledSkillIds: string[] | undefined): Tool {
       if (!enabledSkillIds || !enabledSkillIds.includes(skillId)) {
         return `Skill "${skillId}" is not enabled for this worker.`;
       }
-      const skill = getSkill(skillId);
+      const skill = await getSkillForOrg(organizationId, skillId);
       if (!skill) {
         return `Skill "${skillId}" is enabled but its content could not be found.`;
       }
@@ -365,7 +372,7 @@ export async function buildAgentTools(
   }
 
   if (profile.enabledSkills && profile.enabledSkills.length > 0) {
-    tools.push(buildLoadSkillTool(profile.enabledSkills));
+    tools.push(buildLoadSkillTool(profile.enabledSkills, organizationId));
   }
 
   const connection = await getConnectionForOrg(organizationId, "crm");
@@ -473,11 +480,12 @@ function fillTemplate(template: string, vars: Record<string, string>): string {
   );
 }
 
-function buildInstructions(
+async function buildInstructions(
   profile: WorkerProfileLike,
   organizationName: string,
   knowledge: KnowledgeMatch[],
-): string {
+  organizationId: string,
+): Promise<string> {
   const base = fillTemplate(profile.systemPromptTemplate, {
     displayName: profile.displayName,
     organizationName,
@@ -502,7 +510,7 @@ function buildInstructions(
     base +
     (identityBlock ? `\n\n${identityBlock}` : "") +
     knowledgeBlock +
-    buildSkillsBlock(profile.enabledSkills) +
+    (await buildSkillsBlock(profile.enabledSkills, organizationId)) +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."
@@ -556,7 +564,7 @@ export async function runAgent(
 
   const agent = new Agent({
     name: profile.displayName,
-    instructions: buildInstructions(profile, organizationName, knowledge),
+    instructions: await buildInstructions(profile, organizationName, knowledge, organizationId),
     model: profile.model,
     // Tools are built from the worker's toolsConfig, per the Tools & Integrations registry.
     tools: await buildAgentTools(profile, organizationId),

@@ -32,9 +32,14 @@ import {
   ZOHO_SEARCH_CONTACTS_SLUG,
   ZOHO_TOOLKIT_VERSION,
 } from "@/lib/agent";
+import { ensureOrganization } from "@/lib/bootstrap";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import type { IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
+import {
+  createCustomSkill,
+  deleteCustomSkill,
+} from "@/lib/tools-integrations/custom-skills-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
 
 vi.mock("@/lib/tools-integrations/connection-repository", () => ({
@@ -824,21 +829,40 @@ describe("agent skills wiring", () => {
     getConnectionForOrgMock.mockResolvedValue(null);
   });
 
-  it("buildSkillsBlock is empty with no enabled skills", () => {
-    expect(buildSkillsBlock(undefined)).toBe("");
-    expect(buildSkillsBlock([])).toBe("");
+  it("buildSkillsBlock is empty with no enabled skills", async () => {
+    expect(await buildSkillsBlock(undefined, "org-1")).toBe("");
+    expect(await buildSkillsBlock([], "org-1")).toBe("");
   });
 
-  it("buildSkillsBlock lists an enabled skill's frontmatter", () => {
-    const block = buildSkillsBlock(["stay-on-topic"]);
+  it("buildSkillsBlock lists an enabled skill's frontmatter", async () => {
+    const block = await buildSkillsBlock(["stay-on-topic"], "org-1");
     expect(block).toContain("stay-on-topic");
     expect(block).toContain(
       "Use when a conversation drifts off-topic before a ticket gets created",
     );
   });
 
-  it("buildSkillsBlock ignores an unenabled/unknown skill id", () => {
-    expect(buildSkillsBlock(["not-a-real-skill"])).toBe("");
+  it("buildSkillsBlock ignores an unenabled/unknown skill id", async () => {
+    expect(await buildSkillsBlock(["not-a-real-skill"], "org-1")).toBe("");
+  });
+
+  it("buildSkillsBlock includes an enabled custom skill for that org", async () => {
+    const orgId = `org-${crypto.randomUUID()}`;
+    await ensureOrganization(orgId, "Custom skill in prompt block");
+    const created = await createCustomSkill({
+      organizationId: orgId,
+      name: "custom-skill-in-prompt",
+      description: "A custom skill that should show up in the prompt block.",
+      requires: [],
+      body: "Full body.",
+    });
+    try {
+      const block = await buildSkillsBlock([created.id], orgId);
+      expect(block).toContain(created.id);
+      expect(block).toContain("A custom skill that should show up in the prompt block.");
+    } finally {
+      await deleteCustomSkill(orgId, created.id);
+    }
   });
 
   it("does not add load_skill tool when no skills are enabled", async () => {
@@ -865,5 +889,35 @@ describe("agent skills wiring", () => {
     );
     const result = await invokeLoadSkill(tools, "some-other-skill");
     expect(result).toContain("not enabled");
+  });
+
+  it("load_skill returns a custom skill body when that skill is enabled for the org", async () => {
+    const orgId = `org-${crypto.randomUUID()}`;
+    await ensureOrganization(orgId, "Agent custom skill org");
+    const custom = await createCustomSkill({
+      organizationId: orgId,
+      name: "Ticket voice",
+      description: "Write the ticket in the customer's own words.",
+      requires: [],
+      body: "# Ticket voice\nQuote the product and the failure, nothing else.",
+    });
+
+    try {
+      const tools = await buildAgentTools(
+        { toolsConfig: {}, enabledSkills: [custom.id] },
+        orgId,
+      );
+      const body = await invokeLoadSkill(tools, custom.id);
+      expect(body).toContain("Quote the product and the failure");
+
+      const otherOrgTools = await buildAgentTools(
+        { toolsConfig: {}, enabledSkills: [custom.id] },
+        `org-${crypto.randomUUID()}`,
+      );
+      const missing = await invokeLoadSkill(otherOrgTools, custom.id);
+      expect(missing).toContain("could not be found");
+    } finally {
+      await deleteCustomSkill(orgId, custom.id);
+    }
   });
 });
