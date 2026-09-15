@@ -196,7 +196,11 @@ export default function IdentitySettings() {
 
       <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-160.4">
         <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">How it signs off</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Regional formatting and email identity.</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Regional formatting and email identity. The mailbox it actually sends from is connected
+          under Settings &gt; Tools &gt; External tools.
+        </p>
+
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Timezone
