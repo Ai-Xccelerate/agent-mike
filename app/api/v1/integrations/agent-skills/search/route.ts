@@ -3,7 +3,11 @@ import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { agentSkillsStatus, readAgentSkillsSettings } from "@/lib/integrations";
-import { SkillsRepositoryError, searchSkills } from "@/lib/skills-repository";
+import {
+  SkillsRepositoryError,
+  resolveSkillsCredentials,
+  searchSkills,
+} from "@/lib/skills-repository";
 
 // Calls out per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -22,7 +26,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   const profile = await getOrCreateProfile(tenant.orgId);
-  const status = agentSkillsStatus(profile.integrationsConfig);
+  const status = await agentSkillsStatus(profile.integrationsConfig, tenant.orgId);
 
   if (!status.available) {
     return NextResponse.json(
@@ -39,10 +43,16 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const resolved = await resolveSkillsCredentials(tenant.orgId);
+  if (!resolved) {
+    return NextResponse.json({ error: status.unavailableReason, results: [] }, { status: 422 });
+  }
+
   const settings = readAgentSkillsSettings(profile.integrationsConfig);
 
   try {
     const results = await searchSkills({
+      credentials: resolved.values,
       query,
       category: settings.category,
       limit: settings.maxResults,

@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { agentSkillsStatus } from "@/lib/integrations";
-import { checkSkillsRepository } from "@/lib/skills-repository";
+import { checkSkillsRepository, resolveSkillsCredentials } from "@/lib/skills-repository";
 
 // Calls out per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   const profile = await getOrCreateProfile(tenant.orgId);
-  const status = agentSkillsStatus(profile.integrationsConfig);
+  const status = await agentSkillsStatus(profile.integrationsConfig, tenant.orgId);
 
   if (!status.available) {
     return NextResponse.json({
@@ -29,5 +29,17 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json(await checkSkillsRepository());
+  const resolved = await resolveSkillsCredentials(tenant.orgId);
+  if (!resolved) {
+    return NextResponse.json({
+      ok: false,
+      toolCount: 0,
+      tools: [],
+      categories: [],
+      error: status.unavailableReason,
+      errorKind: "unconfigured",
+    });
+  }
+
+  return NextResponse.json(await checkSkillsRepository(resolved.values));
 }

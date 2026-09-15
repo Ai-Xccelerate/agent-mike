@@ -12,10 +12,11 @@ import {
 } from "@/lib/integrations";
 import {
   REPO_ID_PREFIX,
+  envSkillsCredentials,
+  isCompleteSkillsCredentials,
   isRepositorySkillId,
-  isSkillsRepositoryConfigured,
+  normalizeSkillsCredentials,
   repositorySlugFrom,
-  skillsRepositoryUrl,
   toRepositorySkillId,
 } from "@/lib/skills-repository";
 
@@ -40,18 +41,28 @@ function configured() {
   process.env.AIX_SKILLS_API_KEY = "aix_skills_supersecret";
 }
 
-describe("skill repository configuration", () => {
-  it("needs both halves of the credential", () => {
-    expect(isSkillsRepositoryConfigured()).toBe(false);
-    process.env.AIX_SKILLS_MCP_URL = "https://skills.example.com/mcp";
-    expect(isSkillsRepositoryConfigured()).toBe(false);
-    process.env.AIX_SKILLS_API_KEY = "aix_skills_supersecret";
-    expect(isSkillsRepositoryConfigured()).toBe(true);
+describe("skill repository credentials", () => {
+  it("is incomplete until a key is present — the URL alone is not enough", () => {
+    expect(isCompleteSkillsCredentials({})).toBe(false);
+    expect(isCompleteSkillsCredentials({ apiUrl: "https://skills.example.com/mcp" })).toBe(false);
+    expect(
+      isCompleteSkillsCredentials({ apiUrl: "https://skills.example.com/mcp", apiKey: "k" }),
+    ).toBe(true);
+  });
+
+  it("reads the fleet key from env, and defaults the URL", () => {
+    // The URL has a sensible default, so only the key decides completeness.
+    expect(isCompleteSkillsCredentials(envSkillsCredentials())).toBe(false);
+    configured();
+    const env = envSkillsCredentials();
+    expect(env.apiKey).toBe("aix_skills_supersecret");
+    expect(isCompleteSkillsCredentials(env)).toBe(true);
   });
 
   it("strips a trailing slash so the URL is joined consistently", () => {
-    process.env.AIX_SKILLS_MCP_URL = "https://skills.example.com/mcp/";
-    expect(skillsRepositoryUrl()).toBe("https://skills.example.com/mcp");
+    expect(
+      normalizeSkillsCredentials({ apiUrl: "https://skills.example.com/mcp/", apiKey: "k" }).apiUrl,
+    ).toBe("https://skills.example.com/mcp");
   });
 });
 
@@ -132,27 +143,27 @@ describe("skill repository settings", () => {
 });
 
 describe("skill repository status", () => {
-  it("is unavailable without credentials, and says which vars are missing", () => {
-    const status = agentSkillsStatus({});
+  it("is unavailable without credentials, and says how to fix it", async () => {
+    const status = await agentSkillsStatus({}, "status-test-org");
     expect(status.available).toBe(false);
     expect(status.active).toBe(false);
-    expect(status.unavailableReason).toMatch(/AIX_SKILLS_MCP_URL/);
+    expect(status.unavailableReason).toMatch(/Add a key for this agent/);
     expect(status.unavailableReason).toMatch(/AIX_SKILLS_API_KEY/);
   });
 
-  it("is available but inactive until the worker switches it on", () => {
+  it("is available but inactive until the worker switches it on", async () => {
     configured();
-    expect(agentSkillsStatus({}).available).toBe(true);
-    expect(agentSkillsStatus({}).active).toBe(false);
+    expect((await agentSkillsStatus({}, "status-test-org")).available).toBe(true);
+    expect((await agentSkillsStatus({}, "status-test-org")).active).toBe(false);
 
     const on = { agent_skills: { enabled: true, category: null, maxResults: 5 } };
-    expect(agentSkillsStatus(on).active).toBe(true);
+    expect((await agentSkillsStatus(on, "status-test-org")).active).toBe(true);
   });
 
-  it("never serializes the key", () => {
+  it("never serializes the key", async () => {
     configured();
-    const serialized = JSON.stringify(agentSkillsStatus({}));
-    expect(serialized).not.toContain("aix_skills_supersecret");
-    expect(agentSkillsStatus({}).settings.api_url).toBe("https://skills.example.com/mcp");
+    const status = await agentSkillsStatus({}, "status-test-org");
+    expect(JSON.stringify(status)).not.toContain("aix_skills_supersecret");
+    expect(status.settings.api_url).toBe("https://skills.example.com/mcp");
   });
 });

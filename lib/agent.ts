@@ -14,11 +14,12 @@ import {
   SkillsRepositoryError,
   getRepositorySkill,
   isRepositorySkillId,
-  isSkillsRepositoryConfigured,
+  resolveSkillsCredentials,
   repositorySlugFrom,
   searchSkills,
   toRepositorySkillId,
   type AgentSkillsRuntime,
+  type SkillsRepositoryCredentials,
 } from "@/lib/skills-repository";
 
 export interface WorkerProfileLike {
@@ -85,7 +86,10 @@ export async function buildSkillsBlock(
  * way to know. Results are candidates only — the body is fetched by load_skill,
  * keeping the same progressive disclosure the local catalog uses.
  */
-function buildSearchSkillsTool(runtime: AgentSkillsRuntime): Tool {
+function buildSearchSkillsTool(
+  credentials: SkillsRepositoryCredentials,
+  runtime: AgentSkillsRuntime,
+): Tool {
   return tool({
     name: SEARCH_SKILLS_TOOL_NAME,
     description:
@@ -100,6 +104,7 @@ function buildSearchSkillsTool(runtime: AgentSkillsRuntime): Tool {
     execute: async ({ task }) => {
       try {
         const results = await searchSkills({
+          credentials,
           query: task,
           category: runtime.category,
           limit: runtime.maxResults,
@@ -125,7 +130,7 @@ function buildSearchSkillsTool(runtime: AgentSkillsRuntime): Tool {
 function buildLoadSkillTool(
   enabledSkillIds: string[] | undefined,
   organizationId: string,
-  repositoryEnabled = false,
+  repositoryCredentials: SkillsRepositoryCredentials | null = null,
 ): Tool {
   return tool({
     name: LOAD_SKILL_TOOL_NAME,
@@ -140,11 +145,11 @@ function buildLoadSkillTool(
       // so they are never in enabledSkills — the integration toggle is what
       // authorises them.
       if (isRepositorySkillId(skillId)) {
-        if (!repositoryEnabled) {
+        if (!repositoryCredentials) {
           return `The skill repository is not enabled for this worker.`;
         }
         try {
-          const found = await getRepositorySkill(repositorySlugFrom(skillId));
+          const found = await getRepositorySkill(repositoryCredentials, repositorySlugFrom(skillId));
           return found ? found.body : `Skill "${skillId}" was not found in the repository.`;
         } catch (error) {
           return error instanceof SkillsRepositoryError
@@ -528,16 +533,20 @@ export async function buildAgentTools(
   // enabling skills one at a time, so it is resolved separately from
   // enabledSkills — and it can be the only source of skills a worker has.
   const skillsRepo = readAgentSkillsSettings(profile.integrationsConfig);
-  const repositoryActive = skillsRepo.enabled && isSkillsRepositoryConfigured();
+  const skillsCreds = skillsRepo.enabled ? await resolveSkillsCredentials(organizationId) : null;
+  const repositoryCredentials = skillsCreds ? skillsCreds.values : null;
 
-  if (repositoryActive) {
+  if (repositoryCredentials) {
     tools.push(
-      buildSearchSkillsTool({ category: skillsRepo.category, maxResults: skillsRepo.maxResults }),
+      buildSearchSkillsTool(repositoryCredentials, {
+        category: skillsRepo.category,
+        maxResults: skillsRepo.maxResults,
+      }),
     );
   }
 
-  if (repositoryActive || (profile.enabledSkills && profile.enabledSkills.length > 0)) {
-    tools.push(buildLoadSkillTool(profile.enabledSkills, organizationId, repositoryActive));
+  if (repositoryCredentials || (profile.enabledSkills && profile.enabledSkills.length > 0)) {
+    tools.push(buildLoadSkillTool(profile.enabledSkills, organizationId, repositoryCredentials));
   }
 
   const connection = await getConnectionForOrg(organizationId, "crm");
@@ -701,7 +710,8 @@ async function buildInstructions(
     (await buildSkillsBlock(
       profile.enabledSkills,
       organizationId,
-      readAgentSkillsSettings(profile.integrationsConfig).enabled && isSkillsRepositoryConfigured(),
+      readAgentSkillsSettings(profile.integrationsConfig).enabled &&
+        Boolean(await resolveSkillsCredentials(organizationId)),
     )) +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +

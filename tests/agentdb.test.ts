@@ -94,8 +94,8 @@ describe("agentdb status", () => {
     expect(status.settings.api_url).toBe("https://agentdb.example.com");
   });
 
-  it("is listed alongside the other integrations on the Integrations screen", () => {
-    expect(integrationStatuses({}, "default").map((s) => s.key)).toContain("agentdb");
+  it("is listed alongside the other integrations on the Integrations screen", async () => {
+    expect((await integrationStatuses({}, "default")).map((s) => s.key)).toContain("agentdb");
   });
 });
 

@@ -149,8 +149,8 @@ describe("agent wiki status", () => {
     expect(agentWikiStatus({}).settings.api_url).toBe("https://wiki.example.com/mcp");
   });
 
-  it("joins the other integrations on the settings screen", () => {
-    const keys = integrationStatuses({}, "org-local").map((s) => s.key);
+  it("joins the other integrations on the settings screen", async () => {
+    const keys = (await integrationStatuses({}, "org-local")).map((s) => s.key);
     expect(keys).toContain(AGENT_WIKI_KEY);
     expect(keys).toHaveLength(6);
   });

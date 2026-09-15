@@ -24,7 +24,10 @@
  * this worker looked for, including the searches that came back empty.
  */
 
+import { resolveCredentials, type ResolvedCredentials } from "@/lib/provider-credentials";
+
 const DEFAULT_TIMEOUT_MS = 20000;
+const DEFAULT_MCP_URL = "https://api-staging-da41.up.railway.app/mcp";
 
 /** Repository ids are namespaced so they can never collide with a catalog id
  *  or a custom skill's UUID once they are all in one list. */
@@ -76,21 +79,54 @@ export class SkillsRepositoryError extends Error {
   }
 }
 
-export function skillsRepositoryUrl(): string {
-  return (process.env.AIX_SKILLS_MCP_URL || "").trim().replace(/\/+$/, "");
+export type SkillsRepositoryCredentials = {
+  apiUrl: string;
+  apiKey: string;
+};
+
+export const SKILLS_PROVIDER = "aix_skills";
+/** What the settings screen reports as set or missing. */
+export const SKILLS_REQUIRED_FIELDS = ["apiKey"] as const;
+
+/** The fleet-wide key, shared by every agent unless one brings its own. */
+export function envSkillsCredentials(): SkillsRepositoryCredentials {
+  return {
+    apiUrl: (process.env.AIX_SKILLS_MCP_URL || DEFAULT_MCP_URL).trim().replace(/\/+$/, ""),
+    apiKey: (process.env.AIX_SKILLS_API_KEY || "").trim(),
+  };
 }
 
-function skillsRepositoryKey(): string {
-  return (process.env.AIX_SKILLS_API_KEY || "").trim();
+export function isCompleteSkillsCredentials(
+  values: Partial<SkillsRepositoryCredentials>,
+): boolean {
+  return Boolean((values.apiUrl || "").trim() && (values.apiKey || "").trim());
+}
+
+/** Normalizes whatever was stored, so a missing URL still has the default. */
+export function normalizeSkillsCredentials(
+  values: Partial<SkillsRepositoryCredentials>,
+): SkillsRepositoryCredentials {
+  return {
+    apiUrl: (values.apiUrl || DEFAULT_MCP_URL).trim().replace(/\/+$/, ""),
+    apiKey: (values.apiKey || "").trim(),
+  };
 }
 
 /**
- * True when the server holds both halves of the credential. Without them the
- * integration reports unavailable rather than merely disabled, and fails
- * closed: nothing is ever sent to the repository.
+ * This agent's own key if it has one, otherwise the fleet's. Null when neither
+ * exists — the caller reports unavailable rather than calling out with half a
+ * credential.
  */
-export function isSkillsRepositoryConfigured(): boolean {
-  return Boolean(skillsRepositoryUrl() && skillsRepositoryKey());
+export async function resolveSkillsCredentials(
+  orgId: string,
+): Promise<ResolvedCredentials<SkillsRepositoryCredentials> | null> {
+  const resolved = await resolveCredentials<SkillsRepositoryCredentials>(
+    orgId,
+    SKILLS_PROVIDER,
+    envSkillsCredentials,
+    isCompleteSkillsCredentials,
+  );
+  return resolved ? { ...resolved, values: normalizeSkillsCredentials(resolved.values) } : null;
 }
 
 interface JsonRpcResponse {
@@ -126,13 +162,14 @@ function parseRpcBody(contentType: string, body: string): JsonRpcResponse {
 let nextId = 1;
 
 async function rpc(
+  credentials: SkillsRepositoryCredentials,
   method: string,
   params: Record<string, unknown>,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<Record<string, unknown>> {
-  if (!isSkillsRepositoryConfigured()) {
+  if (!isCompleteSkillsCredentials(credentials)) {
     throw new SkillsRepositoryError(
-      "The skill repository is not configured on this server (AIX_SKILLS_MCP_URL / AIX_SKILLS_API_KEY)",
+      "No skill repository key is configured for this agent",
       null,
       "unconfigured",
     );
@@ -143,10 +180,10 @@ async function rpc(
 
   let res: Response;
   try {
-    res = await fetch(skillsRepositoryUrl(), {
+    res = await fetch(credentials.apiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${skillsRepositoryKey()}`,
+        Authorization: `Bearer ${credentials.apiKey}`,
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
       },
@@ -173,7 +210,7 @@ async function rpc(
     const detail = (await res.text().catch(() => "")).slice(0, 300);
     if (res.status === 401) {
       throw new SkillsRepositoryError(
-        "The skill repository rejected the key (AIX_SKILLS_API_KEY)",
+        "The skill repository rejected this agent's key",
         401,
         "auth",
       );
@@ -226,11 +263,12 @@ function toolText(result: Record<string, unknown>): string {
  * caller has to guess which it got.
  */
 async function callTool(
+  credentials: SkillsRepositoryCredentials,
   name: string,
   args: Record<string, unknown>,
   timeoutMs?: number,
 ): Promise<{ data: Record<string, unknown>; text: string }> {
-  const result = await rpc("tools/call", { name, arguments: args }, timeoutMs);
+  const result = await rpc(credentials, "tools/call", { name, arguments: args }, timeoutMs);
   const text = toolText(result);
   if (result.isError) {
     const missing = /not found|no such skill|unknown skill/i.test(text);
@@ -283,8 +321,11 @@ export interface RepositoryTool {
 }
 
 /** The live tool surface — the cheapest proof the key works. */
-export async function listRepositoryTools(timeoutMs?: number): Promise<RepositoryTool[]> {
-  const result = await rpc("tools/list", {}, timeoutMs);
+export async function listRepositoryTools(
+  credentials: SkillsRepositoryCredentials,
+  timeoutMs?: number,
+): Promise<RepositoryTool[]> {
+  const result = await rpc(credentials, "tools/list", {}, timeoutMs);
   const tools = Array.isArray(result.tools) ? (result.tools as Array<Record<string, unknown>>) : [];
   return tools.map((tool) => ({
     name: str(tool.name),
@@ -300,6 +341,7 @@ export async function listRepositoryTools(timeoutMs?: number): Promise<Repositor
  * progressive disclosure the local catalog already gets right.
  */
 export async function searchSkills(options: {
+  credentials: SkillsRepositoryCredentials;
   query: string;
   category?: string | null;
   limit?: number;
@@ -307,6 +349,7 @@ export async function searchSkills(options: {
 }): Promise<RepositorySkill[]> {
   const limit = Math.min(20, Math.max(1, options.limit ?? 5));
   const { data } = await callTool(
+    options.credentials,
     "search_skills",
     {
       query: options.query,
@@ -330,11 +373,12 @@ export async function searchSkills(options: {
 
 /** The full SKILL.md, for a skill the agent has decided to follow. */
 export async function getRepositorySkill(
+  credentials: SkillsRepositoryCredentials,
   slug: string,
   timeoutMs?: number,
 ): Promise<RepositorySkill | null> {
   try {
-    const { data, text } = await callTool("get_skill", { slug }, timeoutMs);
+    const { data, text } = await callTool(credentials, "get_skill", { slug }, timeoutMs);
     // `get_skill` may answer with the markdown itself or a JSON envelope
     // around it; both are normal, so accept either rather than insisting.
     const body = str(data.body ?? data.content ?? data.markdown) || text;
@@ -353,8 +397,11 @@ export async function getRepositorySkill(
 }
 
 /** What the repository holds, for the settings screen to show. */
-export async function listCategories(timeoutMs?: number): Promise<RepositoryCategory[]> {
-  const { data } = await callTool("list_categories", {}, timeoutMs);
+export async function listCategories(
+  credentials: SkillsRepositoryCredentials,
+  timeoutMs?: number,
+): Promise<RepositoryCategory[]> {
+  const { data } = await callTool(credentials, "list_categories", {}, timeoutMs);
   return rowsFrom(data, ["categories", "results", "items"])
     .map((row) => ({
       name: str(row.name ?? row.category ?? row),
@@ -380,10 +427,15 @@ export interface SkillsRepositoryCheck {
  * than an empty repository. Categories failing on their own is information,
  * not a failed test. Never throws; the screen renders the failure.
  */
-export async function checkSkillsRepository(timeoutMs?: number): Promise<SkillsRepositoryCheck> {
+export async function checkSkillsRepository(
+  credentials: SkillsRepositoryCredentials,
+  timeoutMs?: number,
+): Promise<SkillsRepositoryCheck> {
   try {
-    const tools = await listRepositoryTools(timeoutMs);
-    const categories = await listCategories(timeoutMs).catch(() => [] as RepositoryCategory[]);
+    const tools = await listRepositoryTools(credentials, timeoutMs);
+    const categories = await listCategories(credentials, timeoutMs).catch(
+      () => [] as RepositoryCategory[],
+    );
     return {
       ok: true,
       toolCount: tools.length,

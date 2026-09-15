@@ -4,7 +4,13 @@ import { agentDbApiUrl, agentDbOrgId, hasEnableJwt, isAgentDbConfigured } from "
 import { isScribeConfigured, scribeMcpUrl } from "@/lib/scribe";
 import { artifactsMcpUrl, artifactsOrgLabel, isArtifactsConfigured } from "@/lib/artifacts";
 import { agentWikiKeyLabel, agentWikiMcpUrl, isAgentWikiConfigured } from "@/lib/agent-wiki";
-import { isSkillsRepositoryConfigured, skillsRepositoryUrl } from "@/lib/skills-repository";
+import {
+  SKILLS_PROVIDER,
+  SKILLS_REQUIRED_FIELDS,
+  envSkillsCredentials,
+  resolveSkillsCredentials,
+} from "@/lib/skills-repository";
+import { describeCredentials, type CredentialSummary } from "@/lib/provider-credentials";
 
 /**
  * Settings > Integrations.
@@ -340,6 +346,12 @@ export interface IntegrationStatus {
   /** Why it is unavailable, for the settings screen to show inline. */
   unavailableReason: string | null;
   settings: Record<string, unknown>;
+  /**
+   * For an integration whose key can be supplied per agent: whether this one
+   * uses its own or the fleet's. Never carries the key itself. Absent on
+   * integrations that are configured fleet-wide only.
+   */
+  credentials?: CredentialSummary;
 }
 
 export function parchmentStatus(stored: unknown, localOrgId: string): IntegrationStatus {
@@ -470,9 +482,13 @@ export function agentWikiStatus(stored: unknown): IntegrationStatus {
   };
 }
 
-export function agentSkillsStatus(stored: unknown): IntegrationStatus {
+export async function agentSkillsStatus(
+  stored: unknown,
+  organizationId: string,
+): Promise<IntegrationStatus> {
   const settings = readAgentSkillsSettings(stored);
-  const available = isSkillsRepositoryConfigured();
+  const resolved = await resolveSkillsCredentials(organizationId);
+  const available = Boolean(resolved);
   return {
     key: AGENT_SKILLS_KEY,
     name: "AIX Skills repository",
@@ -483,24 +499,35 @@ export function agentSkillsStatus(stored: unknown): IntegrationStatus {
     active: available && settings.enabled,
     unavailableReason: available
       ? null
-      : "Set AIX_SKILLS_MCP_URL and AIX_SKILLS_API_KEY on the API service.",
+      : "Add a key for this agent, or set AIX_SKILLS_API_KEY fleet-wide on the API service.",
+    // Whether this agent is on its own key or the fleet's, so the screen can
+    // say which and offer to change it.
+    credentials: await describeCredentials(
+      organizationId,
+      SKILLS_PROVIDER,
+      [...SKILLS_REQUIRED_FIELDS],
+      envSkillsCredentials,
+    ),
     settings: {
       category: settings.category,
       max_results: settings.maxResults,
       // Host only — the key is never serialized.
-      api_url: skillsRepositoryUrl() || null,
+      api_url: resolved ? resolved.values.apiUrl : null,
     },
   };
 }
 
 /** Everything the Integrations settings screen lists. */
-export function integrationStatuses(stored: unknown, localOrgId: string): IntegrationStatus[] {
+export async function integrationStatuses(
+  stored: unknown,
+  localOrgId: string,
+): Promise<IntegrationStatus[]> {
   return [
     parchmentStatus(stored, localOrgId),
     agentDbStatus(stored, localOrgId),
     scribeStatus(stored),
     artifactsStatus(stored),
     agentWikiStatus(stored),
-    agentSkillsStatus(stored),
+    await agentSkillsStatus(stored, localOrgId),
   ];
 }

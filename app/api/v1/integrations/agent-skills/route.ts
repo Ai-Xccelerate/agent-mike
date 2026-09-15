@@ -13,8 +13,8 @@ import {
 } from "@/lib/integrations";
 import {
   SkillsRepositoryError,
-  isSkillsRepositoryConfigured,
   listCategories,
+  resolveSkillsCredentials,
 } from "@/lib/skills-repository";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
@@ -35,14 +35,23 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   const profile = await getOrCreateProfile(tenant.orgId);
-  const status = agentSkillsStatus(profile.integrationsConfig);
+  const status = await agentSkillsStatus(profile.integrationsConfig, tenant.orgId);
 
   if (!status.active) {
     return NextResponse.json({ ...status, categories: [], error: null });
   }
 
+  const resolved = await resolveSkillsCredentials(tenant.orgId);
+  if (!resolved) {
+    return NextResponse.json({ ...status, categories: [], error: null });
+  }
+
   try {
-    return NextResponse.json({ ...status, categories: await listCategories(), error: null });
+    return NextResponse.json({
+      ...status,
+      categories: await listCategories(resolved.values),
+      error: null,
+    });
   } catch (error) {
     const message =
       error instanceof SkillsRepositoryError ? error.message : "Skill repository lookup failed";
@@ -71,11 +80,13 @@ export async function PATCH(req: NextRequest) {
 
   // Turning it on without server credentials would leave a toggle that reads
   // "enabled" while nothing can call out. Refuse, and say what is missing.
-  if (parsed.data.enabled === true && !isSkillsRepositoryConfigured()) {
+  if (parsed.data.enabled === true && !(await resolveSkillsCredentials(tenant.orgId))) {
     return NextResponse.json(
       {
-        error: "The skill repository is not configured on this server",
-        errors: { enabled: "Set AIX_SKILLS_MCP_URL and AIX_SKILLS_API_KEY on the API service." },
+        error: "No skill repository key is configured for this agent",
+        errors: {
+          enabled: "Add a key below, or set AIX_SKILLS_API_KEY fleet-wide on the API service.",
+        },
       },
       { status: 422 },
     );
@@ -89,5 +100,5 @@ export async function PATCH(req: NextRequest) {
     .where(eq(workerProfiles.id, profile.id))
     .returning();
 
-  return NextResponse.json(agentSkillsStatus(updated.integrationsConfig));
+  return NextResponse.json(await agentSkillsStatus(updated.integrationsConfig, tenant.orgId));
 }
