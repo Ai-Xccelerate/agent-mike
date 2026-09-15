@@ -83,10 +83,25 @@ export const workerProfiles = pgTable(
 
     // Tools (settings > Tools) — toggles only; each tool is a decoupled,
     // externally-connected integration per R6, never baked into the harness.
+    // Keep the live catalog keys (including scribe/artifacts). Internal AIX
+    // tools also have connect state in integrations_config.
     toolsConfig: jsonb("tools_config")
       .$type<Record<string, boolean>>()
       .notNull()
       .default(sql`'{"browser_use":false,"internet_search":false,"scribe":false,"artifacts":false}'::jsonb`),
+
+    // Integrations (settings > Integrations) — externally-connected systems per
+    // R6. Each entry is per-integration state; `enabled` is the user-facing
+    // toggle. Parchment is read-only, so it is default-allow and its toggle is
+    // an opt-OUT. AgentDB (full SQL scope), Scribe (internal meeting talk),
+    // Artifacts (writes) and Agent Wiki (can also write) are all default-off
+    // opt-INs (see lib/integrations.ts).
+    integrationsConfig: jsonb("integrations_config")
+      .$type<Record<string, { enabled: boolean; [key: string]: unknown }>>()
+      .notNull()
+      .default(
+        sql`'{"parchment":{"enabled":true,"workspaceId":null,"orgId":null},"agentdb":{"enabled":false,"workspaceId":null,"orgId":null},"scribe":{"enabled":false,"lookbackDays":null},"artifacts":{"enabled":false,"brandKitId":null,"allowPublish":false},"agent_wiki":{"enabled":false,"spaceId":null,"allowWrite":false}}'::jsonb`,
+      ),
 
     // Channels (settings > Channels)
     channelsConfig: jsonb("channels_config")
@@ -299,6 +314,47 @@ export const toolApprovals = pgTable(
   },
   (table) => ({
     orgStatusIdx: index("tool_approvals_org_status_idx").on(table.organizationId, table.status),
+  }),
+);
+
+/**
+ * Email domains the worker is allowed to share activity with.
+ *
+ * The list is an allow-list, not a block-list: a domain that is not approved
+ * here is one the worker may not send to, so an empty table means "nowhere
+ * outside the org". A row is never hard-deleted on a decision — revoking keeps
+ * it with `status = 'revoked'` so the audit trail survives and re-approving is
+ * one click rather than retyping the domain and its justification.
+ */
+export const emailDomains = pgTable(
+  "email_domains",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Normalized: lowercase, no scheme, no leading @, no trailing dot. */
+    domain: text("domain").notNull(),
+    /** Why the worker needs it. Free text, optional. */
+    reason: text("reason"),
+    // pending | approved | revoked
+    status: text("status").notNull().default("pending"),
+    /** Who asked: "manager" when added here, "agent" when the worker raised it. */
+    requestedBy: text("requested_by").notNull().default("manager"),
+    /** Who approved or revoked it, and when. Null while still pending. */
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    // One row per domain per org — asking twice updates the request rather
+    // than creating a second one that could be approved and revoked at once.
+    orgDomainUnique: uniqueIndex("email_domains_org_domain_unique").on(
+      table.organizationId,
+      table.domain,
+    ),
+    orgStatusIdx: index("email_domains_org_status_idx").on(table.organizationId, table.status),
   }),
 );
 
