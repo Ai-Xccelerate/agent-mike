@@ -90,10 +90,39 @@ export type SkillCatalogEntry = {
   requires: string[];
   requirementsMet: boolean;
   enabled: boolean;
+  source: "catalog" | "custom";
 };
 
 export function getSkillsCatalog(): Promise<SkillCatalogEntry[]> {
   return apiFetch<SkillCatalogEntry[]>("/skills");
+}
+
+export type CustomSkillInput = {
+  name: string;
+  description: string;
+  requires: string[];
+  body: string;
+};
+
+export function createCustomSkill(input: CustomSkillInput): Promise<SkillCatalogEntry> {
+  return apiFetch<SkillCatalogEntry>("/skills/custom", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCustomSkill(
+  id: string,
+  input: Partial<CustomSkillInput>,
+): Promise<SkillCatalogEntry> {
+  return apiFetch<SkillCatalogEntry>(`/skills/custom/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteCustomSkill(id: string): Promise<void> {
+  await apiFetch<unknown>(`/skills/custom/${id}`, { method: "DELETE" });
 }
 
 export type KnowledgeDocument = {
