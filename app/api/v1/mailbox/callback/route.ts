@@ -22,7 +22,9 @@ export const dynamic = "force-dynamic";
  */
 function settingsUrl(req: NextRequest, params: Record<string, string>): string {
   const base = (process.env.NEXT_PUBLIC_WIDGET_ORIGIN || "").trim() || firstAllowedOrigin() || req.nextUrl.origin;
-  const url = new URL("/settings/identity", base);
+  // The mailbox card lives under Tools > External tools, so that is where the
+  // manager must land to see whether the connection took.
+  const url = new URL("/settings/tools", base);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   return url.toString();
 }
