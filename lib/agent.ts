@@ -6,6 +6,7 @@ import { isDemoMode } from "@/lib/env";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
+import { getSkill, loadSkills } from "@/lib/tools-integrations/skills-loader";
 
 export interface WorkerProfileLike {
   displayName: string;
@@ -19,6 +20,51 @@ export interface WorkerProfileLike {
   timezone?: string;
   emailSignature?: string;
   toolsConfig?: Record<string, boolean>;
+  enabledSkills?: string[];
+}
+
+export const LOAD_SKILL_TOOL_NAME = "load_skill";
+
+/**
+ * Frontmatter (name + description) for every enabled skill is cheap enough to
+ * keep in the system prompt always, so the agent knows what's available. The
+ * full body only loads when the agent calls load_skill — progressive
+ * disclosure, per the plan's Skills design.
+ */
+export function buildSkillsBlock(enabledSkillIds: string[] | undefined): string {
+  if (!enabledSkillIds || enabledSkillIds.length === 0) return "";
+
+  const enabled = loadSkills().filter((skill) => enabledSkillIds.includes(skill.id));
+  if (enabled.length === 0) return "";
+
+  const list = enabled.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
+  return (
+    "\n\nSkills available to you (call load_skill with the skill id to read its full instructions " +
+    "before relying on it):\n" +
+    list
+  );
+}
+
+function buildLoadSkillTool(enabledSkillIds: string[] | undefined): Tool {
+  return tool({
+    name: LOAD_SKILL_TOOL_NAME,
+    description:
+      "Load the full instructions for one of your available skills, by id. Only works for skills " +
+      "listed as available to you — call this before following a skill you haven't already read.",
+    parameters: z.object({
+      skillId: z.string().describe("The skill id, exactly as listed in your available skills"),
+    }),
+    execute: async ({ skillId }) => {
+      if (!enabledSkillIds || !enabledSkillIds.includes(skillId)) {
+        return `Skill "${skillId}" is not enabled for this worker.`;
+      }
+      const skill = getSkill(skillId);
+      if (!skill) {
+        return `Skill "${skillId}" is enabled but its content could not be found.`;
+      }
+      return skill.body;
+    },
+  });
 }
 
 export const ZOHO_SEARCH_CONTACTS_SLUG = "ZOHO_SEARCH_CONTACTS";
@@ -310,12 +356,16 @@ export async function executeCalendarSearch(
 }
 
 export async function buildAgentTools(
-  profile: Pick<WorkerProfileLike, "toolsConfig">,
+  profile: Pick<WorkerProfileLike, "toolsConfig" | "enabledSkills">,
   organizationId: string,
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
     tools.push(webSearchTool());
+  }
+
+  if (profile.enabledSkills && profile.enabledSkills.length > 0) {
+    tools.push(buildLoadSkillTool(profile.enabledSkills));
   }
 
   const connection = await getConnectionForOrg(organizationId, "crm");
@@ -452,6 +502,7 @@ function buildInstructions(
     base +
     (identityBlock ? `\n\n${identityBlock}` : "") +
     knowledgeBlock +
+    buildSkillsBlock(profile.enabledSkills) +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent } from "@openai/agents";
 import {
   buildAgentTools,
+  buildSkillsBlock,
+  LOAD_SKILL_TOOL_NAME,
   CRM_LOOKUP_FAILURE_MESSAGE,
   CRM_LOOKUP_RETRY_BACKOFF_MS,
   CRM_LOOKUP_TOOL_NAME,
@@ -83,6 +85,20 @@ function isCalendarLookupTool(tool: unknown): boolean {
   if (!tool || typeof tool !== "object") return false;
   const candidate = tool as { type?: string; name?: string };
   return candidate.type === "function" && candidate.name === CALENDAR_LOOKUP_TOOL_NAME;
+}
+
+function isLoadSkillTool(tool: unknown): boolean {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as { type?: string; name?: string };
+  return candidate.type === "function" && candidate.name === LOAD_SKILL_TOOL_NAME;
+}
+
+async function invokeLoadSkill(tools: unknown[], skillId: string): Promise<string> {
+  const skillTool = tools.find(isLoadSkillTool) as
+    | { invoke: (context: unknown, input: string) => Promise<string> }
+    | undefined;
+  if (!skillTool) throw new Error("load_skill tool not found");
+  return skillTool.invoke(undefined, JSON.stringify({ skillId }));
 }
 
 function activeZohoConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
@@ -799,5 +815,55 @@ describe("Google Calendar search retry-once and tool_calls logging", () => {
       status: "error",
       errorMessage: "still unauthorized",
     });
+  });
+});
+
+describe("agent skills wiring", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+  });
+
+  it("buildSkillsBlock is empty with no enabled skills", () => {
+    expect(buildSkillsBlock(undefined)).toBe("");
+    expect(buildSkillsBlock([])).toBe("");
+  });
+
+  it("buildSkillsBlock lists an enabled skill's frontmatter", () => {
+    const block = buildSkillsBlock(["stay-on-topic"]);
+    expect(block).toContain("stay-on-topic");
+    expect(block).toContain(
+      "Use when a conversation drifts off-topic before a ticket gets created",
+    );
+  });
+
+  it("buildSkillsBlock ignores an unenabled/unknown skill id", () => {
+    expect(buildSkillsBlock(["not-a-real-skill"])).toBe("");
+  });
+
+  it("does not add load_skill tool when no skills are enabled", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {}, enabledSkills: [] }, "org-1");
+    expect(tools.some(isLoadSkillTool)).toBe(false);
+  });
+
+  it("adds load_skill tool when a skill is enabled, and it returns the skill body", async () => {
+    const tools = await buildAgentTools(
+      { toolsConfig: {}, enabledSkills: ["stay-on-topic"] },
+      "org-1",
+    );
+    expect(tools.some(isLoadSkillTool)).toBe(true);
+
+    const body = await invokeLoadSkill(tools, "stay-on-topic");
+    expect(body).toContain("Stay on topic");
+    expect(body).toContain("Omit small talk");
+  });
+
+  it("load_skill refuses a skill id that isn't enabled for this worker", async () => {
+    const tools = await buildAgentTools(
+      { toolsConfig: {}, enabledSkills: ["stay-on-topic"] },
+      "org-1",
+    );
+    const result = await invokeLoadSkill(tools, "some-other-skill");
+    expect(result).toContain("not enabled");
   });
 });
