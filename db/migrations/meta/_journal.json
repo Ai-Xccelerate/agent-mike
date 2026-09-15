@@ -85,6 +85,13 @@
       "when": 1789860000000,
       "tag": "0011_email_domains",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789480334395,
+      "tag": "0012_enabled_skills",
+      "breakpoints": true
     }
   ]
 }
