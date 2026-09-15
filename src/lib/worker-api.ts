@@ -494,6 +494,10 @@ export type MailboxStatus = {
   /** us | eu | custom — data residency, fixed once a grant exists. */
   region: string;
   api_url: string | null;
+  /** What must be registered as a callback URI on the Nylas application. */
+  callback_uri: string;
+  /** Whether this agent is on its own Nylas application or the fleet's. */
+  credentials: CredentialSummary;
   unavailableReason: string | null;
   /** Nylas was unreachable, as distinct from the mailbox being gone. */
   error: string | null;
@@ -523,4 +527,28 @@ export type MailboxConnectionTest = {
   upcomingEvents: MailboxEvent[];
   error: string | null;
   errorKind: string | null;
+};
+
+/**
+ * Whether this agent has its own Nylas application, or uses the fleet's.
+ *
+ * Never carries a secret — not even masked, since a mask still leaks length
+ * and re-entering is the recovery path. It says which fields are set and
+ * where they came from, and nothing else.
+ */
+export type CredentialSummary = {
+  /** "org" = this agent's own, "env" = the fleet's, "none" = unconfigured. */
+  source: "org" | "env" | "none";
+  present: string[];
+  missing: string[];
+  updatedAt: string | null;
+  updatedBy: string | null;
+  metadata: Record<string, unknown>;
+};
+
+/** `PUT /mailbox/credentials`. */
+export type NylasCredentialsInput = {
+  clientId: string;
+  apiKey: string;
+  apiUri?: string;
 };

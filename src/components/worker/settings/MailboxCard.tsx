@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { EnvelopeIcon } from "@/icons";
-import { NOT_CONNECTED_NOTE } from "@/components/worker/settings/ui";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import type { MailboxConnectionTest, MailboxStatus } from "@/lib/worker-api";
 
@@ -52,6 +51,16 @@ export default function MailboxCard() {
   const [test, setTest] = useState<MailboxConnectionTest | null>(null);
   const [testing, setTesting] = useState(false);
 
+  // The setup form opens automatically when nothing is configured; once an
+  // application is in place it is tucked away behind "Change application",
+  // because it is not what a manager comes to this card to do twice.
+  const [showSetup, setShowSetup] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [apiUri, setApiUri] = useState("https://api.us.nylas.com");
+  const [savingCreds, setSavingCreds] = useState<"idle" | "saving" | "error">("idle");
+  const [credsError, setCredsError] = useState("");
+
   const load = useCallback(
     () =>
       apiFetch<MailboxStatus>("/mailbox")
@@ -82,6 +91,49 @@ export default function MailboxCard() {
   useEffect(() => {
     if (callbackOutcome) window.history.replaceState({}, "", window.location.pathname);
   }, [callbackOutcome]);
+
+  async function saveCredentials() {
+    setSavingCreds("saving");
+    setCredsError("");
+    setNotice("");
+    try {
+      await apiFetch("/mailbox/credentials", {
+        method: "PUT",
+        body: JSON.stringify({ clientId: clientId.trim(), apiKey: apiKey.trim(), apiUri }),
+      });
+      // Never keep the secret in component state once it is stored.
+      setClientId("");
+      setApiKey("");
+      setSavingCreds("idle");
+      setShowSetup(false);
+      await load();
+      setNoticeError(false);
+      setNotice("Nylas application saved. You can connect a mailbox now.");
+    } catch (error) {
+      setSavingCreds("error");
+      setCredsError(
+        error instanceof WorkerApiError
+          ? (error.errors?.clientId ?? error.errors?.apiKey ?? error.message)
+          : "Could not save — check that the API is running.",
+      );
+    }
+  }
+
+  async function clearCredentials() {
+    setSavingCreds("saving");
+    setCredsError("");
+    try {
+      await apiFetch("/mailbox/credentials", { method: "DELETE" });
+      setSavingCreds("idle");
+      setShowSetup(false);
+      await load();
+      setNoticeError(false);
+      setNotice("Now using the shared Nylas application.");
+    } catch {
+      setSavingCreds("error");
+      setCredsError("Could not clear — check that the API is running.");
+    }
+  }
 
   async function connect() {
     setBusy(true);
@@ -193,8 +245,109 @@ export default function MailboxCard() {
         </div>
       </div>
 
-      {!status.available && (
-        <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{NOT_CONNECTED_NOTE}</p>
+      {/*
+        The setup form, rather than a note telling someone to go and edit env.
+        An agent can bring its own Nylas application; if it does not, it uses
+        the fleet's. Either way this is where it is decided, with no redeploy.
+      */}
+      {(!status.available || showSetup) && (
+        <div className="mt-4 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Nylas application
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {status.credentials.source === "env"
+                  ? "Using the shared application configured on the API service. Enter values below to give this agent its own instead."
+                  : status.credentials.source === "org"
+                    ? "This agent has its own application. Clear it to fall back to the shared one."
+                    : "Paste the client ID and API key from your Nylas dashboard."}
+              </p>
+            </div>
+            {status.credentials.source !== "none" && (
+              <Badge size="sm" color="light">
+                {status.credentials.source === "org" ? "Own application" : "Shared"}
+              </Badge>
+            )}
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+              Client ID
+              <input
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+                placeholder="1a2b3c4d-…"
+                className="mt-1.5 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+              />
+            </label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+              API key
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={
+                  status.credentials.present.includes("apiKey") ? "•••••••• (set)" : "nyk_…"
+                }
+                autoComplete="new-password"
+                className="mt-1.5 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+              />
+            </label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400 sm:col-span-2">
+              Region
+              <select
+                value={apiUri}
+                onChange={(event) => setApiUri(event.target.value)}
+                className="mt-1.5 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90"
+              >
+                <option value="https://api.us.nylas.com">United States</option>
+                <option value="https://api.eu.nylas.com">Europe</option>
+              </select>
+              <span className="mt-1.5 block font-normal text-gray-500">
+                Separate data residencies. Changing this after mailboxes are connected orphans
+                every one of them.
+              </span>
+            </label>
+          </div>
+
+          {savingCreds === "error" && credsError && (
+            <p className="mt-3 text-xs font-medium leading-5 text-error-600 dark:text-error-400">
+              {credsError}
+            </p>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              size="sm"
+              loading={savingCreds === "saving"}
+              disabled={!clientId.trim() || !apiKey.trim()}
+              onClick={() => void saveCredentials()}
+            >
+              Save application
+            </Button>
+            {status.credentials.source === "org" && (
+              <Button size="sm" variant="outline" onClick={() => void clearCredentials()}>
+                Use the shared one
+              </Button>
+            )}
+            {status.available && (
+              <Button size="sm" variant="outline" onClick={() => setShowSetup(false)}>
+                Cancel
+              </Button>
+            )}
+          </div>
+
+          <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
+            Register{" "}
+            <code className="break-all font-mono text-[11px] text-gray-600 dark:text-gray-400">
+              {status.callback_uri}
+            </code>{" "}
+            as a callback URI on the application, and add a connector for the provider you use —
+            Nylas cannot create a grant without one.
+          </p>
+        </div>
       )}
 
       {needsReconnect && (
@@ -226,9 +379,14 @@ export default function MailboxCard() {
         <>
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-4 dark:border-gray-800">
             {!mailbox || needsReconnect ? (
-              <Button size="sm" loading={busy} onClick={() => void connect()}>
-                {needsReconnect ? "Reconnect mailbox" : "Connect mailbox"}
-              </Button>
+              <>
+                <Button size="sm" loading={busy} onClick={() => void connect()}>
+                  {needsReconnect ? "Reconnect mailbox" : "Connect mailbox"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowSetup(true)}>
+                  Change application
+                </Button>
+              </>
             ) : (
               <>
                 <Button size="sm" variant="outline" disabled={testing} onClick={() => void runTest()}>
@@ -236,6 +394,9 @@ export default function MailboxCard() {
                 </Button>
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => void disconnect()}>
                   Disconnect
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowSetup(true)}>
+                  Change application
                 </Button>
               </>
             )}
