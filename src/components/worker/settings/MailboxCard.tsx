@@ -67,6 +67,11 @@ export default function MailboxCard() {
       apiFetch<MailboxStatus>("/mailbox")
         .then((data) => {
           setStatus(data);
+          // Seed the region select from what's actually configured — not just
+          // on first load but every refresh, so "Change application" on an
+          // agent with an EU app shows EU rather than the US default, which
+          // could otherwise get silently re-saved and orphan every mailbox.
+          if (data.api_url) setApiUri(data.api_url);
           setPhase("ready");
         })
         .catch(() => setPhase("failed")),
@@ -213,7 +218,9 @@ export default function MailboxCard() {
   const badge = statusBadge(status);
   const mailbox = status.mailbox;
   const setupOpen = setupOverride ?? !status.available;
-  const needsReconnect = Boolean(mailbox) && !status.connected;
+  // Same condition statusBadge uses for its "Reconnect needed" warning — kept
+  // in sync so the badge and the reconnect action never disagree.
+  const needsReconnect = Boolean(mailbox) && (mailbox?.status === "invalid" || !status.connected);
 
   return (
     <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
@@ -233,6 +240,12 @@ export default function MailboxCard() {
             The address this worker sends from and the calendar it books into. Connect one and it
             can reply to email and schedule like a teammate.
           </p>
+
+          {!status.available && status.unavailableReason && (
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {status.unavailableReason}
+            </p>
+          )}
 
           {mailbox && (
             <p className="mt-2 truncate font-mono text-xs text-gray-700 dark:text-gray-300">
@@ -408,10 +421,10 @@ export default function MailboxCard() {
               </>
             ) : (
               <>
-                <Button size="sm" variant="outline" disabled={testing} onClick={() => void runTest()}>
+                <Button size="sm" variant="outline" disabled={testing || busy} onClick={() => void runTest()}>
                   {testing ? "Testing…" : "Test connection"}
                 </Button>
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => void disconnect()}>
+                <Button size="sm" variant="outline" disabled={busy || testing} onClick={() => void disconnect()}>
                   Disconnect
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setSetupOverride(true)}>
