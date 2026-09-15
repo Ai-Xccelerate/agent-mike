@@ -29,6 +29,10 @@ export const workerPatchSchema = z
     escalationTerms: z.array(z.string()),
     allowedDomains: z.array(z.string()),
     requireUserVerification: z.boolean(),
+    // Shipped as a column with no way to set it. Fail-closed by default, so
+    // without this the only way to let a worker auto-execute write tools was
+    // editing the database by hand.
+    requireWriteApproval: z.boolean(),
     managerName: z.string().min(1),
     managerEmail: emptyToNull(z.string().email().nullable()),
     autoReply: z.boolean(),
@@ -38,7 +42,11 @@ export const workerPatchSchema = z
     integrationsConfig: integrationsConfigSchema,
     ticketPrefix: z.string().min(1).max(12),
   })
-  .partial();
+  .partial()
+  // Strict so a misspelled field fails loudly instead of returning 200 and
+  // silently changing nothing — which is what a client bug looks like from the
+  // outside. The integration endpoints already behave this way.
+  .strict();
 
 export { fieldErrors };
 

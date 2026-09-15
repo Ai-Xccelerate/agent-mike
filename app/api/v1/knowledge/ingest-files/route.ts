@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { ingestOkf, InvalidOKFDocument, wrapAsOkf } from "@/lib/knowledge";
+import { assignConceptIds } from "@/lib/knowledge-ids";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -11,14 +12,6 @@ type UploadedFile = {
   arrayBuffer: () => Promise<ArrayBuffer>;
   text: () => Promise<string>;
 };
-
-function slugify(filename: string): string {
-  return filename
-    .replace(/\.[^.]+$/, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
 
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
@@ -33,9 +26,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No files provided" }, { status: 400 });
   }
 
+  const conceptIds = assignConceptIds(files.map((file) => file.name));
+
   const results = await Promise.all(
-    files.map(async (file) => {
-      const conceptId = slugify(file.name) || `doc-${Date.now()}`;
+    files.map(async (file, index) => {
+      const conceptId = conceptIds[index];
       try {
         let raw: string;
         if (file.name.toLowerCase().endsWith(".pdf")) {
@@ -51,7 +46,7 @@ export async function POST(req: NextRequest) {
         }
 
         const document = await ingestOkf(tenant.orgId, conceptId, raw);
-        return { filename: file.name, ok: true, document };
+        return { filename: file.name, ok: true, conceptId, document };
       } catch (err) {
         const message = err instanceof InvalidOKFDocument ? err.message : err instanceof Error ? err.message : "Unknown error";
         return { filename: file.name, ok: false, error: message };
