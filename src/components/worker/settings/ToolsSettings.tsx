@@ -4,9 +4,7 @@ import { Suspense } from "react";
 import ArtifactsIntegrationCard from "@/components/worker/settings/ArtifactsIntegrationCard";
 import AgentDbIntegrationCard from "@/components/worker/settings/AgentDbIntegrationCard";
 import AgentWikiIntegrationCard from "@/components/worker/settings/AgentWikiIntegrationCard";
-import ExternalToolCard from "@/components/worker/settings/ExternalToolCard";
 import MailboxCard from "@/components/worker/settings/MailboxCard";
-import type { ExternalTool } from "@/components/worker/settings/ExternalToolCard";
 import ParchmentIntegrationCard from "@/components/worker/settings/ParchmentIntegrationCard";
 import ScribeIntegrationCard from "@/components/worker/settings/ScribeIntegrationCard";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
@@ -28,25 +26,6 @@ import type { ToolsConfig } from "@/lib/worker-api";
 const TOOL_LABELS: { key: keyof ToolsConfig; label: string; description: string }[] = [
   { key: "browser_use", label: "Browser use", description: "Navigate and read live web pages." },
   { key: "internet_search", label: "Internet", description: "General web search." },
-];
-
-/**
- * Third-party systems the worker could connect to, listed before they exist.
- *
- * Placeholders, and nothing more: no credentials are held, no calls are made,
- * and none of them can be switched on. They are here so the shape of what is
- * coming is visible on the screen it will land on, rather than announced
- * somewhere else — each one links to the vendor's own docs.
- */
-const EXTERNAL_TOOLS: ExternalTool[] = [
-  {
-    name: "Evermind.ai",
-    description:
-      "Long-term memory that outlives a single conversation, so the worker remembers what it was told last week without being told again.",
-    detail: "Not wired up yet. Read what it covers in the",
-    docsUrl: "https://docs.evermind.ai/introduction",
-    docsLabel: "Evermind documentation",
-  },
 ];
 
 export default function ToolsSettings() {
@@ -121,17 +100,13 @@ export default function ToolsSettings() {
       <section className={cardClass}>
         <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">External tools</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Third-party systems this worker connects to. Nylas is live; the rest are placeholders for
-          what is coming, not switches.
+          Third-party systems this worker connects to directly, with credentials held on the API
+          service. These save as soon as you use them — the button above does not apply to them.
         </p>
         <div className="mt-4 space-y-4">
-          {/* Nylas is real, so it gets the card that actually connects a mailbox. */}
           <Suspense fallback={null}>
             <MailboxCard />
           </Suspense>
-          {EXTERNAL_TOOLS.map((tool) => (
-            <ExternalToolCard key={tool.name} tool={tool} />
-          ))}
         </div>
       </section>
     </>
