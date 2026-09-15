@@ -6,7 +6,13 @@ import {
   CRM_LOOKUP_RETRY_BACKOFF_MS,
   CRM_LOOKUP_TOOL_NAME,
   executeCrmLookup,
+  executeGmailSearch,
   executeLinearSearch,
+  EMAIL_LOOKUP_FAILURE_MESSAGE,
+  EMAIL_LOOKUP_RETRY_BACKOFF_MS,
+  EMAIL_LOOKUP_TOOL_NAME,
+  GMAIL_LIST_MESSAGES_SLUG,
+  GMAIL_TOOLKIT_VERSION,
   LINEAR_LOOKUP_FAILURE_MESSAGE,
   LINEAR_LOOKUP_RETRY_BACKOFF_MS,
   LINEAR_LOOKUP_TOOL_NAME,
@@ -58,6 +64,12 @@ function isLinearLookupTool(tool: unknown): boolean {
   return candidate.type === "function" && candidate.name === LINEAR_LOOKUP_TOOL_NAME;
 }
 
+function isEmailLookupTool(tool: unknown): boolean {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as { type?: string; name?: string };
+  return candidate.type === "function" && candidate.name === EMAIL_LOOKUP_TOOL_NAME;
+}
+
 function activeZohoConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
   return {
     id: "11111111-1111-1111-1111-111111111111",
@@ -84,6 +96,24 @@ function activeLinearConnection(overrides: Partial<IntegrationConnection> = {}):
     system: "linear",
     composioAuthConfigId: "ac_linear_test",
     composioConnectedAccountId: "ca_linear_test",
+    status: "active",
+    connectedBy: null,
+    metadata: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: null,
+    ...overrides,
+  };
+}
+
+function activeGmailConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
+  return {
+    id: "33333333-3333-3333-3333-333333333333",
+    organizationId: "org-1",
+    integrationType: "email",
+    system: "gmail",
+    composioAuthConfigId: "ac_gmail_test",
+    composioConnectedAccountId: "ca_gmail_test",
     status: "active",
     connectedBy: null,
     metadata: {},
@@ -339,6 +369,118 @@ describe("Linear issue search retry-once and tool_calls logging", () => {
       organizationId: "org-1",
       toolId: LINEAR_LOOKUP_TOOL_NAME,
       input: { query: "timeout" },
+      output: null,
+      status: "error",
+      errorMessage: "still unauthorized",
+    });
+  });
+});
+
+describe("agent Gmail lookup tool wiring", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+  });
+
+  it("includes the email lookup tool when the org has an active Gmail connection", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection() : null,
+    );
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(getConnectionForOrgMock).toHaveBeenCalledWith("org-1", "email");
+    expect(tools.some(isEmailLookupTool)).toBe(true);
+    expect(tools.some(isCrmLookupTool)).toBe(false);
+    expect(tools.some(isLinearLookupTool)).toBe(false);
+  });
+
+  it("omits the email lookup tool when there is no connection", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+  });
+
+  it("omits the email lookup tool when the connection is still pending", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection({ status: "pending" }) : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+  });
+});
+
+describe("Gmail search retry-once and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("logs success on the first call and does not retry", async () => {
+    const payload = { data: { messages: [] }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeGmailSearch("is:unread", "org-1", "ca_gmail_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_LIST_MESSAGES_SLUG,
+      { q: "is:unread" },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "is:unread" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries once after a failure then logs success for the recovered result", async () => {
+    vi.useFakeTimers();
+    const payload = { data: { messages: [{ id: "1" }] }, error: null, successful: true };
+    executeToolMock.mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce(payload);
+
+    const pending = executeGmailSearch("from:ada@example.com", "org-1", "ca_gmail_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "from:ada@example.com" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and returns an escalation string when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock
+      .mockRejectedValueOnce(new Error("auth expired"))
+      .mockRejectedValueOnce(new Error("still unauthorized"));
+
+    const pending = executeGmailSearch("subject:meeting", "org-1", "ca_gmail_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(EMAIL_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "subject:meeting" },
       output: null,
       status: "error",
       errorMessage: "still unauthorized",

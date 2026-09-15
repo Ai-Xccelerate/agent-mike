@@ -145,6 +145,62 @@ export async function executeLinearSearch(
   return JSON.stringify(result);
 }
 
+export const GMAIL_LIST_MESSAGES_SLUG = "GMAIL_LIST_MESSAGES";
+/** Toolkit version from composio.toolkits.get("gmail") (Version: 20260915_00). */
+export const GMAIL_TOOLKIT_VERSION = "20260915_00";
+export const EMAIL_LOOKUP_TOOL_NAME = "lookup_email";
+export const EMAIL_LOOKUP_RETRY_BACKOFF_MS = 500;
+export const EMAIL_LOOKUP_FAILURE_MESSAGE =
+  "Email search failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+
+export async function executeGmailSearch(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      GMAIL_LIST_MESSAGES_SLUG,
+      { q: query },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: GMAIL_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: EMAIL_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return EMAIL_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: EMAIL_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
 export async function buildAgentTools(
   profile: Pick<WorkerProfileLike, "toolsConfig">,
   organizationId: string,
@@ -196,6 +252,29 @@ export async function buildAgentTools(
         }),
         execute: async ({ query }) =>
           executeLinearSearch(query, organizationId, connectedAccountId),
+      }),
+    );
+  }
+
+  const emailConnection = await getConnectionForOrg(organizationId, "email");
+  if (
+    emailConnection?.status === "active" &&
+    emailConnection.composioConnectedAccountId &&
+    emailConnection.system === "gmail"
+  ) {
+    const connectedAccountId = emailConnection.composioConnectedAccountId;
+    tools.push(
+      tool({
+        name: EMAIL_LOOKUP_TOOL_NAME,
+        description:
+          "Search the connected Gmail account using Gmail search syntax. Read-only; does not send, delete, or modify messages.",
+        parameters: z.object({
+          query: z
+            .string()
+            .describe("Gmail search syntax, e.g. is:unread, from:someone@example.com, subject:meeting"),
+        }),
+        execute: async ({ query }) =>
+          executeGmailSearch(query, organizationId, connectedAccountId),
       }),
     );
   }

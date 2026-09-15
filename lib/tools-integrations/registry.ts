@@ -28,6 +28,7 @@ export const INTEGRATION_TYPES: IntegrationTypeDefinition[] = [
   { type: "helpdesk", name: "Helpdesk" },
   { type: "ticketing", name: "Ticketing" },
   { type: "project_management", name: "Project Management" },
+  { type: "email", name: "Email" },
 ];
 
 export const INTEGRATIONS: IntegrationDefinition[] = [
@@ -38,6 +39,7 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     system: "linear",
     requiresAuth: true,
   },
+  { id: "email_gmail", integrationType: "email", system: "gmail", requiresAuth: true },
 ];
 
 export function getTool(toolId: string): ToolDefinition | undefined {
