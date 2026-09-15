@@ -465,3 +465,62 @@ export type EmailDomainList = {
 
 /** `PATCH /email-domains/:id` — the action, not the target state. */
 export type EmailDomainDecision = "approve" | "revoke";
+
+/**
+ * Settings > Identity > Mailbox — the worker's own address and calendar,
+ * connected through Nylas.
+ *
+ * Identity, not a delegated connection: this is what the agent sends *from*.
+ * `available` means the server holds the Nylas application credentials;
+ * `connected` means this org has a live grant. Both must be true before the
+ * worker can send anything.
+ */
+export type MailboxRecord = {
+  id: string;
+  email: string;
+  provider: string | null;
+  /** connected | invalid | disconnected. `invalid` means reconnect. */
+  status: string;
+  connectedBy: string | null;
+  connectedAt: string;
+  lastCheckedAt: string | null;
+};
+
+/** `GET /mailbox`. */
+export type MailboxStatus = {
+  available: boolean;
+  connected: boolean;
+  mailbox: MailboxRecord | null;
+  /** us | eu | custom — data residency, fixed once a grant exists. */
+  region: string;
+  api_url: string | null;
+  unavailableReason: string | null;
+  /** Nylas was unreachable, as distinct from the mailbox being gone. */
+  error: string | null;
+};
+
+export type MailboxMessage = {
+  id: string;
+  subject: string;
+  from: string;
+  date: string | null;
+  unread: boolean;
+};
+
+export type MailboxEvent = {
+  id: string;
+  title: string;
+  when: string | null;
+};
+
+/** `POST /mailbox/test`. */
+export type MailboxConnectionTest = {
+  ok: boolean;
+  email: string | null;
+  provider: string | null;
+  messageCount: number;
+  recentMessages: MailboxMessage[];
+  upcomingEvents: MailboxEvent[];
+  error: string | null;
+  errorKind: string | null;
+};

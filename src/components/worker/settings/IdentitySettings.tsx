@@ -1,7 +1,9 @@
 "use client";
 
+import { Suspense } from "react";
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AvatarUploadCard from "@/components/worker/settings/AvatarUploadCard";
+import MailboxCard from "@/components/worker/settings/MailboxCard";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import { cardClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
 import { EnvelopeIcon } from "@/icons";
@@ -196,7 +198,21 @@ export default function IdentitySettings() {
 
       <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-160.4">
         <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">How it signs off</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Regional formatting and email identity.</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          The mailbox it speaks from, and how it formats what it writes.
+        </p>
+
+        {/*
+          The mailbox connects itself rather than staging behind Save — OAuth
+          leaves the app entirely, so it cannot be a pending form field. The
+          fields below stay part of the page's save flow.
+        */}
+        <div className="mt-5">
+          <Suspense fallback={null}>
+            <MailboxCard />
+          </Suspense>
+        </div>
+
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Timezone
