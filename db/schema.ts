@@ -329,6 +329,25 @@ export const toolApprovals = pgTable(
   }),
 );
 
+export const customSkills = pgTable(
+  "custom_skills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    requires: jsonb("requires").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("custom_skills_org_idx").on(table.organizationId),
+  }),
+);
+
 /**
  * Per-agent credentials for a provider that has no broker in front of it.
  *

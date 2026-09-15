@@ -40,6 +40,7 @@ describe("listSkillsForOrg gating", () => {
         requires: [],
         requirementsMet: true,
         enabled: true,
+        source: "catalog",
       },
       {
         id: "needs-crm",
@@ -48,6 +49,7 @@ describe("listSkillsForOrg gating", () => {
         requires: ["crm"],
         requirementsMet: false,
         enabled: false,
+        source: "catalog",
       },
     ]);
   });
