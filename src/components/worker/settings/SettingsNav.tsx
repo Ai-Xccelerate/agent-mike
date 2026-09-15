@@ -23,7 +23,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       { href: "/settings/role", label: "Role", available: true },
       { href: "/settings/agent-configuration", label: "Agent configuration", available: true },
       { href: "/settings/knowledge", label: "Knowledge", available: true },
-      { href: "/settings/skills", label: "Skills" },
+      { href: "/settings/skills", label: "Skills", available: true },
     ],
   },
   {

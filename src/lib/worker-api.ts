@@ -77,9 +77,23 @@ export type WorkerProfile = {
   toolsConfig: ToolsConfig;
   channelsConfig: ChannelsConfig;
   ticketPrefix: string;
+  enabledSkills: string[];
   createdAt: string;
   updatedAt: string;
 };
+
+export type SkillCatalogEntry = {
+  id: string;
+  name: string;
+  description: string;
+  requires: string[];
+  requirementsMet: boolean;
+  enabled: boolean;
+};
+
+export function getSkillsCatalog(): Promise<SkillCatalogEntry[]> {
+  return apiFetch<SkillCatalogEntry[]>("/skills");
+}
 
 export type KnowledgeDocument = {
   id: string;
