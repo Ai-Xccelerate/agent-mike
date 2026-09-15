@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
-import { BoltIcon } from "@/icons";
+import { BoltIcon, ChevronDownIcon } from "@/icons";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import type {
   AgentSkillsConnectionTest,
@@ -52,6 +52,15 @@ export default function SkillRepositoryCard() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
 
+  // Open by itself when there is nothing set up and something must be done;
+  // shut once a key is in place. The manager's click overrides either way —
+  // an unconfigured card that cannot be collapsed is a wall, not a form.
+  const [setupOverride, setSetupOverride] = useState<boolean | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [apiUrl, setApiUrl] = useState("");
+  const [savingKey, setSavingKey] = useState(false);
+  const [keyError, setKeyError] = useState("");
+
   const load = useCallback(
     () =>
       apiFetch<AgentSkillsIntegration>("/integrations/agent-skills")
@@ -90,6 +99,46 @@ export default function SkillRepositoryCard() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveKey() {
+    setSavingKey(true);
+    setKeyError("");
+    setNotice("");
+    try {
+      await apiFetch("/integrations/agent-skills/credentials", {
+        method: "PUT",
+        body: JSON.stringify({ apiKey: apiKey.trim(), ...(apiUrl.trim() ? { apiUrl: apiUrl.trim() } : {}) }),
+      });
+      // Never keep the secret in component state once it is stored.
+      setApiKey("");
+      setSetupOverride(false);
+      await load();
+      setNotice("Key saved. You can switch the repository on now.");
+    } catch (error) {
+      setKeyError(
+        error instanceof WorkerApiError
+          ? (error.errors?.apiKey ?? error.message)
+          : "Could not save — check that the API is running.",
+      );
+    } finally {
+      setSavingKey(false);
+    }
+  }
+
+  async function clearKey() {
+    setSavingKey(true);
+    setKeyError("");
+    try {
+      await apiFetch("/integrations/agent-skills/credentials", { method: "DELETE" });
+      setSetupOverride(false);
+      await load();
+      setNotice("Now using the shared key.");
+    } catch {
+      setKeyError("Could not clear — check that the API is running.");
+    } finally {
+      setSavingKey(false);
     }
   }
 
@@ -152,6 +201,8 @@ export default function SkillRepositoryCard() {
   }
 
   const badge = statusBadge(integration);
+  const setupOpen = setupOverride ?? !integration.available;
+  const source = integration.credentials?.source ?? "none";
 
   return (
     <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
@@ -192,11 +243,101 @@ export default function SkillRepositoryCard() {
         </button>
       </div>
 
-      {!integration.available && (
-        <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
-          Not connected yet — an administrator sets this up on the API service.
-        </p>
-      )}
+      <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-800">
+        <button
+          type="button"
+          aria-expanded={setupOpen}
+          onClick={() => setSetupOverride(!setupOpen)}
+          className="flex w-full items-start justify-between gap-3 p-4 text-left"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Repository key</p>
+            {!setupOpen && (
+              <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {source === "org"
+                  ? "This agent has its own."
+                  : source === "env"
+                    ? "Using the shared key."
+                    : "Not set up yet."}
+              </p>
+            )}
+          </div>
+          <span className="flex shrink-0 items-center gap-2">
+            {source !== "none" && (
+              <Badge size="sm" color="light">
+                {source === "org" ? "Own key" : "Shared"}
+              </Badge>
+            )}
+            <ChevronDownIcon
+              className={`size-4 text-gray-400 transition-transform ${setupOpen ? "rotate-180" : ""}`}
+            />
+          </span>
+        </button>
+
+        {setupOpen && (
+          <div className="border-t border-gray-100 p-4 dark:border-gray-800">
+            <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
+              {source === "env"
+                ? "Using the shared key configured on the API service. Enter one below to give this agent its own instead."
+                : source === "org"
+                  ? "This agent has its own key. Clear it to fall back to the shared one."
+                  : "Create a key in the skills app under Connect an agent, then paste it here. Keys are read-only — an agent holding one can search and load published skills, nothing else."}
+            </p>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                API key
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  placeholder={
+                    integration.credentials?.present.includes("apiKey")
+                      ? "•••••••• (set)"
+                      : "paste the key"
+                  }
+                  autoComplete="new-password"
+                  className="mt-1.5 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                />
+              </label>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                Repository URL
+                <input
+                  value={apiUrl}
+                  onChange={(event) => setApiUrl(event.target.value)}
+                  placeholder={integration.settings.api_url ?? "https://…/mcp"}
+                  className="mt-1.5 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                />
+                <span className="mt-1.5 block font-normal text-gray-500">
+                  Leave blank for the default.
+                </span>
+              </label>
+            </div>
+
+            {keyError && (
+              <p className="mt-3 text-xs font-medium leading-5 text-error-600 dark:text-error-400">
+                {keyError}
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Button
+                size="sm"
+                loading={savingKey}
+                disabled={!apiKey.trim()}
+                onClick={() => void saveKey()}
+              >
+                Save key
+              </Button>
+              {source === "org" && (
+                <Button size="sm" variant="outline" onClick={() => void clearKey()}>
+                  Use the shared one
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       {integration.enabled && (
         <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
