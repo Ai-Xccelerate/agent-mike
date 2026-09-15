@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
+import SkillRepositoryCard from "@/components/worker/settings/SkillRepositoryCard";
 import { cardClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 import {
@@ -172,6 +173,20 @@ export default function SkillsSettings() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className={cardClass}>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">
+          Skill repository
+        </h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          The organization&apos;s published skills, shared across every agent. Not toggled one by
+          one — the worker finds a skill by describing its task, so it can reach one nobody thought
+          to switch on. Connects itself; the button above does not apply to it.
+        </p>
+        <div className="mt-4">
+          <SkillRepositoryCard />
+        </div>
       </section>
 
       <section className={cardClass}>

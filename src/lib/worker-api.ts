@@ -572,6 +572,51 @@ export type MailboxConnectionTest = {
   messageCount: number;
   recentMessages: MailboxMessage[];
   upcomingEvents: MailboxEvent[];
+
+ * Settings > Skills > skill repository — the organization's published skills,
+ * reached over MCP.
+ *
+ * A third source alongside the catalog and custom skills, and the only one not
+ * enabled skill by skill: the worker finds a skill by describing its task, so
+ * the settings are a scope, not a list.
+ */
+export type AgentSkillsSettings = {
+  /** One category, or null for the whole repository. */
+  category: string | null;
+  max_results: number;
+  api_url: string | null;
+};
+
+export type SkillRepositoryCategory = {
+  name: string;
+  count: number | null;
+};
+
+export type SkillRepositoryTool = {
+  name: string;
+  description: string;
+};
+
+export type RepositorySkillResult = {
+  slug: string;
+  name: string;
+  description: string;
+  category: string | null;
+};
+
+/** `GET /integrations/agent-skills`. */
+export type AgentSkillsIntegration = IntegrationStatus & {
+  settings: AgentSkillsSettings;
+  categories: SkillRepositoryCategory[];
+  error: string | null;
+};
+
+/** `POST /integrations/agent-skills/test`. */
+export type AgentSkillsConnectionTest = {
+  ok: boolean;
+  toolCount: number;
+  tools: SkillRepositoryTool[];
+  categories: SkillRepositoryCategory[];
   error: string | null;
   errorKind: string | null;
 };
@@ -598,4 +643,9 @@ export type NylasCredentialsInput = {
   clientId: string;
   apiKey: string;
   apiUri?: string;
+
+export type AgentSkillsPatch = {
+  enabled?: boolean;
+  category?: string | null;
+  maxResults?: number;
 };
