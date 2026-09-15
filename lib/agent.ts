@@ -201,6 +201,58 @@ export async function executeGmailSearch(
   return JSON.stringify(result);
 }
 
+export const OUTLOOK_SEARCH_MESSAGES_SLUG = "OUTLOOK_SEARCH_MESSAGES";
+/** Toolkit version from composio.toolkits.get("outlook") (Version: 20260915_00). */
+export const OUTLOOK_TOOLKIT_VERSION = "20260915_00";
+
+export async function executeOutlookSearch(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      OUTLOOK_SEARCH_MESSAGES_SLUG,
+      { query },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: OUTLOOK_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: EMAIL_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return EMAIL_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: EMAIL_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
 export async function buildAgentTools(
   profile: Pick<WorkerProfileLike, "toolsConfig">,
   organizationId: string,
@@ -257,26 +309,29 @@ export async function buildAgentTools(
   }
 
   const emailConnection = await getConnectionForOrg(organizationId, "email");
-  if (
-    emailConnection?.status === "active" &&
-    emailConnection.composioConnectedAccountId &&
-    emailConnection.system === "gmail"
-  ) {
+  if (emailConnection?.status === "active" && emailConnection.composioConnectedAccountId) {
     const connectedAccountId = emailConnection.composioConnectedAccountId;
-    tools.push(
-      tool({
-        name: EMAIL_LOOKUP_TOOL_NAME,
-        description:
-          "Search the connected Gmail account using Gmail search syntax. Read-only; does not send, delete, or modify messages.",
-        parameters: z.object({
-          query: z
-            .string()
-            .describe("Gmail search syntax, e.g. is:unread, from:someone@example.com, subject:meeting"),
+    const executeSearch =
+      emailConnection.system === "gmail"
+        ? executeGmailSearch
+        : emailConnection.system === "outlook"
+          ? executeOutlookSearch
+          : null;
+    if (executeSearch) {
+      tools.push(
+        tool({
+          name: EMAIL_LOOKUP_TOOL_NAME,
+          description:
+            "Search the connected email account by keyword, sender, or subject. Read-only; does not send, delete, or modify messages.",
+          parameters: z.object({
+            query: z
+              .string()
+              .describe("Search query for the connected email account, e.g. unread, from:someone@example.com, subject:meeting"),
+          }),
+          execute: async ({ query }) => executeSearch(query, organizationId, connectedAccountId),
         }),
-        execute: async ({ query }) =>
-          executeGmailSearch(query, organizationId, connectedAccountId),
-      }),
-    );
+      );
+    }
   }
 
   return tools;

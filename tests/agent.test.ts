@@ -8,6 +8,7 @@ import {
   executeCrmLookup,
   executeGmailSearch,
   executeLinearSearch,
+  executeOutlookSearch,
   EMAIL_LOOKUP_FAILURE_MESSAGE,
   EMAIL_LOOKUP_RETRY_BACKOFF_MS,
   EMAIL_LOOKUP_TOOL_NAME,
@@ -18,6 +19,8 @@ import {
   LINEAR_LOOKUP_TOOL_NAME,
   LINEAR_SEARCH_ISSUES_SLUG,
   LINEAR_TOOLKIT_VERSION,
+  OUTLOOK_SEARCH_MESSAGES_SLUG,
+  OUTLOOK_TOOLKIT_VERSION,
   ZOHO_SEARCH_CONTACTS_SLUG,
   ZOHO_TOOLKIT_VERSION,
 } from "@/lib/agent";
@@ -122,6 +125,32 @@ function activeGmailConnection(overrides: Partial<IntegrationConnection> = {}): 
     lastUsed: null,
     ...overrides,
   };
+}
+
+function activeOutlookConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
+  return {
+    id: "44444444-4444-4444-4444-444444444444",
+    organizationId: "org-1",
+    integrationType: "email",
+    system: "outlook",
+    composioAuthConfigId: "ac_outlook_test",
+    composioConnectedAccountId: "ca_outlook_test",
+    status: "active",
+    connectedBy: null,
+    metadata: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: null,
+    ...overrides,
+  };
+}
+
+async function invokeEmailLookup(tools: unknown[], query: string): Promise<string> {
+  const emailTool = tools.find(isEmailLookupTool) as
+    | { invoke: (context: unknown, input: string) => Promise<string> }
+    | undefined;
+  if (!emailTool) throw new Error("lookup_email tool not found");
+  return emailTool.invoke(undefined, JSON.stringify({ query }));
 }
 
 describe("agent internet_search tool wiring", () => {
@@ -406,6 +435,46 @@ describe("agent Gmail lookup tool wiring", () => {
     const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
     expect(tools.some(isEmailLookupTool)).toBe(false);
   });
+
+  it("includes lookup_email for an active Outlook connection and executes OUTLOOK_SEARCH_MESSAGES", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeOutlookConnection() : null,
+    );
+    executeToolMock.mockResolvedValue({ data: { value: [] }, error: null, successful: true });
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isEmailLookupTool)).toBe(true);
+
+    await invokeEmailLookup(tools, "meeting");
+    expect(executeToolMock).toHaveBeenCalledWith(
+      OUTLOOK_SEARCH_MESSAGES_SLUG,
+      { query: "meeting" },
+      { connectedAccountId: "ca_outlook_test", userId: "org-1", version: OUTLOOK_TOOLKIT_VERSION },
+    );
+  });
+
+  it("still executes GMAIL_LIST_MESSAGES when the connected email vendor is Gmail", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection() : null,
+    );
+    executeToolMock.mockResolvedValue({ data: { messages: [] }, error: null, successful: true });
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    await invokeEmailLookup(tools, "is:unread");
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_LIST_MESSAGES_SLUG,
+      { q: "is:unread" },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
+  });
+
+  it("omits the email lookup tool when the connected system is unrecognized", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection({ system: "imap" }) : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+  });
 });
 
 describe("Gmail search retry-once and tool_calls logging", () => {
@@ -470,6 +539,86 @@ describe("Gmail search retry-once and tool_calls logging", () => {
       .mockRejectedValueOnce(new Error("still unauthorized"));
 
     const pending = executeGmailSearch("subject:meeting", "org-1", "ca_gmail_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(EMAIL_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "subject:meeting" },
+      output: null,
+      status: "error",
+      errorMessage: "still unauthorized",
+    });
+  });
+});
+
+describe("Outlook search retry-once and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("logs success on the first call and does not retry", async () => {
+    const payload = { data: { value: [] }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeOutlookSearch("meeting", "org-1", "ca_outlook_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      OUTLOOK_SEARCH_MESSAGES_SLUG,
+      { query: "meeting" },
+      { connectedAccountId: "ca_outlook_test", userId: "org-1", version: OUTLOOK_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "meeting" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries once after a failure then logs success for the recovered result", async () => {
+    vi.useFakeTimers();
+    const payload = { data: { value: [{ id: "1" }] }, error: null, successful: true };
+    executeToolMock.mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce(payload);
+
+    const pending = executeOutlookSearch("from:ada@example.com", "org-1", "ca_outlook_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "from:ada@example.com" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and returns an escalation string when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock
+      .mockRejectedValueOnce(new Error("auth expired"))
+      .mockRejectedValueOnce(new Error("still unauthorized"));
+
+    const pending = executeOutlookSearch("subject:meeting", "org-1", "ca_outlook_test");
     await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
     const result = await pending;
 

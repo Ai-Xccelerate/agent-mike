@@ -40,6 +40,7 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     requiresAuth: true,
   },
   { id: "email_gmail", integrationType: "email", system: "gmail", requiresAuth: true },
+  { id: "email_outlook", integrationType: "email", system: "outlook", requiresAuth: true },
 ];
 
 export function getTool(toolId: string): ToolDefinition | undefined {

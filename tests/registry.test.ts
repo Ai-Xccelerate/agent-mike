@@ -30,7 +30,7 @@ describe("tools/integrations registry", () => {
     expect(getTool("artifacts")?.name).toBe("Artifacts");
   });
 
-  it("lists integration types with crm_zoho, project_management_linear, and email_gmail vendors", () => {
+  it("lists integration types with crm_zoho, project_management_linear, and email vendors", () => {
     expect(INTEGRATION_TYPES.map((entry) => entry.type)).toEqual([
       "crm",
       "helpdesk",
@@ -60,6 +60,12 @@ describe("tools/integrations registry", () => {
       id: "email_gmail",
       integrationType: "email",
       system: "gmail",
+      requiresAuth: true,
+    });
+    expect(getIntegration("email_outlook")).toEqual({
+      id: "email_outlook",
+      integrationType: "email",
+      system: "outlook",
       requiresAuth: true,
     });
     expect(getIntegration("crm_zoho")?.integrationType).toBe(getIntegrationType("crm")?.type);
