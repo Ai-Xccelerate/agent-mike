@@ -26,6 +26,11 @@ export type Conversation = {
   messages: Message[];
 };
 
+/**
+ * General-purpose capability toggles stored on the profile.
+ * Keep the live catalog keys (scribe/artifacts) so we do not drop Adarsh's
+ * toolsConfig shape. Internal AIX tools also have connect cards on Tools.
+ */
 export type ToolsConfig = {
   browser_use: boolean;
   internet_search: boolean;
@@ -94,6 +99,140 @@ export type WidgetSite = {
   organizationId: string;
   siteToken: string;
   createdAt: string;
+};
+
+/**
+ * Settings > Integrations. Two separate things decide whether an integration
+ * runs: `available` (the server holds its credentials — not user-editable) and
+ * `enabled` (this worker's own toggle). `active` is both, and is the only one
+ * that means "it is actually running".
+ */
+export type IntegrationStatus = {
+  key: string;
+  name: string;
+  description: string;
+  available: boolean;
+  enabled: boolean;
+  active: boolean;
+  unavailableReason: string | null;
+  settings: Record<string, unknown>;
+};
+
+export type ParchmentSettings = {
+  workspace_id: string | null;
+  org_id: string;
+  org_id_override: string | null;
+  api_url: string | null;
+};
+
+export type ParchmentWorkspace = {
+  id: string;
+  name: string;
+  visibility: string;
+};
+
+/**
+ * `GET /integrations/parchment` — the status, plus a live workspace lookup
+ * against Parchment when the integration is active. `error` is that lookup
+ * failing: the integration is configured and on, but Parchment did not answer.
+ */
+export type ParchmentIntegration = IntegrationStatus & {
+  settings: ParchmentSettings;
+  workspaces: ParchmentWorkspace[];
+  default_workspace_id: string | null;
+  error: string | null;
+};
+
+/** PATCH bodies send only the keys they change. */
+export type ParchmentPatch = {
+  enabled?: boolean;
+  workspaceId?: string | null;
+  orgId?: string | null;
+};
+
+export type AgentDbSettings = {
+  workspace_id: string | null;
+  org_id: string;
+  org_id_override: string | null;
+  api_url: string | null;
+  /**
+   * Whether this server can run AgentDB's one-time enable call at all. AgentDB
+   * requires a user's Clerk JWT there and this build has no Clerk, so the card
+   * has to be able to explain why switching on may not stick.
+   */
+  can_enable_org: boolean;
+};
+
+/**
+ * `GET /integrations/agentdb` — the stored status, plus a live workspace lookup
+ * when the integration is active.
+ *
+ * `has_access: false` is not an error: AgentDB answered 200 to say the org is
+ * not entitled to it in AIX Core. `error` is everything else — unreachable,
+ * never enabled, or a rejected credential.
+ */
+export type AgentDbIntegration = IntegrationStatus & {
+  settings: AgentDbSettings;
+  workspaces: ParchmentWorkspace[];
+  default_workspace_id: string | null;
+  has_access: boolean | null;
+  error: string | null;
+};
+
+/** `POST /integrations/agentdb/test` — the MCP handshake plus get_agents_md. */
+export type AgentDbConnectionTest = {
+  ok: boolean;
+  mcpReachable: boolean;
+  agentsMdBytes: number;
+  workspaceId: string | null;
+  error: string | null;
+  errorKind: string | null;
+};
+
+export type AgentDbPatch = {
+  enabled?: boolean;
+  workspaceId?: string | null;
+  orgId?: string | null;
+};
+
+export type ScribeSettings = {
+  /** Evidence window in days, or null for the whole meeting corpus. */
+  lookback_days: number | null;
+  api_url: string | null;
+};
+
+export type ScribeMeeting = {
+  id: string;
+  title: string;
+  startTime: string | null;
+  status: string | null;
+  hasTranscript: boolean;
+};
+
+/**
+ * `GET /integrations/scribe` — the stored status, plus a live peek at the
+ * meeting corpus when the integration is active, so the screen can show the
+ * token reaches real data rather than merely being well-formed.
+ */
+export type ScribeIntegration = IntegrationStatus & {
+  settings: ScribeSettings;
+  meeting_count: number | null;
+  recent_meetings: ScribeMeeting[];
+  error: string | null;
+};
+
+/** `POST /integrations/scribe/test`. */
+export type ScribeConnectionTest = {
+  ok: boolean;
+  meetingCount: number;
+  recentMeetings: ScribeMeeting[];
+  error: string | null;
+  errorKind: string | null;
+};
+
+export type ScribePatch = {
+  enabled?: boolean;
+  lookbackDays?: number | null;
 };
 
 export type ChatResponse = {
@@ -183,3 +322,146 @@ export function connectIntegration(type: string, system: string): Promise<{ redi
 export async function disconnectIntegration(type: string): Promise<void> {
   await apiFetch<unknown>(`/integrations/${type}`, { method: "DELETE" });
 }
+
+export type ArtifactsSettings = {
+  brand_kit_id: string | null;
+  allow_publish: boolean;
+  /** The workspace tokens act as, for display. Null unless configured. */
+  workspace: string | null;
+  api_url: string | null;
+};
+
+export type ArtifactsTool = {
+  name: string;
+  description: string;
+  /** True when the tool changes state rather than only reading it. */
+  writes: boolean;
+};
+
+export type ArtifactsBrandKit = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  usable: boolean;
+};
+
+/**
+ * `GET /integrations/artifacts` — the stored status, plus the live tool surface
+ * and brand kits when active, so the screen shows what the worker can actually
+ * do rather than a hardcoded promise.
+ */
+export type ArtifactsIntegration = IntegrationStatus & {
+  settings: ArtifactsSettings;
+  tools: ArtifactsTool[];
+  brand_kits: ArtifactsBrandKit[];
+  error: string | null;
+};
+
+/** `POST /integrations/artifacts/test`. */
+export type ArtifactsConnectionTest = {
+  ok: boolean;
+  toolCount: number;
+  tools: ArtifactsTool[];
+  brandKits: ArtifactsBrandKit[];
+  error: string | null;
+  errorKind: string | null;
+};
+
+export type ArtifactsPatch = {
+  enabled?: boolean;
+  brandKitId?: string | null;
+  allowPublish?: boolean;
+};
+
+export type AgentWikiSettings = {
+  /** One space, or null for every space the key reaches. */
+  space_id: string | null;
+  allow_write: boolean;
+  /** What the key was created for, for display. Null unless configured. */
+  key_label: string | null;
+  api_url: string | null;
+};
+
+export type AgentWikiTool = {
+  name: string;
+  description: string;
+  /** True when the tool changes a page rather than only reading it. */
+  writes: boolean;
+};
+
+export type AgentWikiSpace = {
+  id: string;
+  name: string;
+  /** The role the key holds in the space, when the server reports one. */
+  role: string | null;
+  pageCount: number | null;
+};
+
+/**
+ * `GET /integrations/agent-wiki` — the stored status, plus the live tool
+ * surface and reachable spaces when active.
+ *
+ * `key_can_write` is the key's own permission, which is separate from
+ * `settings.allow_write` and outranks it: Agent Wiki refuses a write the key
+ * was not granted, whatever this worker is set to. Null when not looked up.
+ */
+export type AgentWikiIntegration = IntegrationStatus & {
+  settings: AgentWikiSettings;
+  tools: AgentWikiTool[];
+  spaces: AgentWikiSpace[];
+  key_can_write: boolean | null;
+  search_tool: string | null;
+  error: string | null;
+};
+
+/** `POST /integrations/agent-wiki/test`. */
+export type AgentWikiConnectionTest = {
+  ok: boolean;
+  toolCount: number;
+  tools: AgentWikiTool[];
+  spaces: AgentWikiSpace[];
+  canWrite: boolean;
+  searchTool: string | null;
+  error: string | null;
+  errorKind: string | null;
+};
+
+export type AgentWikiPatch = {
+  enabled?: boolean;
+  spaceId?: string | null;
+  allowWrite?: boolean;
+};
+
+/**
+ * Settings > Email domains — the allow-list of domains this worker may share
+ * activity with.
+ *
+ * An allow-list, not a block-list: a domain with no approved row here is one
+ * the worker may not reach, so an empty list means nobody outside the org. A
+ * decision never deletes the row — revoking keeps it so the record of what was
+ * allowed survives and re-approving is one click.
+ */
+export type EmailDomainStatus = "pending" | "approved" | "revoked";
+
+export type EmailDomain = {
+  id: string;
+  organizationId: string;
+  domain: string;
+  reason: string | null;
+  status: EmailDomainStatus;
+  /** "manager" when added in Settings, "agent" when the worker asked for it. */
+  requestedBy: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** `GET /email-domains`. */
+export type EmailDomainList = {
+  domains: EmailDomain[];
+  counts: Record<EmailDomainStatus, number>;
+};
+
+/** `PATCH /email-domains/:id` — the action, not the target state. */
+export type EmailDomainDecision = "approve" | "revoke";

@@ -11,7 +11,13 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col gap-5 md:gap-6 lg:flex-row">
-        <aside className="shrink-0 lg:w-60">
+        {/*
+          The nav scrolls on its own. As a column it stretches to the full
+          height of a parent that clips overflow, so without this any group
+          past the fold — Controls, Workspace — is cut off and unreachable
+          rather than merely below the visible area.
+        */}
+        <aside className="shrink-0 lg:min-h-0 lg:w-60 lg:overflow-y-auto lg:overscroll-contain">
           <SettingsNav />
         </aside>
 

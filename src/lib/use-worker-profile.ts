@@ -56,6 +56,26 @@ export function useWorkerProfile() {
     setProfile((current) => (current ? { ...current, [key]: value } : current));
   }
 
+  /**
+   * Adopts a profile the server changed outside this page's save flow — the
+   * avatar upload, which writes immediately because a file is not a form field
+   * that can sit staged behind Save.
+   *
+   * `saved` becomes the server's row wholesale, but only the named fields are
+   * copied onto `profile`, so a name or tone the manager has typed and not yet
+   * saved is not silently discarded by uploading a picture.
+   */
+  function applyServerUpdate(updated: WorkerProfile, fields: (keyof WorkerProfile)[]) {
+    const next = withIdentityDefaults(updated);
+    setSaved(next);
+    setProfile((current) => {
+      if (!current) return next;
+      const patch = Object.fromEntries(fields.map((field) => [field, next[field]]));
+      return { ...current, ...patch };
+    });
+    window.dispatchEvent(new CustomEvent(IDENTITY_UPDATED_EVENT, { detail: next }));
+  }
+
   function discard() {
     if (!saved) return;
     setProfile(saved);
@@ -95,7 +115,19 @@ export function useWorkerProfile() {
     }
   }
 
-  return { profile, update, save, discard, dirty, saving, notice, noticeError, fieldErrors, lastEditedAt };
+  return {
+    profile,
+    update,
+    save,
+    discard,
+    applyServerUpdate,
+    dirty,
+    saving,
+    notice,
+    noticeError,
+    fieldErrors,
+    lastEditedAt,
+  };
 }
 
 export { IDENTITY_UPDATED_EVENT };
