@@ -92,6 +92,13 @@
       "when": 1789480334395,
       "tag": "0012_enabled_skills",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789486259177,
+      "tag": "0013_conversation_human_controlled",
+      "breakpoints": true
     }
   ]
 }

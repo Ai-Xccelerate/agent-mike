@@ -139,6 +139,9 @@ export const conversations = pgTable(
     status: text("status").notNull().default("open"), // open | needs_human | resolved | closed
     priority: text("priority").notNull().default("normal"),
     assignedTo: text("assigned_to"),
+    // A manager has taken direct control (Inbox "Take over" button) — the
+    // agent stops replying on this conversation until it's handed back.
+    humanControlled: boolean("human_controlled").notNull().default(false),
     confidence: real("confidence"),
     summary: text("summary"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

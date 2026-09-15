@@ -61,6 +61,18 @@ export async function POST(req: NextRequest) {
     body: message,
   });
 
+  // A manager has taken over — the agent stays quiet until it's handed back.
+  if (conversation.humanControlled) {
+    return NextResponse.json({
+      conversation_id: conversation.id,
+      message: null,
+      status: conversation.status,
+      confidence: conversation.confidence,
+      escalated: false,
+      knowledge_sources: [],
+    });
+  }
+
   const domainRows = await db
     .select({ status: emailDomains.status, domain: emailDomains.domain })
     .from(emailDomains)
