@@ -46,4 +46,13 @@ describe("identity field schemas", () => {
     const parsed = workerPatchSchema.safeParse({ slug: "API", accentColor: "blue" });
     expect(parsed.success).toBe(false);
   });
+
+  it("accepts enabledSkills as a full array replacement", () => {
+    const parsed = workerPatchSchema.safeParse({ enabledSkills: ["stay-on-topic"] });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.enabledSkills).toEqual(["stay-on-topic"]);
+    }
+    expect(workerPatchSchema.safeParse({ enabledSkills: "stay-on-topic" }).success).toBe(false);
+  });
 });
