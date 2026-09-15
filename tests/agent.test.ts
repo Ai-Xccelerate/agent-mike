@@ -2,16 +2,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent } from "@openai/agents";
 import {
   buildAgentTools,
+  buildSkillsBlock,
+  LOAD_SKILL_TOOL_NAME,
   CRM_LOOKUP_FAILURE_MESSAGE,
   CRM_LOOKUP_RETRY_BACKOFF_MS,
   CRM_LOOKUP_TOOL_NAME,
+  CALENDAR_LOOKUP_FAILURE_MESSAGE,
+  CALENDAR_LOOKUP_RETRY_BACKOFF_MS,
+  CALENDAR_LOOKUP_TOOL_NAME,
+  executeCalendarSearch,
   executeCrmLookup,
+  executeGmailSearch,
   executeLinearSearch,
+  executeOutlookSearch,
+  EMAIL_LOOKUP_FAILURE_MESSAGE,
+  EMAIL_LOOKUP_RETRY_BACKOFF_MS,
+  EMAIL_LOOKUP_TOOL_NAME,
+  GMAIL_LIST_MESSAGES_SLUG,
+  GMAIL_TOOLKIT_VERSION,
+  GOOGLECALENDAR_EVENTS_LIST_SLUG,
+  GOOGLECALENDAR_TOOLKIT_VERSION,
   LINEAR_LOOKUP_FAILURE_MESSAGE,
   LINEAR_LOOKUP_RETRY_BACKOFF_MS,
   LINEAR_LOOKUP_TOOL_NAME,
   LINEAR_SEARCH_ISSUES_SLUG,
   LINEAR_TOOLKIT_VERSION,
+  OUTLOOK_SEARCH_MESSAGES_SLUG,
+  OUTLOOK_TOOLKIT_VERSION,
   ZOHO_SEARCH_CONTACTS_SLUG,
   ZOHO_TOOLKIT_VERSION,
 } from "@/lib/agent";
@@ -58,6 +75,32 @@ function isLinearLookupTool(tool: unknown): boolean {
   return candidate.type === "function" && candidate.name === LINEAR_LOOKUP_TOOL_NAME;
 }
 
+function isEmailLookupTool(tool: unknown): boolean {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as { type?: string; name?: string };
+  return candidate.type === "function" && candidate.name === EMAIL_LOOKUP_TOOL_NAME;
+}
+
+function isCalendarLookupTool(tool: unknown): boolean {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as { type?: string; name?: string };
+  return candidate.type === "function" && candidate.name === CALENDAR_LOOKUP_TOOL_NAME;
+}
+
+function isLoadSkillTool(tool: unknown): boolean {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as { type?: string; name?: string };
+  return candidate.type === "function" && candidate.name === LOAD_SKILL_TOOL_NAME;
+}
+
+async function invokeLoadSkill(tools: unknown[], skillId: string): Promise<string> {
+  const skillTool = tools.find(isLoadSkillTool) as
+    | { invoke: (context: unknown, input: string) => Promise<string> }
+    | undefined;
+  if (!skillTool) throw new Error("load_skill tool not found");
+  return skillTool.invoke(undefined, JSON.stringify({ skillId }));
+}
+
 function activeZohoConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
   return {
     id: "11111111-1111-1111-1111-111111111111",
@@ -92,6 +135,70 @@ function activeLinearConnection(overrides: Partial<IntegrationConnection> = {}):
     lastUsed: null,
     ...overrides,
   };
+}
+
+function activeGmailConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
+  return {
+    id: "33333333-3333-3333-3333-333333333333",
+    organizationId: "org-1",
+    integrationType: "email",
+    system: "gmail",
+    composioAuthConfigId: "ac_gmail_test",
+    composioConnectedAccountId: "ca_gmail_test",
+    status: "active",
+    connectedBy: null,
+    metadata: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: null,
+    ...overrides,
+  };
+}
+
+function activeOutlookConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
+  return {
+    id: "44444444-4444-4444-4444-444444444444",
+    organizationId: "org-1",
+    integrationType: "email",
+    system: "outlook",
+    composioAuthConfigId: "ac_outlook_test",
+    composioConnectedAccountId: "ca_outlook_test",
+    status: "active",
+    connectedBy: null,
+    metadata: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: null,
+    ...overrides,
+  };
+}
+
+function activeGoogleCalendarConnection(
+  overrides: Partial<IntegrationConnection> = {},
+): IntegrationConnection {
+  return {
+    id: "55555555-5555-5555-5555-555555555555",
+    organizationId: "org-1",
+    integrationType: "calendar",
+    system: "googlecalendar",
+    composioAuthConfigId: "ac_googlecalendar_test",
+    composioConnectedAccountId: "ca_googlecalendar_test",
+    status: "active",
+    connectedBy: null,
+    metadata: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: null,
+    ...overrides,
+  };
+}
+
+async function invokeEmailLookup(tools: unknown[], query: string): Promise<string> {
+  const emailTool = tools.find(isEmailLookupTool) as
+    | { invoke: (context: unknown, input: string) => Promise<string> }
+    | undefined;
+  if (!emailTool) throw new Error("lookup_email tool not found");
+  return emailTool.invoke(undefined, JSON.stringify({ query }));
 }
 
 describe("agent internet_search tool wiring", () => {
@@ -343,5 +450,420 @@ describe("Linear issue search retry-once and tool_calls logging", () => {
       status: "error",
       errorMessage: "still unauthorized",
     });
+  });
+});
+
+describe("agent Gmail lookup tool wiring", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+  });
+
+  it("includes the email lookup tool when the org has an active Gmail connection", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection() : null,
+    );
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(getConnectionForOrgMock).toHaveBeenCalledWith("org-1", "email");
+    expect(tools.some(isEmailLookupTool)).toBe(true);
+    expect(tools.some(isCrmLookupTool)).toBe(false);
+    expect(tools.some(isLinearLookupTool)).toBe(false);
+  });
+
+  it("omits the email lookup tool when there is no connection", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+  });
+
+  it("omits the email lookup tool when the connection is still pending", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection({ status: "pending" }) : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+  });
+
+  it("includes lookup_email for an active Outlook connection and executes OUTLOOK_SEARCH_MESSAGES", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeOutlookConnection() : null,
+    );
+    executeToolMock.mockResolvedValue({ data: { value: [] }, error: null, successful: true });
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isEmailLookupTool)).toBe(true);
+
+    await invokeEmailLookup(tools, "meeting");
+    expect(executeToolMock).toHaveBeenCalledWith(
+      OUTLOOK_SEARCH_MESSAGES_SLUG,
+      { query: "meeting" },
+      { connectedAccountId: "ca_outlook_test", userId: "org-1", version: OUTLOOK_TOOLKIT_VERSION },
+    );
+  });
+
+  it("still executes GMAIL_LIST_MESSAGES when the connected email vendor is Gmail", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection() : null,
+    );
+    executeToolMock.mockResolvedValue({ data: { messages: [] }, error: null, successful: true });
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    await invokeEmailLookup(tools, "is:unread");
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_LIST_MESSAGES_SLUG,
+      { q: "is:unread" },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
+  });
+
+  it("omits the email lookup tool when the connected system is unrecognized", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection({ system: "imap" }) : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+  });
+});
+
+describe("Gmail search retry-once and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("logs success on the first call and does not retry", async () => {
+    const payload = { data: { messages: [] }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeGmailSearch("is:unread", "org-1", "ca_gmail_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_LIST_MESSAGES_SLUG,
+      { q: "is:unread" },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "is:unread" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries once after a failure then logs success for the recovered result", async () => {
+    vi.useFakeTimers();
+    const payload = { data: { messages: [{ id: "1" }] }, error: null, successful: true };
+    executeToolMock.mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce(payload);
+
+    const pending = executeGmailSearch("from:ada@example.com", "org-1", "ca_gmail_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "from:ada@example.com" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and returns an escalation string when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock
+      .mockRejectedValueOnce(new Error("auth expired"))
+      .mockRejectedValueOnce(new Error("still unauthorized"));
+
+    const pending = executeGmailSearch("subject:meeting", "org-1", "ca_gmail_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(EMAIL_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "subject:meeting" },
+      output: null,
+      status: "error",
+      errorMessage: "still unauthorized",
+    });
+  });
+});
+
+describe("Outlook search retry-once and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("logs success on the first call and does not retry", async () => {
+    const payload = { data: { value: [] }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeOutlookSearch("meeting", "org-1", "ca_outlook_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      OUTLOOK_SEARCH_MESSAGES_SLUG,
+      { query: "meeting" },
+      { connectedAccountId: "ca_outlook_test", userId: "org-1", version: OUTLOOK_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "meeting" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries once after a failure then logs success for the recovered result", async () => {
+    vi.useFakeTimers();
+    const payload = { data: { value: [{ id: "1" }] }, error: null, successful: true };
+    executeToolMock.mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce(payload);
+
+    const pending = executeOutlookSearch("from:ada@example.com", "org-1", "ca_outlook_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "from:ada@example.com" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and returns an escalation string when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock
+      .mockRejectedValueOnce(new Error("auth expired"))
+      .mockRejectedValueOnce(new Error("still unauthorized"));
+
+    const pending = executeOutlookSearch("subject:meeting", "org-1", "ca_outlook_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(EMAIL_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: EMAIL_LOOKUP_TOOL_NAME,
+      input: { query: "subject:meeting" },
+      output: null,
+      status: "error",
+      errorMessage: "still unauthorized",
+    });
+  });
+});
+
+describe("agent Google Calendar lookup tool wiring", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+  });
+
+  it("includes lookup_calendar_event for an active Google Calendar connection", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "calendar" ? activeGoogleCalendarConnection() : null,
+    );
+    executeToolMock.mockResolvedValue({ data: { items: [] }, error: null, successful: true });
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(getConnectionForOrgMock).toHaveBeenCalledWith("org-1", "calendar");
+    expect(tools.some(isCalendarLookupTool)).toBe(true);
+    expect(tools.some(isCrmLookupTool)).toBe(false);
+    expect(tools.some(isLinearLookupTool)).toBe(false);
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+
+    const calendarTool = tools.find(isCalendarLookupTool) as
+      | { invoke: (context: unknown, input: string) => Promise<string> }
+      | undefined;
+    if (!calendarTool) throw new Error("lookup_calendar_event tool not found");
+    await calendarTool.invoke(undefined, JSON.stringify({ query: "standup" }));
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GOOGLECALENDAR_EVENTS_LIST_SLUG,
+      { query: "standup" },
+      {
+        connectedAccountId: "ca_googlecalendar_test",
+        userId: "org-1",
+        version: GOOGLECALENDAR_TOOLKIT_VERSION,
+      },
+    );
+  });
+
+  it("omits the calendar lookup tool when there is no connection", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isCalendarLookupTool)).toBe(false);
+  });
+
+  it("omits the calendar lookup tool when the connection is still pending", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "calendar" ? activeGoogleCalendarConnection({ status: "pending" }) : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isCalendarLookupTool)).toBe(false);
+  });
+});
+
+describe("Google Calendar search retry-once and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("logs success on the first call and does not retry", async () => {
+    const payload = { data: { items: [] }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeCalendarSearch("standup", "org-1", "ca_googlecalendar_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GOOGLECALENDAR_EVENTS_LIST_SLUG,
+      { query: "standup" },
+      {
+        connectedAccountId: "ca_googlecalendar_test",
+        userId: "org-1",
+        version: GOOGLECALENDAR_TOOLKIT_VERSION,
+      },
+    );
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: CALENDAR_LOOKUP_TOOL_NAME,
+      input: { query: "standup" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries once after a failure then logs success for the recovered result", async () => {
+    vi.useFakeTimers();
+    const payload = { data: { items: [{ id: "1" }] }, error: null, successful: true };
+    executeToolMock.mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce(payload);
+
+    const pending = executeCalendarSearch("sync", "org-1", "ca_googlecalendar_test");
+    await vi.advanceTimersByTimeAsync(CALENDAR_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: CALENDAR_LOOKUP_TOOL_NAME,
+      input: { query: "sync" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and returns an escalation string when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock
+      .mockRejectedValueOnce(new Error("auth expired"))
+      .mockRejectedValueOnce(new Error("still unauthorized"));
+
+    const pending = executeCalendarSearch("meeting", "org-1", "ca_googlecalendar_test");
+    await vi.advanceTimersByTimeAsync(CALENDAR_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(CALENDAR_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: CALENDAR_LOOKUP_TOOL_NAME,
+      input: { query: "meeting" },
+      output: null,
+      status: "error",
+      errorMessage: "still unauthorized",
+    });
+  });
+});
+
+describe("agent skills wiring", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+  });
+
+  it("buildSkillsBlock is empty with no enabled skills", () => {
+    expect(buildSkillsBlock(undefined)).toBe("");
+    expect(buildSkillsBlock([])).toBe("");
+  });
+
+  it("buildSkillsBlock lists an enabled skill's frontmatter", () => {
+    const block = buildSkillsBlock(["stay-on-topic"]);
+    expect(block).toContain("stay-on-topic");
+    expect(block).toContain(
+      "Use when a conversation drifts off-topic before a ticket gets created",
+    );
+  });
+
+  it("buildSkillsBlock ignores an unenabled/unknown skill id", () => {
+    expect(buildSkillsBlock(["not-a-real-skill"])).toBe("");
+  });
+
+  it("does not add load_skill tool when no skills are enabled", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {}, enabledSkills: [] }, "org-1");
+    expect(tools.some(isLoadSkillTool)).toBe(false);
+  });
+
+  it("adds load_skill tool when a skill is enabled, and it returns the skill body", async () => {
+    const tools = await buildAgentTools(
+      { toolsConfig: {}, enabledSkills: ["stay-on-topic"] },
+      "org-1",
+    );
+    expect(tools.some(isLoadSkillTool)).toBe(true);
+
+    const body = await invokeLoadSkill(tools, "stay-on-topic");
+    expect(body).toContain("Stay on topic");
+    expect(body).toContain("Omit small talk");
+  });
+
+  it("load_skill refuses a skill id that isn't enabled for this worker", async () => {
+    const tools = await buildAgentTools(
+      { toolsConfig: {}, enabledSkills: ["stay-on-topic"] },
+      "org-1",
+    );
+    const result = await invokeLoadSkill(tools, "some-other-skill");
+    expect(result).toContain("not enabled");
   });
 });

@@ -30,18 +30,22 @@ describe("tools/integrations registry", () => {
     expect(getTool("artifacts")?.name).toBe("Artifacts");
   });
 
-  it("lists integration types with crm_zoho and project_management_linear vendors", () => {
+  it("lists integration types with crm_zoho, project_management_linear, email, and calendar vendors", () => {
     expect(INTEGRATION_TYPES.map((entry) => entry.type)).toEqual([
       "crm",
       "helpdesk",
       "ticketing",
       "project_management",
+      "email",
+      "calendar",
     ]);
     expect(getIntegrationType("crm")).toEqual({ type: "crm", name: "CRM" });
     expect(getIntegrationType("project_management")).toEqual({
       type: "project_management",
       name: "Project Management",
     });
+    expect(getIntegrationType("email")).toEqual({ type: "email", name: "Email" });
+    expect(getIntegrationType("calendar")).toEqual({ type: "calendar", name: "Calendar" });
     expect(getIntegration("crm_zoho")).toEqual({
       id: "crm_zoho",
       integrationType: "crm",
@@ -52,6 +56,24 @@ describe("tools/integrations registry", () => {
       id: "project_management_linear",
       integrationType: "project_management",
       system: "linear",
+      requiresAuth: true,
+    });
+    expect(getIntegration("email_gmail")).toEqual({
+      id: "email_gmail",
+      integrationType: "email",
+      system: "gmail",
+      requiresAuth: true,
+    });
+    expect(getIntegration("email_outlook")).toEqual({
+      id: "email_outlook",
+      integrationType: "email",
+      system: "outlook",
+      requiresAuth: true,
+    });
+    expect(getIntegration("calendar_googlecalendar")).toEqual({
+      id: "calendar_googlecalendar",
+      integrationType: "calendar",
+      system: "googlecalendar",
       requiresAuth: true,
     });
     expect(getIntegration("crm_zoho")?.integrationType).toBe(getIntegrationType("crm")?.type);

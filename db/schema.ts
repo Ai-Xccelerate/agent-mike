@@ -90,6 +90,10 @@ export const workerProfiles = pgTable(
       .notNull()
       .default(sql`'{"browser_use":false,"internet_search":false,"scribe":false,"artifacts":false}'::jsonb`),
 
+    // Skills — catalog ids from skills/*/SKILL.md the worker has turned on.
+    // Empty until a later settings surface enables any; not wired into the agent yet.
+    enabledSkills: jsonb("enabled_skills").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+
     // Integrations (settings > Integrations) — externally-connected systems per
     // R6. Each entry is per-integration state; `enabled` is the user-facing
     // toggle. Parchment is read-only, so it is default-allow and its toggle is
@@ -140,6 +144,9 @@ export const conversations = pgTable(
     status: text("status").notNull().default("open"), // open | needs_human | resolved | closed
     priority: text("priority").notNull().default("normal"),
     assignedTo: text("assigned_to"),
+    // A manager has taken direct control (Inbox "Take over" button) — the
+    // agent stops replying on this conversation until it's handed back.
+    humanControlled: boolean("human_controlled").notNull().default(false),
     confidence: real("confidence"),
     summary: text("summary"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

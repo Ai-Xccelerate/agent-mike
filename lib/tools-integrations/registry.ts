@@ -28,6 +28,8 @@ export const INTEGRATION_TYPES: IntegrationTypeDefinition[] = [
   { type: "helpdesk", name: "Helpdesk" },
   { type: "ticketing", name: "Ticketing" },
   { type: "project_management", name: "Project Management" },
+  { type: "email", name: "Email" },
+  { type: "calendar", name: "Calendar" },
 ];
 
 export const INTEGRATIONS: IntegrationDefinition[] = [
@@ -36,6 +38,14 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     id: "project_management_linear",
     integrationType: "project_management",
     system: "linear",
+    requiresAuth: true,
+  },
+  { id: "email_gmail", integrationType: "email", system: "gmail", requiresAuth: true },
+  { id: "email_outlook", integrationType: "email", system: "outlook", requiresAuth: true },
+  {
+    id: "calendar_googlecalendar",
+    integrationType: "calendar",
+    system: "googlecalendar",
     requiresAuth: true,
   },
 ];

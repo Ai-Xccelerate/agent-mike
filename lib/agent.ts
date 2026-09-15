@@ -6,6 +6,7 @@ import { isDemoMode } from "@/lib/env";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
+import { getSkill, loadSkills } from "@/lib/tools-integrations/skills-loader";
 
 export interface WorkerProfileLike {
   displayName: string;
@@ -19,6 +20,51 @@ export interface WorkerProfileLike {
   timezone?: string;
   emailSignature?: string;
   toolsConfig?: Record<string, boolean>;
+  enabledSkills?: string[];
+}
+
+export const LOAD_SKILL_TOOL_NAME = "load_skill";
+
+/**
+ * Frontmatter (name + description) for every enabled skill is cheap enough to
+ * keep in the system prompt always, so the agent knows what's available. The
+ * full body only loads when the agent calls load_skill — progressive
+ * disclosure, per the plan's Skills design.
+ */
+export function buildSkillsBlock(enabledSkillIds: string[] | undefined): string {
+  if (!enabledSkillIds || enabledSkillIds.length === 0) return "";
+
+  const enabled = loadSkills().filter((skill) => enabledSkillIds.includes(skill.id));
+  if (enabled.length === 0) return "";
+
+  const list = enabled.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
+  return (
+    "\n\nSkills available to you (call load_skill with the skill id to read its full instructions " +
+    "before relying on it):\n" +
+    list
+  );
+}
+
+function buildLoadSkillTool(enabledSkillIds: string[] | undefined): Tool {
+  return tool({
+    name: LOAD_SKILL_TOOL_NAME,
+    description:
+      "Load the full instructions for one of your available skills, by id. Only works for skills " +
+      "listed as available to you — call this before following a skill you haven't already read.",
+    parameters: z.object({
+      skillId: z.string().describe("The skill id, exactly as listed in your available skills"),
+    }),
+    execute: async ({ skillId }) => {
+      if (!enabledSkillIds || !enabledSkillIds.includes(skillId)) {
+        return `Skill "${skillId}" is not enabled for this worker.`;
+      }
+      const skill = getSkill(skillId);
+      if (!skill) {
+        return `Skill "${skillId}" is enabled but its content could not be found.`;
+      }
+      return skill.body;
+    },
+  });
 }
 
 export const ZOHO_SEARCH_CONTACTS_SLUG = "ZOHO_SEARCH_CONTACTS";
@@ -145,13 +191,181 @@ export async function executeLinearSearch(
   return JSON.stringify(result);
 }
 
+export const GMAIL_LIST_MESSAGES_SLUG = "GMAIL_LIST_MESSAGES";
+/** Toolkit version from composio.toolkits.get("gmail") (Version: 20260915_00). */
+export const GMAIL_TOOLKIT_VERSION = "20260915_00";
+export const EMAIL_LOOKUP_TOOL_NAME = "lookup_email";
+export const EMAIL_LOOKUP_RETRY_BACKOFF_MS = 500;
+export const EMAIL_LOOKUP_FAILURE_MESSAGE =
+  "Email search failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+
+export async function executeGmailSearch(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      GMAIL_LIST_MESSAGES_SLUG,
+      { q: query },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: GMAIL_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: EMAIL_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return EMAIL_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: EMAIL_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
+export const OUTLOOK_SEARCH_MESSAGES_SLUG = "OUTLOOK_SEARCH_MESSAGES";
+/** Toolkit version from composio.toolkits.get("outlook") (Version: 20260915_00). */
+export const OUTLOOK_TOOLKIT_VERSION = "20260915_00";
+
+export async function executeOutlookSearch(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      OUTLOOK_SEARCH_MESSAGES_SLUG,
+      { query },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: OUTLOOK_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: EMAIL_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return EMAIL_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: EMAIL_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
+export const GOOGLECALENDAR_EVENTS_LIST_SLUG = "GOOGLECALENDAR_EVENTS_LIST";
+/** Toolkit version from composio.toolkits.get("googlecalendar") (Version: 20260915_00). */
+export const GOOGLECALENDAR_TOOLKIT_VERSION = "20260915_00";
+export const CALENDAR_LOOKUP_TOOL_NAME = "lookup_calendar_event";
+export const CALENDAR_LOOKUP_RETRY_BACKOFF_MS = 500;
+export const CALENDAR_LOOKUP_FAILURE_MESSAGE =
+  "Calendar event search failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+
+export async function executeCalendarSearch(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      GOOGLECALENDAR_EVENTS_LIST_SLUG,
+      { query },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: GOOGLECALENDAR_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(CALENDAR_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: CALENDAR_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return CALENDAR_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: CALENDAR_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
 export async function buildAgentTools(
-  profile: Pick<WorkerProfileLike, "toolsConfig">,
+  profile: Pick<WorkerProfileLike, "toolsConfig" | "enabledSkills">,
   organizationId: string,
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
     tools.push(webSearchTool());
+  }
+
+  if (profile.enabledSkills && profile.enabledSkills.length > 0) {
+    tools.push(buildLoadSkillTool(profile.enabledSkills));
   }
 
   const connection = await getConnectionForOrg(organizationId, "crm");
@@ -200,6 +414,55 @@ export async function buildAgentTools(
     );
   }
 
+  const emailConnection = await getConnectionForOrg(organizationId, "email");
+  if (emailConnection?.status === "active" && emailConnection.composioConnectedAccountId) {
+    const connectedAccountId = emailConnection.composioConnectedAccountId;
+    const executeSearch =
+      emailConnection.system === "gmail"
+        ? executeGmailSearch
+        : emailConnection.system === "outlook"
+          ? executeOutlookSearch
+          : null;
+    if (executeSearch) {
+      tools.push(
+        tool({
+          name: EMAIL_LOOKUP_TOOL_NAME,
+          description:
+            "Search the connected email account by keyword, sender, or subject. Read-only; does not send, delete, or modify messages.",
+          parameters: z.object({
+            query: z
+              .string()
+              .describe("Search query for the connected email account, e.g. unread, from:someone@example.com, subject:meeting"),
+          }),
+          execute: async ({ query }) => executeSearch(query, organizationId, connectedAccountId),
+        }),
+      );
+    }
+  }
+
+  const calendarConnection = await getConnectionForOrg(organizationId, "calendar");
+  if (
+    calendarConnection?.status === "active" &&
+    calendarConnection.composioConnectedAccountId &&
+    calendarConnection.system === "googlecalendar"
+  ) {
+    const connectedAccountId = calendarConnection.composioConnectedAccountId;
+    tools.push(
+      tool({
+        name: CALENDAR_LOOKUP_TOOL_NAME,
+        description:
+          "Search the connected Google Calendar primary calendar for events matching a free-text query. Read-only; does not create, update, or delete events.",
+        parameters: z.object({
+          query: z
+            .string()
+            .describe("Free-text search across event fields on the primary Google Calendar"),
+        }),
+        execute: async ({ query }) =>
+          executeCalendarSearch(query, organizationId, connectedAccountId),
+      }),
+    );
+  }
+
   return tools;
 }
 
@@ -239,6 +502,7 @@ function buildInstructions(
     base +
     (identityBlock ? `\n\n${identityBlock}` : "") +
     knowledgeBlock +
+    buildSkillsBlock(profile.enabledSkills) +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."

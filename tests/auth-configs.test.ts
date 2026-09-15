@@ -2,12 +2,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ORIGINAL_ZOHO = process.env.COMPOSIO_ZOHO_AUTH_CONFIG_ID;
 const ORIGINAL_LINEAR = process.env.COMPOSIO_LINEAR_AUTH_CONFIG_ID;
+const ORIGINAL_GMAIL = process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID;
+const ORIGINAL_OUTLOOK = process.env.COMPOSIO_OUTLOOK_AUTH_CONFIG_ID;
+const ORIGINAL_GOOGLECALENDAR = process.env.COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID;
 
 afterEach(() => {
   if (ORIGINAL_ZOHO === undefined) delete process.env.COMPOSIO_ZOHO_AUTH_CONFIG_ID;
   else process.env.COMPOSIO_ZOHO_AUTH_CONFIG_ID = ORIGINAL_ZOHO;
   if (ORIGINAL_LINEAR === undefined) delete process.env.COMPOSIO_LINEAR_AUTH_CONFIG_ID;
   else process.env.COMPOSIO_LINEAR_AUTH_CONFIG_ID = ORIGINAL_LINEAR;
+  if (ORIGINAL_GMAIL === undefined) delete process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID;
+  else process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID = ORIGINAL_GMAIL;
+  if (ORIGINAL_OUTLOOK === undefined) delete process.env.COMPOSIO_OUTLOOK_AUTH_CONFIG_ID;
+  else process.env.COMPOSIO_OUTLOOK_AUTH_CONFIG_ID = ORIGINAL_OUTLOOK;
+  if (ORIGINAL_GOOGLECALENDAR === undefined) delete process.env.COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID;
+  else process.env.COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID = ORIGINAL_GOOGLECALENDAR;
   vi.resetModules();
 });
 
@@ -24,6 +33,27 @@ describe("auth config lookup", () => {
     vi.resetModules();
     const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
     expect(getAuthConfigId("linear")).toBe("ac_test_linear");
+  });
+
+  it("returns the Gmail auth config id from env", async () => {
+    process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID = "ac_test_gmail";
+    vi.resetModules();
+    const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
+    expect(getAuthConfigId("gmail")).toBe("ac_test_gmail");
+  });
+
+  it("returns the Outlook auth config id from env", async () => {
+    process.env.COMPOSIO_OUTLOOK_AUTH_CONFIG_ID = "ac_test_outlook";
+    vi.resetModules();
+    const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
+    expect(getAuthConfigId("outlook")).toBe("ac_test_outlook");
+  });
+
+  it("returns the Google Calendar auth config id from env", async () => {
+    process.env.COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID = "ac_test_googlecalendar";
+    vi.resetModules();
+    const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
+    expect(getAuthConfigId("googlecalendar")).toBe("ac_test_googlecalendar");
   });
 
   it("throws when the system is unmapped", async () => {

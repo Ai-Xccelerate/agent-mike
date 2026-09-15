@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
+import { getOrCreateProfile } from "@/lib/bootstrap";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -33,9 +34,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const status = body?.status as string | undefined;
   const subject = body?.subject as string | undefined;
+  const humanControlled = body?.humanControlled as boolean | undefined;
 
-  if (status === undefined && subject === undefined) {
-    return NextResponse.json({ error: "Provide status and/or subject" }, { status: 400 });
+  if (status === undefined && subject === undefined && humanControlled === undefined) {
+    return NextResponse.json({ error: "Provide status, subject, and/or humanControlled" }, { status: 400 });
   }
   if (status !== undefined && !VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])) {
     return NextResponse.json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }, { status: 400 });
@@ -43,12 +45,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (subject !== undefined && !subject.trim()) {
     return NextResponse.json({ error: "subject cannot be empty" }, { status: 400 });
   }
+  if (humanControlled !== undefined && typeof humanControlled !== "boolean") {
+    return NextResponse.json({ error: "humanControlled must be a boolean" }, { status: 400 });
+  }
+
+  const profile = humanControlled ? await getOrCreateProfile(tenant.orgId) : null;
 
   const [updated] = await db
     .update(conversations)
     .set({
       ...(status !== undefined ? { status } : {}),
       ...(subject !== undefined ? { subject: subject.trim() } : {}),
+      ...(humanControlled !== undefined ? { humanControlled } : {}),
+      ...(humanControlled ? { assignedTo: profile!.managerName } : {}),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversation.id))
