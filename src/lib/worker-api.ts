@@ -19,6 +19,7 @@ export type Conversation = {
   status: "open" | "needs_human" | "resolved" | "closed";
   priority: string;
   assignedTo: string | null;
+  humanControlled: boolean;
   confidence: number | null;
   summary: string | null;
   createdAt: string;
@@ -281,13 +282,15 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
   if (!response.ok) {
     const detail = await response.text();
     let errors: Record<string, string> | undefined;
-    let message = detail || `Request failed with ${response.status}`;
-    try {
-      const parsed = JSON.parse(detail) as { error?: string; errors?: Record<string, string> };
-      if (parsed?.errors && typeof parsed.errors === "object") errors = parsed.errors;
-      if (typeof parsed?.error === "string") message = parsed.error;
-    } catch {
-      /* keep the raw body as the message */
+    let message = `Request failed with ${response.status}`;
+    if (response.headers.get("content-type")?.includes("application/json")) {
+      try {
+        const parsed = JSON.parse(detail) as { error?: string; errors?: Record<string, string> };
+        if (parsed?.errors && typeof parsed.errors === "object") errors = parsed.errors;
+        if (typeof parsed?.error === "string") message = parsed.error;
+      } catch {
+        /* keep the generic status message */
+      }
     }
     throw new WorkerApiError(message, response.status, errors);
   }

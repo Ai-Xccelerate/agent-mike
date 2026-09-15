@@ -47,6 +47,7 @@ export default function WorkerInbox() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<"active" | "needs_human" | "closed">("active");
+  const [channelFilter, setChannelFilter] = useState<"all" | Conversation["channel"]>("all");
   const [updating, setUpdating] = useState(false);
   const [reply, setReply] = useState("");
   const [notice, setNotice] = useState("");
@@ -67,10 +68,15 @@ export default function WorkerInbox() {
   );
 
   const visible = useMemo(() => {
-    if (filter === "needs_human") return conversations.filter((item) => item.status === "needs_human");
-    if (filter === "closed") return conversations.filter((item) => ACTIVE_HIDDEN.has(item.status));
-    return conversations.filter((item) => !ACTIVE_HIDDEN.has(item.status));
-  }, [conversations, filter]);
+    const byStatus =
+      filter === "needs_human"
+        ? conversations.filter((item) => item.status === "needs_human")
+        : filter === "closed"
+          ? conversations.filter((item) => ACTIVE_HIDDEN.has(item.status))
+          : conversations.filter((item) => !ACTIVE_HIDDEN.has(item.status));
+    if (channelFilter === "all") return byStatus;
+    return byStatus.filter((item) => item.channel === channelFilter);
+  }, [conversations, filter, channelFilter]);
   const selected = conversations.find((item) => item.id === selectedId);
 
   useEffect(() => {
@@ -89,6 +95,22 @@ export default function WorkerInbox() {
       setConversations((items) => items.map((item) => (item.id === updated.id ? updated : item)));
     } catch {
       setNotice("Could not update status.");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function setHumanControlled(humanControlled: boolean) {
+    if (!selected) return;
+    setUpdating(true);
+    try {
+      const updated = await apiFetch<Conversation>(`/conversations/${selected.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ humanControlled }),
+      });
+      setConversations((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+    } catch {
+      setNotice(humanControlled ? "Could not take over this conversation." : "Could not hand this conversation back.");
     } finally {
       setUpdating(false);
     }
@@ -152,6 +174,19 @@ export default function WorkerInbox() {
               </button>
             ))}
           </div>
+          <div className="mt-2 grid grid-cols-4 rounded-lg bg-gray-100 p-1 dark:bg-white/5">
+            {(["all", "chat", "widget", "email"] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => setChannelFilter(key)}
+                className={`rounded-lg px-2 py-1.5 text-xs font-medium ${
+                  channelFilter === key ? "bg-white text-gray-800 shadow-theme-xs dark:bg-gray-800 dark:text-white" : "text-gray-500"
+                }`}
+              >
+                {key === "all" ? "All" : key === "chat" ? "Chat" : key === "widget" ? "Widget" : "Email"}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {!visible.length && (
@@ -208,23 +243,54 @@ export default function WorkerInbox() {
                 <Badge size="sm" color={badgeFor(selected).color}>
                   {badgeFor(selected).label}
                 </Badge>
+                {selected.humanControlled && (
+                  <Badge size="sm" color="primary">
+                    Human-controlled
+                  </Badge>
+                )}
               </div>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 <span className="font-mono text-gray-600 dark:text-gray-300">{ticketRef(selected)}</span> · {selected.customerName}
                 {selected.customerEmail ? ` · ${selected.customerEmail}` : ""} · Assigned to {selected.assignedTo ?? "unassigned"}
               </p>
             </div>
-            <button
-              onClick={deleteConversation}
-              aria-label="Delete conversation"
-              title="Delete conversation"
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-400 transition-colors hover:border-error-200 hover:bg-error-50 hover:text-error-600 dark:border-gray-800 dark:hover:border-error-500/30 dark:hover:bg-error-500/10"
-            >
-              <TrashBinIcon className="size-4" />
-            </button>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {selected.humanControlled ? (
+                <Button size="sm" variant="outline" disabled={updating} onClick={() => setHumanControlled(false)}>
+                  Hand back to AI
+                </Button>
+              ) : (
+                <Button size="sm" disabled={updating} onClick={() => setHumanControlled(true)}>
+                  Take over
+                </Button>
+              )}
+              {selected.status !== "resolved" && selected.status !== "closed" && (
+                <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("resolved")} startIcon={<CheckCircleIcon className="size-4" />}>
+                  Resolve
+                </Button>
+              )}
+              {selected.status !== "closed" && (
+                <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("closed")}>
+                  Close
+                </Button>
+              )}
+              {(selected.status === "resolved" || selected.status === "closed") && (
+                <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("open")}>
+                  Reopen
+                </Button>
+              )}
+              <button
+                onClick={deleteConversation}
+                aria-label="Delete conversation"
+                title="Delete conversation"
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-400 transition-colors hover:border-error-200 hover:bg-error-50 hover:text-error-600 dark:border-gray-800 dark:hover:border-error-500/30 dark:hover:bg-error-500/10"
+              >
+                <TrashBinIcon className="size-4" />
+              </button>
+            </div>
           </header>
 
-          <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+          <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 dark:bg-gray-950/40 md:p-6">
                 {selected.messages.map((message) => {
@@ -307,63 +373,6 @@ export default function WorkerInbox() {
                 </div>
               </div>
             </div>
-
-            <aside className="hidden w-[280px] shrink-0 overflow-y-auto overscroll-contain border-l border-gray-200 p-5 xl:block dark:border-gray-800">
-              <div className="mb-5 border-b border-gray-100 pb-5 dark:border-gray-800">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-sm font-semibold text-gray-800 dark:text-white/90">{ticketRef(selected)}</span>
-                  <Badge size="sm" color={badgeFor(selected).color}>
-                    {badgeFor(selected).label}
-                  </Badge>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {selected.status !== "resolved" && selected.status !== "closed" && (
-                    <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("resolved")} startIcon={<CheckCircleIcon className="size-4" />}>
-                      Resolve
-                    </Button>
-                  )}
-                  {selected.status !== "closed" && (
-                    <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("closed")}>
-                      Close
-                    </Button>
-                  )}
-                  {(selected.status === "resolved" || selected.status === "closed") && (
-                    <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("open")}>
-                      Reopen
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-800 dark:text-white/90">Assessment</h3>
-              <div className="mt-4 rounded-xl bg-gray-50 p-4 dark:bg-white/[0.03]">
-                <p className="text-xs text-gray-500 dark:text-gray-400">Confidence</p>
-                <div className="mt-2 flex items-center gap-3">
-                  <div className="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-gray-800">
-                    <div
-                      className={`h-1.5 rounded-full ${(selected.confidence || 0) < 0.7 ? "bg-warning-500" : "bg-success-500"}`}
-                      style={{ width: `${Math.round((selected.confidence || 0) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="font-mono text-xs font-semibold text-gray-700 dark:text-gray-300">
-                    {Math.round((selected.confidence || 0) * 100)}%
-                  </span>
-                </div>
-              </div>
-              <dl className="mt-5 space-y-4 text-sm">
-                <div>
-                  <dt className="text-xs text-gray-500 dark:text-gray-400">Summary</dt>
-                  <dd className="mt-1 text-gray-700 dark:text-gray-300">{selected.summary ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500 dark:text-gray-400">Channel</dt>
-                  <dd className="mt-1 capitalize text-gray-700 dark:text-gray-300">{selected.channel}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-gray-500 dark:text-gray-400">Priority</dt>
-                  <dd className="mt-1 capitalize text-gray-700 dark:text-gray-300">{selected.priority}</dd>
-                </div>
-              </dl>
-            </aside>
           </div>
         </main>
       ) : (
