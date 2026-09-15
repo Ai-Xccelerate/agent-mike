@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { resolveCredentials, type ResolvedCredentials } from "@/lib/provider-credentials";
 
 /**
  * Nylas — the worker's own mailbox and calendar.
@@ -88,43 +89,68 @@ export class NylasError extends Error {
   }
 }
 
-export function nylasApiUri(): string {
-  return (process.env.NYLAS_API_URI || DEFAULT_API_URI).trim().replace(/\/+$/, "");
+export type NylasCredentials = {
+  clientId: string;
+  apiKey: string;
+  apiUri: string;
+};
+
+export const NYLAS_PROVIDER = "nylas";
+/** What the settings screen reports as set or missing. */
+export const NYLAS_REQUIRED_FIELDS = ["clientId", "apiKey"] as const;
+
+/** The fleet-wide application, shared by every agent unless one overrides it. */
+export function envNylasCredentials(): NylasCredentials {
+  return {
+    clientId: (process.env.NYLAS_CLIENT_ID || "").trim(),
+    apiKey: (process.env.NYLAS_API_KEY || "").trim(),
+    apiUri: (process.env.NYLAS_API_URI || DEFAULT_API_URI).trim().replace(/\/+$/, ""),
+  };
 }
 
-export function nylasClientId(): string {
-  return (process.env.NYLAS_CLIENT_ID || "").trim();
+export function isCompleteNylasCredentials(values: Partial<NylasCredentials>): boolean {
+  return Boolean((values.clientId || "").trim() && (values.apiKey || "").trim());
 }
 
-function nylasApiKey(): string {
-  return (process.env.NYLAS_API_KEY || "").trim();
-}
-
-/** Which residency this deployment talks to — shown, never guessed at. */
-export function nylasRegion(): "us" | "eu" | "custom" {
-  const uri = nylasApiUri();
-  if (uri.includes("api.us.nylas.com")) return "us";
-  if (uri.includes("api.eu.nylas.com")) return "eu";
-  return "custom";
+/** Normalizes whatever was stored, so a missing region still has a default. */
+export function normalizeNylasCredentials(values: Partial<NylasCredentials>): NylasCredentials {
+  return {
+    clientId: (values.clientId || "").trim(),
+    apiKey: (values.apiKey || "").trim(),
+    apiUri: (values.apiUri || DEFAULT_API_URI).trim().replace(/\/+$/, ""),
+  };
 }
 
 /**
- * True when the server holds both halves of the application credential.
- * Without them the integration is unavailable rather than merely disconnected,
- * and fails closed: nothing is ever sent to Nylas.
+ * This agent's own Nylas application if it has one, otherwise the fleet's.
+ * Null when neither is configured — the caller reports unavailable rather
+ * than calling out with half a credential.
  */
-export function isNylasConfigured(): boolean {
-  return Boolean(nylasApiKey() && nylasClientId());
+export async function resolveNylasCredentials(
+  orgId: string,
+): Promise<ResolvedCredentials<NylasCredentials> | null> {
+  const resolved = await resolveCredentials<NylasCredentials>(
+    orgId,
+    NYLAS_PROVIDER,
+    envNylasCredentials,
+    isCompleteNylasCredentials,
+  );
+  return resolved ? { ...resolved, values: normalizeNylasCredentials(resolved.values) } : null;
+}
+
+/** Which residency a set of credentials talks to — shown, never guessed at. */
+export function nylasRegion(apiUri: string): "us" | "eu" | "custom" {
+  if (apiUri.includes("api.us.nylas.com")) return "us";
+  if (apiUri.includes("api.eu.nylas.com")) return "eu";
+  return "custom";
 }
 
 /**
  * Where Nylas sends the manager back after they authorise.
  *
- * Lives here rather than in the route because both the connect and callback
- * routes need the identical value — the token exchange fails if the
- * `redirect_uri` differs by so much as a trailing slash from the one the auth
- * request used. A Next route file may only export handlers, so this could not
- * be shared from there anyway.
+ * Deployment-wide rather than per agent: it has to match a callback URI
+ * registered on the Nylas application, and the token exchange fails if it
+ * differs by so much as a trailing slash from the one the auth request used.
  */
 export function callbackUri(origin: string): string {
   const configured = (process.env.NYLAS_CALLBACK_URI || "").trim();
@@ -143,10 +169,20 @@ export function callbackUri(origin: string): string {
  */
 const STATE_TTL_MS = 15 * 60 * 1000;
 
+/**
+ * Server-wide, and deliberately not the Nylas API key.
+ *
+ * The callback must verify `state` *before* it knows which agent the flow
+ * belongs to — that is the whole point of the check. Signing with a per-agent
+ * credential would make verification circular and break the moment two agents
+ * hold different keys.
+ */
 function stateSecret(): string {
-  // The API key is already the OAuth client secret, so it is the one value
-  // guaranteed to be present wherever a callback can legitimately be handled.
-  return nylasApiKey() || "nylas-state";
+  return (
+    (process.env.NYLAS_STATE_SECRET || "").trim() ||
+    (process.env.ENCRYPTION_KEY || "").trim() ||
+    "nylas-state"
+  );
 }
 
 export interface OAuthState {
@@ -206,22 +242,19 @@ export function verifyState(state: string, now = Date.now()): OAuthState | null 
  * rather than hand it to us, which is what lets this app store only a grant id.
  */
 export function buildAuthUrl(options: {
+  credentials: NylasCredentials;
   redirectUri: string;
   state: string;
   provider?: string | null;
   loginHint?: string | null;
   scopes?: string[];
 }): string {
-  if (!isNylasConfigured()) {
-    throw new NylasError(
-      "Nylas is not configured on this server (NYLAS_CLIENT_ID / NYLAS_API_KEY)",
-      null,
-      "unconfigured",
-    );
+  if (!isCompleteNylasCredentials(options.credentials)) {
+    throw new NylasError("No Nylas application is configured for this agent", null, "unconfigured");
   }
 
-  const url = new URL(`${nylasApiUri()}/v3/connect/auth`);
-  url.searchParams.set("client_id", nylasClientId());
+  const url = new URL(`${options.credentials.apiUri}/v3/connect/auth`);
+  url.searchParams.set("client_id", options.credentials.clientId);
   url.searchParams.set("redirect_uri", options.redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("access_type", "online");
@@ -248,20 +281,21 @@ interface TokenResponse {
  * refresh cycle Nylas already runs.
  */
 export async function exchangeCodeForGrant(options: {
+  credentials: NylasCredentials;
   code: string;
   redirectUri: string;
   timeoutMs?: number;
 }): Promise<NylasGrant> {
   const body = {
-    client_id: nylasClientId(),
-    client_secret: nylasApiKey(),
+    client_id: options.credentials.clientId,
+    client_secret: options.credentials.apiKey,
     grant_type: "authorization_code",
     code: options.code,
     redirect_uri: options.redirectUri,
     code_verifier: "nylas",
   };
 
-  const data = (await nylasFetch("/v3/connect/token", {
+  const data = (await nylasFetch(options.credentials, "/v3/connect/token", {
     method: "POST",
     body,
     // The token exchange authenticates with client_secret in the body, not the
@@ -292,16 +326,16 @@ interface FetchOptions {
   timeoutMs?: number;
 }
 
-async function nylasFetch(path: string, options: FetchOptions = {}): Promise<unknown> {
-  if (!isNylasConfigured()) {
-    throw new NylasError(
-      "Nylas is not configured on this server (NYLAS_CLIENT_ID / NYLAS_API_KEY)",
-      null,
-      "unconfigured",
-    );
+async function nylasFetch(
+  credentials: NylasCredentials,
+  path: string,
+  options: FetchOptions = {},
+): Promise<unknown> {
+  if (!isCompleteNylasCredentials(credentials)) {
+    throw new NylasError("No Nylas application is configured for this agent", null, "unconfigured");
   }
 
-  const url = new URL(`${nylasApiUri()}${path}`);
+  const url = new URL(`${credentials.apiUri}${path}`);
   for (const [key, value] of Object.entries(options.query ?? {})) {
     if (value !== undefined) url.searchParams.set(key, String(value));
   }
@@ -315,7 +349,7 @@ async function nylasFetch(path: string, options: FetchOptions = {}): Promise<unk
     "Content-Type": "application/json",
   };
   if (options.withAuthHeader !== false) {
-    headers.Authorization = `Bearer ${nylasApiKey()}`;
+    headers.Authorization = `Bearer ${credentials.apiKey}`;
   }
 
   let res: Response;
@@ -345,7 +379,7 @@ async function nylasFetch(path: string, options: FetchOptions = {}): Promise<unk
   if (!res.ok) {
     const detail = text.slice(0, 300);
     if (res.status === 401) {
-      throw new NylasError("Nylas rejected the API key (NYLAS_API_KEY)", 401, "auth");
+      throw new NylasError("Nylas rejected the API key for this agent", 401, "auth");
     }
     // A revoked or expired grant is the one failure a manager can fix
     // themselves, by reconnecting — so it must not read as a server fault.
@@ -385,8 +419,12 @@ function str(value: unknown): string {
 }
 
 /** Confirms a stored grant is still live, and what address it speaks as. */
-export async function getGrant(grantId: string, timeoutMs?: number): Promise<NylasGrant> {
-  const data = (await nylasFetch(`/v3/grants/${encodeURIComponent(grantId)}`, {
+export async function getGrant(
+  credentials: NylasCredentials,
+  grantId: string,
+  timeoutMs?: number,
+): Promise<NylasGrant> {
+  const data = (await nylasFetch(credentials, `/v3/grants/${encodeURIComponent(grantId)}`, {
     timeoutMs,
   })) as Record<string, unknown>;
   return {
@@ -399,11 +437,12 @@ export async function getGrant(grantId: string, timeoutMs?: number): Promise<Nyl
 
 /** Most recent messages — proof the grant reaches real mail. */
 export async function listMessages(
+  credentials: NylasCredentials,
   grantId: string,
   limit = 3,
   timeoutMs?: number,
 ): Promise<NylasMessageSummary[]> {
-  const data = (await nylasFetch(`/v3/grants/${encodeURIComponent(grantId)}/messages`, {
+  const data = (await nylasFetch(credentials, `/v3/grants/${encodeURIComponent(grantId)}/messages`, {
     query: { limit: Math.min(20, Math.max(1, limit)) },
     timeoutMs,
   })) as Array<Record<string, unknown>>;
@@ -423,12 +462,13 @@ export async function listMessages(
 
 /** Upcoming events — proof the calendar scope actually landed. */
 export async function listEvents(
+  credentials: NylasCredentials,
   grantId: string,
   calendarId = "primary",
   limit = 3,
   timeoutMs?: number,
 ): Promise<NylasEventSummary[]> {
-  const data = (await nylasFetch(`/v3/grants/${encodeURIComponent(grantId)}/events`, {
+  const data = (await nylasFetch(credentials, `/v3/grants/${encodeURIComponent(grantId)}/events`, {
     query: {
       calendar_id: calendarId,
       limit: Math.min(20, Math.max(1, limit)),
@@ -467,11 +507,12 @@ export interface SendMessageInput {
  * transport, not the policy.
  */
 export async function sendMessage(
+  credentials: NylasCredentials,
   grantId: string,
   input: SendMessageInput,
   timeoutMs?: number,
 ): Promise<{ id: string }> {
-  const data = (await nylasFetch(`/v3/grants/${encodeURIComponent(grantId)}/messages/send`, {
+  const data = (await nylasFetch(credentials, `/v3/grants/${encodeURIComponent(grantId)}/messages/send`, {
     method: "POST",
     body: {
       to: input.to.map((r) => ({ email: r.email, ...(r.name ? { name: r.name } : {}) })),
@@ -504,13 +545,14 @@ export interface NylasConnectionCheck {
  * broken. Never throws; the screen renders the failure.
  */
 export async function checkNylasConnection(
+  credentials: NylasCredentials,
   grantId: string,
   timeoutMs?: number,
 ): Promise<NylasConnectionCheck> {
   try {
-    const grant = await getGrant(grantId, timeoutMs);
-    const messages = await listMessages(grantId, 3, timeoutMs);
-    const events = await listEvents(grantId, "primary", 3, timeoutMs).catch(() => []);
+    const grant = await getGrant(credentials, grantId, timeoutMs);
+    const messages = await listMessages(credentials, grantId, 3, timeoutMs);
+    const events = await listEvents(credentials, grantId, "primary", 3, timeoutMs).catch(() => []);
     return {
       ok: true,
       email: grant.email || null,

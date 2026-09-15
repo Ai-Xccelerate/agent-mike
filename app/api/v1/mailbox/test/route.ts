@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
-import { checkNylasConnection, isNylasConfigured } from "@/lib/nylas";
+import { checkNylasConnection, resolveNylasCredentials } from "@/lib/nylas";
 import { getMailbox } from "@/lib/mailbox-repository";
 
 // Calls out per request — never statically prerender or cache this route.
@@ -24,10 +24,11 @@ export async function POST(req: NextRequest) {
     upcomingEvents: [],
   };
 
-  if (!isNylasConfigured()) {
+  const resolved = await resolveNylasCredentials(tenant.orgId);
+  if (!resolved) {
     return NextResponse.json({
       ...empty,
-      error: "Set NYLAS_CLIENT_ID and NYLAS_API_KEY on the API service.",
+      error: "No Nylas application is configured for this agent.",
       errorKind: "unconfigured",
     });
   }
@@ -41,5 +42,5 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json(await checkNylasConnection(mailbox.grantId));
+  return NextResponse.json(await checkNylasConnection(resolved.values, mailbox.grantId));
 }

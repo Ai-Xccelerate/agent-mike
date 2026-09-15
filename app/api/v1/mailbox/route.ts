@@ -3,12 +3,16 @@ import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import {
+  NYLAS_PROVIDER,
+  NYLAS_REQUIRED_FIELDS,
   NylasError,
+  callbackUri,
+  envNylasCredentials,
   getGrant,
-  isNylasConfigured,
-  nylasApiUri,
   nylasRegion,
+  resolveNylasCredentials,
 } from "@/lib/nylas";
+import { describeCredentials } from "@/lib/provider-credentials";
 import { deleteMailbox, getMailbox, markMailboxInvalid, touchMailbox } from "@/lib/mailbox-repository";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
@@ -28,17 +32,33 @@ export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   await getOrCreateProfile(tenant.orgId);
 
-  const available = isNylasConfigured();
+  // This agent's own application if it has one, the fleet's otherwise.
+  const resolved = await resolveNylasCredentials(tenant.orgId);
+  const available = Boolean(resolved);
   const mailbox = await getMailbox(tenant.orgId);
+
+  const credentials = await describeCredentials(
+    tenant.orgId,
+    NYLAS_PROVIDER,
+    [...NYLAS_REQUIRED_FIELDS],
+    envNylasCredentials,
+  );
 
   const base = {
     available,
-    region: nylasRegion(),
+    // Where the credentials came from, so the screen can say whether this
+    // agent is on the fleet application or its own.
+    credentials,
+    region: resolved ? nylasRegion(resolved.values.apiUri) : nylasRegion(envNylasCredentials().apiUri),
     // Host only — the API key is never serialized.
-    api_url: available ? nylasApiUri() : null,
+    api_url: resolved ? resolved.values.apiUri : null,
+    // What must be registered on the Nylas application. Computed here rather
+    // than guessed by the screen, which knows its own origin but not this
+    // service's, and would print Nylas's host if it guessed from api_url.
+    callback_uri: callbackUri(req.nextUrl.origin),
     unavailableReason: available
       ? null
-      : "Set NYLAS_CLIENT_ID and NYLAS_API_KEY on the API service.",
+      : "Add a Nylas client ID and API key for this agent, or set them fleet-wide on the API service.",
   };
 
   if (!mailbox) {
@@ -61,7 +81,7 @@ export async function GET(req: NextRequest) {
 
   // Re-check the grant so a mailbox revoked upstream stops reading "connected".
   try {
-    const grant = await getGrant(mailbox.grantId);
+    const grant = await getGrant(resolved!.values, mailbox.grantId);
     await touchMailbox(mailbox.id);
     const live = grant.status.toLowerCase() === "valid";
     if (!live && mailbox.status === "connected") {

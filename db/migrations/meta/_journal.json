@@ -99,6 +99,13 @@
       "when": 1790180000000,
       "tag": "0013_worker_slug_per_org",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790240000000,
+      "tag": "0014_provider_credentials",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { envList } from "@/lib/env";
-import { NylasError, callbackUri, exchangeCodeForGrant, verifyState } from "@/lib/nylas";
+import {
+  NylasError,
+  callbackUri,
+  exchangeCodeForGrant,
+  resolveNylasCredentials,
+  verifyState,
+} from "@/lib/nylas";
 import { saveMailbox } from "@/lib/mailbox-repository";
 
 // Exchanges a one-time code per request — never statically prerender or cache.
@@ -58,7 +64,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const grant = await exchangeCodeForGrant({ code, redirectUri: callbackUri(req.nextUrl.origin) });
+    // The org comes from the signed state, so the right agent's credentials
+    // can be resolved even though this request carries no session.
+    const resolved = await resolveNylasCredentials(issued.orgId);
+    if (!resolved) {
+      return NextResponse.redirect(settingsUrl(req, { mailbox: "error", reason: "unconfigured" }));
+    }
+
+    const grant = await exchangeCodeForGrant({
+      credentials: resolved.values,
+      code,
+      redirectUri: callbackUri(req.nextUrl.origin),
+    });
     await saveMailbox({
       organizationId: issued.orgId,
       grantId: grant.grantId,

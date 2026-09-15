@@ -3,15 +3,28 @@ import {
   DEFAULT_SCOPES,
   NylasError,
   buildAuthUrl,
-  isNylasConfigured,
-  nylasApiUri,
-  nylasClientId,
+  envNylasCredentials,
+  isCompleteNylasCredentials,
+  normalizeNylasCredentials,
   nylasRegion,
   signState,
   verifyState,
+  type NylasCredentials,
 } from "@/lib/nylas";
 
-const ENV_KEYS = ["NYLAS_CLIENT_ID", "NYLAS_API_KEY", "NYLAS_API_URI", "NYLAS_CALLBACK_URI"] as const;
+const CREDS: NylasCredentials = {
+  clientId: "client-abc",
+  apiKey: "nyk_supersecret",
+  apiUri: "https://api.us.nylas.com",
+};
+
+const ENV_KEYS = [
+  "NYLAS_CLIENT_ID",
+  "NYLAS_API_KEY",
+  "NYLAS_API_URI",
+  "NYLAS_CALLBACK_URI",
+  "NYLAS_STATE_SECRET",
+] as const;
 
 let original: Record<string, string | undefined>;
 
@@ -32,39 +45,45 @@ function configured() {
   process.env.NYLAS_API_KEY = "nyk_supersecret";
 }
 
-describe("nylas configuration", () => {
-  it("needs both halves of the application credential", () => {
-    expect(isNylasConfigured()).toBe(false);
-    process.env.NYLAS_CLIENT_ID = "client-abc";
-    expect(isNylasConfigured()).toBe(false);
-    process.env.NYLAS_API_KEY = "nyk_supersecret";
-    expect(isNylasConfigured()).toBe(true);
+describe("nylas credentials", () => {
+  it("needs both halves before it counts as configured", () => {
+    expect(isCompleteNylasCredentials({})).toBe(false);
+    expect(isCompleteNylasCredentials({ clientId: "client-abc" })).toBe(false);
+    expect(isCompleteNylasCredentials({ clientId: "client-abc", apiKey: "k" })).toBe(true);
   });
 
-  it("defaults to the US region and strips a trailing slash", () => {
-    expect(nylasApiUri()).toBe("https://api.us.nylas.com");
-    expect(nylasRegion()).toBe("us");
-
-    process.env.NYLAS_API_URI = "https://api.eu.nylas.com/";
-    expect(nylasApiUri()).toBe("https://api.eu.nylas.com");
-    expect(nylasRegion()).toBe("eu");
+  it("reads the fleet application from env", () => {
+    expect(isCompleteNylasCredentials(envNylasCredentials())).toBe(false);
+    configured();
+    const env = envNylasCredentials();
+    expect(env.clientId).toBe("client-abc");
+    expect(isCompleteNylasCredentials(env)).toBe(true);
   });
 
-  it("reports an unrecognised host as custom rather than guessing a region", () => {
-    process.env.NYLAS_API_URI = "https://nylas.internal.example.com";
-    expect(nylasRegion()).toBe("custom");
+  it("defaults the region and strips a trailing slash", () => {
+    expect(normalizeNylasCredentials({}).apiUri).toBe("https://api.us.nylas.com");
+    expect(normalizeNylasCredentials({ apiUri: "https://api.eu.nylas.com/" }).apiUri).toBe(
+      "https://api.eu.nylas.com",
+    );
+  });
+
+  it("names the residency, and refuses to guess an unknown one", () => {
+    expect(nylasRegion("https://api.us.nylas.com")).toBe("us");
+    expect(nylasRegion("https://api.eu.nylas.com")).toBe("eu");
+    expect(nylasRegion("https://nylas.internal.example.com")).toBe("custom");
   });
 });
 
 describe("hosted auth url", () => {
   it("refuses to build one when the server holds no credentials", () => {
-    expect(() => buildAuthUrl({ redirectUri: "https://app/cb", state: "s" })).toThrow(NylasError);
+    expect(() => buildAuthUrl({ credentials: { clientId: "", apiKey: "", apiUri: "x" }, redirectUri: "https://app/cb", state: "s" })).toThrow(NylasError);
   });
 
   it("carries the parameters the hosted flow requires", () => {
     configured();
     const url = new URL(
       buildAuthUrl({
+        credentials: CREDS,
         redirectUri: "https://app.example.com/api/v1/mailbox/callback",
         state: "state-123",
         scopes: DEFAULT_SCOPES,
@@ -86,13 +105,15 @@ describe("hosted auth url", () => {
 
   it("never puts the API key in the URL", () => {
     configured();
-    const url = buildAuthUrl({ redirectUri: "https://app/cb", state: "s", scopes: DEFAULT_SCOPES });
+    const url = buildAuthUrl({ credentials: CREDS, redirectUri: "https://app/cb", state: "s", scopes: DEFAULT_SCOPES });
     expect(url).not.toContain("nyk_supersecret");
   });
 
   it("omits optional parameters rather than sending empty ones", () => {
     configured();
-    const url = new URL(buildAuthUrl({ redirectUri: "https://app/cb", state: "s" }));
+    const url = new URL(
+      buildAuthUrl({ credentials: CREDS, redirectUri: "https://app/cb", state: "s" }),
+    );
     expect(url.searchParams.has("provider")).toBe(false);
     expect(url.searchParams.has("login_hint")).toBe(false);
     expect(url.searchParams.has("scope")).toBe(false);
@@ -102,6 +123,7 @@ describe("hosted auth url", () => {
     configured();
     const url = new URL(
       buildAuthUrl({
+        credentials: CREDS,
         redirectUri: "https://app/cb",
         state: "s",
         provider: "google",
@@ -110,7 +132,6 @@ describe("hosted auth url", () => {
     );
     expect(url.searchParams.get("provider")).toBe("google");
     expect(url.searchParams.get("login_hint")).toBe("agent@acme.com");
-    expect(nylasClientId()).toBe("client-abc");
   });
 });
 
@@ -150,11 +171,19 @@ describe("oauth state", () => {
     expect(verifyState(`${encoded}.${"0".repeat(mac.length)}`)).toBeNull();
   });
 
-  it("refuses a state signed with a different key", () => {
-    configured();
+  it("refuses a state signed with a different secret", () => {
+    process.env.NYLAS_STATE_SECRET = "secret-one";
     const state = signState("org-abc");
-    process.env.NYLAS_API_KEY = "nyk_rotated";
+    process.env.NYLAS_STATE_SECRET = "secret-two";
     expect(verifyState(state)).toBeNull();
+  });
+
+  it("does not depend on the Nylas API key, which is now per agent", () => {
+    process.env.NYLAS_STATE_SECRET = "stable-server-secret";
+    const state = signState("org-abc", "user-1");
+    // A different agent's application must not invalidate a live flow.
+    process.env.NYLAS_API_KEY = "nyk_some_other_agent";
+    expect(verifyState(state)).toMatchObject({ orgId: "org-abc" });
   });
 
   it("expires, so a captured link cannot be replayed later", () => {

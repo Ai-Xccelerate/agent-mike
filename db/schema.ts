@@ -323,6 +323,49 @@ export const toolApprovals = pgTable(
 );
 
 /**
+ * Per-agent credentials for a provider that has no broker in front of it.
+ *
+ * Composio-backed integrations do not appear here — Composio holds those
+ * tokens, which is why 3ebbb40 deleted this app's encryption layer. Nylas has
+ * no such broker: an agent given its own Nylas application has to keep the
+ * application's own client id and API key somewhere, and env cannot express
+ * "per agent".
+ *
+ * `secrets` is a single encrypted blob rather than a column per field, so a
+ * second provider with a different credential shape needs no migration. It is
+ * ciphertext at rest (AES-256-GCM, lib/crypto.ts) and is never serialized back
+ * out of an API route — the settings screen only ever learns *that* a value is
+ * set, never what it is.
+ *
+ * A missing row is not an error: the agent falls back to the fleet-wide
+ * credentials in env, which is what most deployments will use.
+ */
+export const providerCredentials = pgTable(
+  "provider_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** "nylas" today; the table is deliberately not Nylas-shaped. */
+    provider: text("provider").notNull(),
+    /** Encrypted JSON. Shape is the provider's business, not this table's. */
+    secrets: text("secrets").notNull(),
+    /** Non-secret settings worth showing back, e.g. the region. */
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgProviderUnique: uniqueIndex("provider_credentials_org_provider_unique").on(
+      table.organizationId,
+      table.provider,
+    ),
+  }),
+);
+
+/**
  * The worker's own mailbox and calendar, connected through Nylas.
  *
  * This is identity, not a delegated business-system connection — the address

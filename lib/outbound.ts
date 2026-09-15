@@ -3,7 +3,12 @@ import { db } from "@/lib/db";
 import { emailDomains } from "@/db/schema";
 import { isRecipientAllowed, normalizeDomain } from "@/lib/email-domains";
 import { isDemoMode } from "@/lib/env";
-import { NylasError, sendMessage, type SendMessageInput } from "@/lib/nylas";
+import {
+  NylasError,
+  resolveNylasCredentials,
+  sendMessage,
+  type SendMessageInput,
+} from "@/lib/nylas";
 import { getMailbox } from "@/lib/mailbox-repository";
 
 /**
@@ -122,7 +127,18 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
     return { id: `demo-${Date.now()}`, to: recipients.map((r) => r.email), demo: true };
   }
 
-  const sent = await sendMessage(mailbox.grantId, input);
+  // Resolved per agent: this org's own Nylas application if it has one, the
+  // fleet's otherwise.
+  const credentials = await resolveNylasCredentials(options.orgId);
+  if (!credentials) {
+    throw new OutboundBlocked(
+      "No Nylas application is configured for this agent.",
+      [],
+      "no_mailbox",
+    );
+  }
+
+  const sent = await sendMessage(credentials.values, mailbox.grantId, input);
   return { id: sent.id, to: recipients.map((r) => r.email), demo: false };
 }
 

@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
-import { DEFAULT_SCOPES, buildAuthUrl, callbackUri, isNylasConfigured, signState } from "@/lib/nylas";
+import {
+  DEFAULT_SCOPES,
+  buildAuthUrl,
+  callbackUri,
+  resolveNylasCredentials,
+  signState,
+} from "@/lib/nylas";
 
 // Starts an OAuth flow per request — never statically prerender or cache.
 export const dynamic = "force-dynamic";
@@ -23,11 +29,14 @@ export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   const profile = await getOrCreateProfile(tenant.orgId);
 
-  if (!isNylasConfigured()) {
+  const resolved = await resolveNylasCredentials(tenant.orgId);
+  if (!resolved) {
     return NextResponse.json(
       {
-        error: "Nylas is not configured on this server",
-        errors: { mailbox: "Set NYLAS_CLIENT_ID and NYLAS_API_KEY on the API service." },
+        error: "No Nylas application is configured for this agent",
+        errors: {
+          mailbox: "Add a Nylas client ID and API key below, or set them fleet-wide on the API service.",
+        },
       },
       { status: 422 },
     );
@@ -42,6 +51,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const url = buildAuthUrl({
+      credentials: resolved.values,
       redirectUri,
       // Signed rather than stored: the callback has no session to look anything
       // up in, and an unsigned state would let anyone bind a mailbox they
