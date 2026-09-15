@@ -85,6 +85,20 @@
       "when": 1789860000000,
       "tag": "0011_email_domains",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790120000000,
+      "tag": "0012_nylas_mailbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790180000000,
+      "tag": "0013_worker_slug_per_org",
+      "breakpoints": true
     }
   ]
 }

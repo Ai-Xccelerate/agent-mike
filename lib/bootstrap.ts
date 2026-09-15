@@ -20,6 +20,25 @@ export async function getOrCreateProfile(orgId: string) {
     .limit(1);
   if (existing) return existing;
 
-  const [created] = await db.insert(workerProfiles).values({ organizationId: orgId }).returning();
+  // Seed the slug and display name from the agent's own id rather than leaving
+  // every agent in the fleet called "AI Worker" at slug "worker". Provisioning
+  // is the only moment we know the agent's name for free, and a manager can
+  // rename both from Settings > Identity afterwards.
+  const [created] = await db
+    .insert(workerProfiles)
+    .values({
+      organizationId: orgId,
+      ...(orgId === DEFAULT_ORG_ID ? {} : { slug: orgId, displayName: titleCase(orgId) }),
+    })
+    .returning();
   return created;
+}
+
+/** "agent-george" -> "Agent George". Only used to seed a new agent's name. */
+function titleCase(slug: string): string {
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }

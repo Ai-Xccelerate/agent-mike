@@ -116,7 +116,12 @@ export const workerProfiles = pgTable(
   },
   (table) => ({
     orgUnique: uniqueIndex("worker_profiles_org_unique").on(table.organizationId),
-    slugUnique: uniqueIndex("worker_profiles_slug_unique").on(table.slug),
+    // Per org, not global. Two agents may each call their worker "support";
+    // what must not collide is two workers inside one org.
+    orgSlugUnique: uniqueIndex("worker_profiles_org_slug_unique").on(
+      table.organizationId,
+      table.slug,
+    ),
   }),
 );
 
@@ -314,6 +319,45 @@ export const toolApprovals = pgTable(
   },
   (table) => ({
     orgStatusIdx: index("tool_approvals_org_status_idx").on(table.organizationId, table.status),
+  }),
+);
+
+/**
+ * The worker's own mailbox and calendar, connected through Nylas.
+ *
+ * This is identity, not a delegated business-system connection — the address
+ * the agent sends *from*, not an account it borrows. One worker per org
+ * (`worker_profiles_org_unique`) means one identity, hence one row per org.
+ *
+ * Only the grant id is stored. Hosted OAuth with `access_type=online` leaves
+ * the refresh token with Nylas, so there is no access token here to rotate or
+ * leak — just a handle that can be revoked.
+ */
+export const nylasMailboxes = pgTable(
+  "nylas_mailboxes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** The Nylas grant. The only credential-shaped thing we keep. */
+    grantId: text("grant_id").notNull(),
+    /** The address this mailbox actually speaks as, per Nylas. */
+    email: text("email").notNull(),
+    /** google | microsoft | imap | … — reported by Nylas, never guessed. */
+    provider: text("provider"),
+    // connected | invalid | disconnected. `invalid` means the grant was
+    // revoked upstream: the row is kept so the screen can say "reconnect"
+    // rather than silently forgetting a mailbox somebody set up.
+    status: text("status").notNull().default("connected"),
+    connectedBy: text("connected_by"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgUnique: uniqueIndex("nylas_mailboxes_org_unique").on(table.organizationId),
   }),
 );
 
