@@ -117,6 +117,7 @@ describe("artifacts status", () => {
       "scribe",
       "artifacts",
       "agent_wiki",
+      "agent_skills",
     ]);
   });
 });

@@ -152,7 +152,7 @@ describe("agent wiki status", () => {
   it("joins the other integrations on the settings screen", () => {
     const keys = integrationStatuses({}, "org-local").map((s) => s.key);
     expect(keys).toContain(AGENT_WIKI_KEY);
-    expect(keys).toHaveLength(5);
+    expect(keys).toHaveLength(6);
   });
 });
 
