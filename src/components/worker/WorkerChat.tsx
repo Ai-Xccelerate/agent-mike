@@ -185,7 +185,9 @@ export function ChatPanel({
         if (!externalConversationId) onConversationCreated?.(response.conversation_id);
         onConversationChanged?.();
       }
-      setMessages((items) => [...items, response.message]);
+      if (response.message) {
+        setMessages((items) => [...items, response.message as Message]);
+      }
       setEscalated(response.escalated);
       setPreview(false);
     } catch {

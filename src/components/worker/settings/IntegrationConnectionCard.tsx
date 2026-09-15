@@ -11,42 +11,46 @@ import {
   type IntegrationConnection,
 } from "@/lib/worker-api";
 
+export type VendorOption = { system: string; label: string };
+
 type IntegrationConnectionCardProps = {
   integrationType: string;
-  system: string;
-  vendorLabel: string;
+  vendors: VendorOption[];
   title: string;
   description: string;
 };
 
 export default function IntegrationConnectionCard({
   integrationType,
-  system,
-  vendorLabel,
+  vendors,
   title,
   description,
 }: IntegrationConnectionCardProps) {
   const [connection, setConnection] = useState<IntegrationConnection>(null);
   const [loaded, setLoaded] = useState(false);
-  const [connecting, setConnecting] = useState(false);
+  const [connectingSystem, setConnectingSystem] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState("");
+
+  const labelFor = (system: string | undefined) =>
+    (vendors ?? []).find((vendor) => vendor.system === system)?.label ?? system ?? title;
 
   useEffect(() => {
     getIntegrationConnection(integrationType)
       .then((row) => setConnection(row))
-      .catch(() => setError(`Could not load ${vendorLabel} connection status.`))
+      .catch(() => setError(`Could not load ${title} connection status.`))
       .finally(() => setLoaded(true));
-  }, [integrationType, vendorLabel]);
+  }, [integrationType, title]);
 
-  async function handleConnect() {
+  async function handleConnect(system: string) {
+    const vendorLabel = labelFor(system);
     setError("");
-    setConnecting(true);
+    setConnectingSystem(system);
     try {
       const { redirectUrl } = await connectIntegration(integrationType, system);
       window.location.href = redirectUrl;
     } catch (err) {
-      setConnecting(false);
+      setConnectingSystem(null);
       setError(err instanceof Error ? err.message : `Could not start ${vendorLabel} connection.`);
     }
   }
@@ -58,6 +62,7 @@ export default function IntegrationConnectionCard({
       await disconnectIntegration(integrationType);
       setConnection(null);
     } catch (err) {
+      const vendorLabel = labelFor(connection?.system);
       setError(err instanceof Error ? err.message : `Could not disconnect ${vendorLabel}.`);
     } finally {
       setDisconnecting(false);
@@ -68,6 +73,8 @@ export default function IntegrationConnectionCard({
   const showConnect = !connection || status === "disabled" || status === "failed";
   const pending = status === "pending";
   const active = status === "active";
+  const connectedLabel = labelFor(connection?.system);
+  const connecting = connectingSystem !== null;
 
   return (
     <section className={cardClass}>
@@ -78,7 +85,7 @@ export default function IntegrationConnectionCard({
         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Checking connection…</p>
       ) : active ? (
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <p className="text-sm font-medium text-gray-800 dark:text-white/90">Connected to {vendorLabel}</p>
+          <p className="text-sm font-medium text-gray-800 dark:text-white/90">Connected to {connectedLabel}</p>
           <Badge size="sm" color="success">
             Connected
           </Badge>
@@ -98,7 +105,7 @@ export default function IntegrationConnectionCard({
             Connecting…
           </Badge>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Finish signing in to {vendorLabel} in the popup or redirected tab, then return here. This page will update
+            Finish signing in to {connectedLabel} in the popup or redirected tab, then return here. This page will update
             when the connection is active.
           </p>
         </div>
@@ -107,11 +114,18 @@ export default function IntegrationConnectionCard({
           <span className="inline-flex w-fit items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500 dark:bg-white/5 dark:text-gray-400">
             Not connected
           </span>
-          {showConnect && (
-            <Button size="sm" onClick={() => void handleConnect()} loading={connecting} disabled={connecting}>
-              Connect {vendorLabel}
-            </Button>
-          )}
+          {showConnect &&
+            vendors.map((vendor) => (
+              <Button
+                key={vendor.system}
+                size="sm"
+                onClick={() => void handleConnect(vendor.system)}
+                loading={connectingSystem === vendor.system}
+                disabled={connecting}
+              >
+                Connect {vendor.label}
+              </Button>
+            ))}
         </div>
       )}
 

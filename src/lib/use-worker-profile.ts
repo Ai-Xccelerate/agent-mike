@@ -16,6 +16,7 @@ function withIdentityDefaults(profile: WorkerProfile): WorkerProfile {
     timezone: profile.timezone ?? "UTC",
     locale: profile.locale ?? "en-US",
     emailSignature: profile.emailSignature ?? "",
+    enabledSkills: profile.enabledSkills ?? [],
   };
 }
 
