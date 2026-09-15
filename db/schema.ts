@@ -120,7 +120,12 @@ export const workerProfiles = pgTable(
   },
   (table) => ({
     orgUnique: uniqueIndex("worker_profiles_org_unique").on(table.organizationId),
-    slugUnique: uniqueIndex("worker_profiles_slug_unique").on(table.slug),
+    // Per org, not global. Two agents may each call their worker "support";
+    // what must not collide is two workers inside one org.
+    orgSlugUnique: uniqueIndex("worker_profiles_org_slug_unique").on(
+      table.organizationId,
+      table.slug,
+    ),
   }),
 );
 
@@ -340,6 +345,88 @@ export const customSkills = pgTable(
   },
   (table) => ({
     orgIdx: index("custom_skills_org_idx").on(table.organizationId),
+  }),
+);
+
+/**
+ * Per-agent credentials for a provider that has no broker in front of it.
+ *
+ * Composio-backed integrations do not appear here — Composio holds those
+ * tokens, which is why 3ebbb40 deleted this app's encryption layer. Nylas has
+ * no such broker: an agent given its own Nylas application has to keep the
+ * application's own client id and API key somewhere, and env cannot express
+ * "per agent".
+ *
+ * `secrets` is a single encrypted blob rather than a column per field, so a
+ * second provider with a different credential shape needs no migration. It is
+ * ciphertext at rest (AES-256-GCM, lib/crypto.ts) and is never serialized back
+ * out of an API route — the settings screen only ever learns *that* a value is
+ * set, never what it is.
+ *
+ * A missing row is not an error: the agent falls back to the fleet-wide
+ * credentials in env, which is what most deployments will use.
+ */
+export const providerCredentials = pgTable(
+  "provider_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** "nylas" today; the table is deliberately not Nylas-shaped. */
+    provider: text("provider").notNull(),
+    /** Encrypted JSON. Shape is the provider's business, not this table's. */
+    secrets: text("secrets").notNull(),
+    /** Non-secret settings worth showing back, e.g. the region. */
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgProviderUnique: uniqueIndex("provider_credentials_org_provider_unique").on(
+      table.organizationId,
+      table.provider,
+    ),
+  }),
+);
+
+/**
+ * The worker's own mailbox and calendar, connected through Nylas.
+ *
+ * This is identity, not a delegated business-system connection — the address
+ * the agent sends *from*, not an account it borrows. One worker per org
+ * (`worker_profiles_org_unique`) means one identity, hence one row per org.
+ *
+ * Only the grant id is stored. Hosted OAuth with `access_type=online` leaves
+ * the refresh token with Nylas, so there is no access token here to rotate or
+ * leak — just a handle that can be revoked.
+ */
+export const nylasMailboxes = pgTable(
+  "nylas_mailboxes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** The Nylas grant. The only credential-shaped thing we keep. */
+    grantId: text("grant_id").notNull(),
+    /** The address this mailbox actually speaks as, per Nylas. */
+    email: text("email").notNull(),
+    /** google | microsoft | imap | … — reported by Nylas, never guessed. */
+    provider: text("provider"),
+    // connected | invalid | disconnected. `invalid` means the grant was
+    // revoked upstream: the row is kept so the screen can say "reconnect"
+    // rather than silently forgetting a mailbox somebody set up.
+    status: text("status").notNull().default("connected"),
+    connectedBy: text("connected_by"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgUnique: uniqueIndex("nylas_mailboxes_org_unique").on(table.organizationId),
   }),
 );
 

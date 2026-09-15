@@ -67,7 +67,56 @@ class StandaloneIdentityAdapter implements IdentityAdapter {
   }
 }
 
-let adapter: IdentityAdapter = new StandaloneIdentityAdapter();
+/**
+ * One deployment, several agents — George, Jules, Pepper side by side.
+ *
+ * Every table is already org-scoped, so an agent *is* an org: give this
+ * adapter a real org id and the worker profile, mailbox, knowledge, email
+ * domains and conversations all separate on their own. Nothing downstream
+ * changes, because nothing downstream ever hardcoded the org.
+ *
+ * The agent is named by the `x-aix-agent` header, or `?agent=` for a browser
+ * that cannot set one. Opt-in via `MULTI_AGENT=true`, and deliberately not a
+ * security boundary — a header anyone can set is fine for local work and for
+ * proving per-agent isolation, and is exactly what the real platform adapter
+ * (Clerk + AIX Core) replaces when it lands.
+ */
+export class MultiAgentIdentityAdapter implements IdentityAdapter {
+  constructor(private readonly fallbackOrgId: string = DEFAULT_ORG_ID) {}
+
+  /** Slug-shaped, so an agent id can never be smuggled into a query. */
+  static normalize(value: string | null | undefined): string | null {
+    const slug = (value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "");
+    return slug ? slug.slice(0, 64) : null;
+  }
+
+  async resolveManagerRequest(req: NextRequest): Promise<TenantContext> {
+    const fromHeader = MultiAgentIdentityAdapter.normalize(req.headers.get("x-aix-agent"));
+    const fromQuery = MultiAgentIdentityAdapter.normalize(req.nextUrl.searchParams.get("agent"));
+    return {
+      orgId: fromHeader ?? fromQuery ?? this.fallbackOrgId,
+      userId: "local-manager",
+      role: "owner",
+      source: "multi-agent",
+    };
+  }
+
+  /** The widget still identifies itself by site token — one per agent. */
+  async resolveWidgetRequest(req: NextRequest): Promise<TenantContext | null> {
+    return new StandaloneIdentityAdapter().resolveWidgetRequest(req);
+  }
+}
+
+function defaultAdapter(): IdentityAdapter {
+  return (process.env.MULTI_AGENT || "").toLowerCase() === "true"
+    ? new MultiAgentIdentityAdapter()
+    : new StandaloneIdentityAdapter();
+}
+
+let adapter: IdentityAdapter = defaultAdapter();
 
 /** Swap the identity adapter (e.g. to a platform-specific one) without touching call sites. */
 export function setIdentityAdapter(next: IdentityAdapter) {
