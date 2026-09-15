@@ -253,6 +253,62 @@ export async function executeOutlookSearch(
   return JSON.stringify(result);
 }
 
+export const GOOGLECALENDAR_EVENTS_LIST_SLUG = "GOOGLECALENDAR_EVENTS_LIST";
+/** Toolkit version from composio.toolkits.get("googlecalendar") (Version: 20260915_00). */
+export const GOOGLECALENDAR_TOOLKIT_VERSION = "20260915_00";
+export const CALENDAR_LOOKUP_TOOL_NAME = "lookup_calendar_event";
+export const CALENDAR_LOOKUP_RETRY_BACKOFF_MS = 500;
+export const CALENDAR_LOOKUP_FAILURE_MESSAGE =
+  "Calendar event search failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+
+export async function executeCalendarSearch(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      GOOGLECALENDAR_EVENTS_LIST_SLUG,
+      { query },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: GOOGLECALENDAR_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(CALENDAR_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: CALENDAR_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return CALENDAR_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: CALENDAR_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
 export async function buildAgentTools(
   profile: Pick<WorkerProfileLike, "toolsConfig">,
   organizationId: string,
@@ -332,6 +388,29 @@ export async function buildAgentTools(
         }),
       );
     }
+  }
+
+  const calendarConnection = await getConnectionForOrg(organizationId, "calendar");
+  if (
+    calendarConnection?.status === "active" &&
+    calendarConnection.composioConnectedAccountId &&
+    calendarConnection.system === "googlecalendar"
+  ) {
+    const connectedAccountId = calendarConnection.composioConnectedAccountId;
+    tools.push(
+      tool({
+        name: CALENDAR_LOOKUP_TOOL_NAME,
+        description:
+          "Search the connected Google Calendar primary calendar for events matching a free-text query. Read-only; does not create, update, or delete events.",
+        parameters: z.object({
+          query: z
+            .string()
+            .describe("Free-text search across event fields on the primary Google Calendar"),
+        }),
+        execute: async ({ query }) =>
+          executeCalendarSearch(query, organizationId, connectedAccountId),
+      }),
+    );
   }
 
   return tools;

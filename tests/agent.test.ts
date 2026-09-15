@@ -5,6 +5,10 @@ import {
   CRM_LOOKUP_FAILURE_MESSAGE,
   CRM_LOOKUP_RETRY_BACKOFF_MS,
   CRM_LOOKUP_TOOL_NAME,
+  CALENDAR_LOOKUP_FAILURE_MESSAGE,
+  CALENDAR_LOOKUP_RETRY_BACKOFF_MS,
+  CALENDAR_LOOKUP_TOOL_NAME,
+  executeCalendarSearch,
   executeCrmLookup,
   executeGmailSearch,
   executeLinearSearch,
@@ -14,6 +18,8 @@ import {
   EMAIL_LOOKUP_TOOL_NAME,
   GMAIL_LIST_MESSAGES_SLUG,
   GMAIL_TOOLKIT_VERSION,
+  GOOGLECALENDAR_EVENTS_LIST_SLUG,
+  GOOGLECALENDAR_TOOLKIT_VERSION,
   LINEAR_LOOKUP_FAILURE_MESSAGE,
   LINEAR_LOOKUP_RETRY_BACKOFF_MS,
   LINEAR_LOOKUP_TOOL_NAME,
@@ -71,6 +77,12 @@ function isEmailLookupTool(tool: unknown): boolean {
   if (!tool || typeof tool !== "object") return false;
   const candidate = tool as { type?: string; name?: string };
   return candidate.type === "function" && candidate.name === EMAIL_LOOKUP_TOOL_NAME;
+}
+
+function isCalendarLookupTool(tool: unknown): boolean {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as { type?: string; name?: string };
+  return candidate.type === "function" && candidate.name === CALENDAR_LOOKUP_TOOL_NAME;
 }
 
 function activeZohoConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
@@ -135,6 +147,26 @@ function activeOutlookConnection(overrides: Partial<IntegrationConnection> = {})
     system: "outlook",
     composioAuthConfigId: "ac_outlook_test",
     composioConnectedAccountId: "ca_outlook_test",
+    status: "active",
+    connectedBy: null,
+    metadata: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: null,
+    ...overrides,
+  };
+}
+
+function activeGoogleCalendarConnection(
+  overrides: Partial<IntegrationConnection> = {},
+): IntegrationConnection {
+  return {
+    id: "55555555-5555-5555-5555-555555555555",
+    organizationId: "org-1",
+    integrationType: "calendar",
+    system: "googlecalendar",
+    composioAuthConfigId: "ac_googlecalendar_test",
+    composioConnectedAccountId: "ca_googlecalendar_test",
     status: "active",
     connectedBy: null,
     metadata: {},
@@ -630,6 +662,139 @@ describe("Outlook search retry-once and tool_calls logging", () => {
       organizationId: "org-1",
       toolId: EMAIL_LOOKUP_TOOL_NAME,
       input: { query: "subject:meeting" },
+      output: null,
+      status: "error",
+      errorMessage: "still unauthorized",
+    });
+  });
+});
+
+describe("agent Google Calendar lookup tool wiring", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+  });
+
+  it("includes lookup_calendar_event for an active Google Calendar connection", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "calendar" ? activeGoogleCalendarConnection() : null,
+    );
+    executeToolMock.mockResolvedValue({ data: { items: [] }, error: null, successful: true });
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(getConnectionForOrgMock).toHaveBeenCalledWith("org-1", "calendar");
+    expect(tools.some(isCalendarLookupTool)).toBe(true);
+    expect(tools.some(isCrmLookupTool)).toBe(false);
+    expect(tools.some(isLinearLookupTool)).toBe(false);
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+
+    const calendarTool = tools.find(isCalendarLookupTool) as
+      | { invoke: (context: unknown, input: string) => Promise<string> }
+      | undefined;
+    if (!calendarTool) throw new Error("lookup_calendar_event tool not found");
+    await calendarTool.invoke(undefined, JSON.stringify({ query: "standup" }));
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GOOGLECALENDAR_EVENTS_LIST_SLUG,
+      { query: "standup" },
+      {
+        connectedAccountId: "ca_googlecalendar_test",
+        userId: "org-1",
+        version: GOOGLECALENDAR_TOOLKIT_VERSION,
+      },
+    );
+  });
+
+  it("omits the calendar lookup tool when there is no connection", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isCalendarLookupTool)).toBe(false);
+  });
+
+  it("omits the calendar lookup tool when the connection is still pending", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "calendar" ? activeGoogleCalendarConnection({ status: "pending" }) : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isCalendarLookupTool)).toBe(false);
+  });
+});
+
+describe("Google Calendar search retry-once and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("logs success on the first call and does not retry", async () => {
+    const payload = { data: { items: [] }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeCalendarSearch("standup", "org-1", "ca_googlecalendar_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GOOGLECALENDAR_EVENTS_LIST_SLUG,
+      { query: "standup" },
+      {
+        connectedAccountId: "ca_googlecalendar_test",
+        userId: "org-1",
+        version: GOOGLECALENDAR_TOOLKIT_VERSION,
+      },
+    );
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: CALENDAR_LOOKUP_TOOL_NAME,
+      input: { query: "standup" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries once after a failure then logs success for the recovered result", async () => {
+    vi.useFakeTimers();
+    const payload = { data: { items: [{ id: "1" }] }, error: null, successful: true };
+    executeToolMock.mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce(payload);
+
+    const pending = executeCalendarSearch("sync", "org-1", "ca_googlecalendar_test");
+    await vi.advanceTimersByTimeAsync(CALENDAR_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: CALENDAR_LOOKUP_TOOL_NAME,
+      input: { query: "sync" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and returns an escalation string when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock
+      .mockRejectedValueOnce(new Error("auth expired"))
+      .mockRejectedValueOnce(new Error("still unauthorized"));
+
+    const pending = executeCalendarSearch("meeting", "org-1", "ca_googlecalendar_test");
+    await vi.advanceTimersByTimeAsync(CALENDAR_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(CALENDAR_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: CALENDAR_LOOKUP_TOOL_NAME,
+      input: { query: "meeting" },
       output: null,
       status: "error",
       errorMessage: "still unauthorized",
