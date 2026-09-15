@@ -252,7 +252,8 @@ export type ScribePatch = {
 
 export type ChatResponse = {
   conversation_id: string;
-  message: Message;
+  // null when a manager has taken over the conversation — the agent didn't reply.
+  message: Message | null;
   status: Conversation["status"];
   confidence: number;
   escalated: boolean;
