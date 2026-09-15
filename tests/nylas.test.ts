@@ -43,6 +43,7 @@ afterEach(() => {
 function configured() {
   process.env.NYLAS_CLIENT_ID = "client-abc";
   process.env.NYLAS_API_KEY = "nyk_supersecret";
+  process.env.NYLAS_STATE_SECRET = "test-state-secret";
 }
 
 describe("nylas credentials", () => {
@@ -176,6 +177,13 @@ describe("oauth state", () => {
     const state = signState("org-abc");
     process.env.NYLAS_STATE_SECRET = "secret-two";
     expect(verifyState(state)).toBeNull();
+  });
+
+  it("refuses to sign or verify with no secret configured, rather than a public default", () => {
+    delete process.env.NYLAS_STATE_SECRET;
+    delete process.env.ENCRYPTION_KEY;
+    expect(() => signState("org-abc")).toThrow(/NYLAS_STATE_SECRET/);
+    expect(() => verifyState("anything.anything")).toThrow(/NYLAS_STATE_SECRET/);
   });
 
   it("does not depend on the Nylas API key, which is now per agent", () => {

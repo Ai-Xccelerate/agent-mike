@@ -59,7 +59,11 @@ export async function POST(req: NextRequest) {
       state: signState(tenant.orgId, tenant.userId),
       provider: provider || null,
       loginHint: loginHint || null,
-      scopes: DEFAULT_SCOPES,
+      // DEFAULT_SCOPES are Google-specific OAuth scope URLs. The manager never
+      // picks a provider here — Nylas's hosted auth page does that — so only
+      // send them when we're actually sure this is a Google connection;
+      // otherwise let Nylas apply the provider's own default scopes.
+      scopes: provider === "google" ? DEFAULT_SCOPES : undefined,
     });
     return NextResponse.json({ redirectUrl: url, redirectUri });
   } catch (error) {

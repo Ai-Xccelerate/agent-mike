@@ -27,7 +27,10 @@ export const dynamic = "force-dynamic";
  * and bind a mailbox they control to another org's worker.
  */
 function settingsUrl(req: NextRequest, params: Record<string, string>): string {
-  const base = (process.env.NEXT_PUBLIC_WIDGET_ORIGIN || "").trim() || firstAllowedOrigin() || req.nextUrl.origin;
+  // The frontend and this API commonly live on different hosts (split
+  // deploy) — req.nextUrl.origin is this API's own origin, which doesn't
+  // serve /settings/tools, so prefer the configured allowed origin.
+  const base = firstAllowedOrigin() || req.nextUrl.origin;
   // The mailbox card lives under Tools > External tools, so that is where the
   // manager must land to see whether the connection took.
   const url = new URL("/settings/tools", base);
@@ -36,7 +39,7 @@ function settingsUrl(req: NextRequest, params: Record<string, string>): string {
 }
 
 function firstAllowedOrigin(): string | null {
-  const origins = envList(process.env.CORS_ALLOWED_ORIGINS || process.env.CORS_ORIGINS);
+  const origins = envList(process.env.CORS_ALLOWED_ORIGINS);
   return origins[0] ?? null;
 }
 
@@ -56,7 +59,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(settingsUrl(req, { mailbox: "error", reason: "missing_code" }));
   }
 
-  const issued = verifyState(state);
+  let issued: ReturnType<typeof verifyState>;
+  try {
+    issued = verifyState(state);
+  } catch {
+    // NYLAS_STATE_SECRET/ENCRYPTION_KEY missing — a server misconfiguration,
+    // not something the user did; land them on an error rather than a 500.
+    return NextResponse.redirect(settingsUrl(req, { mailbox: "error", reason: "server_misconfigured" }));
+  }
   if (!issued) {
     // Expired, tampered with, or replayed. Never fall back to a default org —
     // that would be the exact hijack this check exists to prevent.

@@ -70,7 +70,14 @@ export async function getOrgCredentials<T extends Record<string, string>>(
   provider: string,
 ): Promise<T | null> {
   const row = await readRow(orgId, provider);
-  if (!row) return null;
+  return row ? decryptRow<T>(row, provider, orgId) : null;
+}
+
+function decryptRow<T extends Record<string, string>>(
+  row: NonNullable<Awaited<ReturnType<typeof readRow>>>,
+  provider: string,
+  orgId: string,
+): T | null {
   try {
     return JSON.parse(decrypt(row.secrets)) as T;
   } catch {
@@ -158,7 +165,7 @@ export async function describeCredentials<T extends Record<string, string>>(
   envValues: () => T,
 ): Promise<CredentialSummary> {
   const row = await readRow(orgId, provider);
-  const own = row ? await getOrgCredentials<T>(orgId, provider) : null;
+  const own = row ? decryptRow<T>(row, provider, orgId) : null;
 
   const values = own ?? envValues();
   const source: CredentialSource = own

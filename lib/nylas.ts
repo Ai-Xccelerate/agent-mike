@@ -176,13 +176,20 @@ const STATE_TTL_MS = 15 * 60 * 1000;
  * belongs to — that is the whole point of the check. Signing with a per-agent
  * credential would make verification circular and break the moment two agents
  * hold different keys.
+ *
+ * Throws rather than falling back to a literal when neither env var is set:
+ * this HMAC key is the only thing stopping one org from forging a state that
+ * binds a mailbox grant to a different org, so a silent default would be a
+ * public, guessable signing key protecting a cross-tenant boundary.
  */
 function stateSecret(): string {
-  return (
-    (process.env.NYLAS_STATE_SECRET || "").trim() ||
-    (process.env.ENCRYPTION_KEY || "").trim() ||
-    "nylas-state"
-  );
+  const secret = (process.env.NYLAS_STATE_SECRET || "").trim() || (process.env.ENCRYPTION_KEY || "").trim();
+  if (!secret) {
+    throw new Error(
+      "NYLAS_STATE_SECRET (or ENCRYPTION_KEY) is not set — refusing to sign/verify OAuth state with no secret.",
+    );
+  }
+  return secret;
 }
 
 export interface OAuthState {
@@ -431,7 +438,9 @@ export async function getGrant(
     grantId: str(data.id) || grantId,
     email: str(data.email),
     provider: str(data.provider),
-    status: str(data.grant_status) || "valid",
+    // Fail closed: a missing/empty grant_status (API drift, partial outage)
+    // must not read as "live" — callers treat anything but "valid" as not live.
+    status: str(data.grant_status) || "unknown",
   };
 }
 
