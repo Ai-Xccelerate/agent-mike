@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
 import { getSkillsCatalog, type SkillCatalogEntry } from "@/lib/worker-api";
+import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 
 /** Ships on disk in the backend catalog; the guardrail switches it on. */
 const VERIFY_CUSTOMER_SKILL_ID = "verify-customer";
@@ -43,19 +44,27 @@ export default function UserVerificationToggle({
 
   useEffect(() => {
     let cancelled = false;
-    getSkillsCatalog()
-      .then((skills) => {
-        if (cancelled) return;
-        setSkill(skills.find((entry) => entry.id === VERIFY_CUSTOMER_SKILL_ID) ?? null);
-        setLoaded(true);
-      })
-      .catch(() => {
-        // Fall through to the server's own 422 rather than blocking the screen
-        // because one lookup failed.
-        if (!cancelled) setLoaded(true);
-      });
+    function refresh() {
+      getSkillsCatalog()
+        .then((skills) => {
+          if (cancelled) return;
+          setSkill(skills.find((entry) => entry.id === VERIFY_CUSTOMER_SKILL_ID) ?? null);
+          setLoaded(true);
+        })
+        .catch(() => {
+          // Fall through to the server's own 422 rather than blocking the screen
+          // because one lookup failed.
+          if (!cancelled) setLoaded(true);
+        });
+    }
+    refresh();
+    // A save elsewhere in this page flips the skill's `enabled` server-side,
+    // so the mount-time snapshot goes stale the moment that happens — refetch
+    // whenever one lands, or "stays switched on" below can go silent.
+    window.addEventListener(IDENTITY_UPDATED_EVENT, refresh);
     return () => {
       cancelled = true;
+      window.removeEventListener(IDENTITY_UPDATED_EVENT, refresh);
     };
   }, []);
 
@@ -88,7 +97,9 @@ export default function UserVerificationToggle({
             role="switch"
             aria-checked={checked}
             aria-label={`${checked ? "Stop requiring" : "Require"} user verification`}
-            disabled={!loaded || blocked}
+            // Only the "turn on" direction is ever gated — turning off must
+            // always stay possible, per the invariant documented above.
+            disabled={checked ? false : !loaded || blocked}
             onClick={toggle}
             className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-40 ${
               checked ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"
