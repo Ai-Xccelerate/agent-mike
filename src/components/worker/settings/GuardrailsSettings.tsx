@@ -1,6 +1,7 @@
 "use client";
 
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
+import UserVerificationToggle from "@/components/worker/settings/UserVerificationToggle";
 import { cardClass, fieldClass, sectionHintClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
@@ -70,29 +71,10 @@ export default function GuardrailsSettings() {
             className={`${fieldClass} mt-2`}
           />
         </label>
-        <div className="mt-5 flex items-center justify-between gap-4 rounded-xl bg-gray-50 p-4 dark:bg-white/[0.03]">
-          <div>
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Require user verification</p>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-              Confirm the requester is a valid customer before responding. Configuration, not a one-off codebase — the
-              actual lookup is a tool call the agent makes.
-            </p>
-          </div>
-          <button
-            role="switch"
-            aria-checked={profile.requireUserVerification}
-            onClick={() => update("requireUserVerification", !profile.requireUserVerification)}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-              profile.requireUserVerification ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"
-            }`}
-          >
-            <span
-              className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${
-                profile.requireUserVerification ? "translate-x-5" : ""
-              }`}
-            />
-          </button>
-        </div>
+        <UserVerificationToggle
+          checked={profile.requireUserVerification}
+          onChange={(next) => update("requireUserVerification", next)}
+        />
       </section>
     </>
   );
