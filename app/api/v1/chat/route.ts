@@ -10,6 +10,9 @@ import { approvedDomains } from "@/lib/email-domains";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { runAgent } from "@/lib/agent";
 
+/** Roughly 2,500 words — a long email thread, not a pasted document. */
+const MAX_MESSAGE_LENGTH = 10000;
+
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
 
@@ -29,6 +32,22 @@ export async function POST(req: NextRequest) {
   const conversationId = body?.conversation_id as string | undefined;
   if (!message || typeof message !== "string") {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
+  }
+
+  // Bounded because the far end is a paid model with a context limit. Without
+  // a cap, one request can burn an unbounded amount of money and a widget is
+  // public by design — the limit belongs here, not in the client that anyone
+  // can bypass. Generous enough for a pasted email thread.
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    return NextResponse.json(
+      {
+        error: "Message is too long",
+        errors: {
+          message: `Keep messages under ${MAX_MESSAGE_LENGTH.toLocaleString()} characters — this one is ${message.length.toLocaleString()}.`,
+        },
+      },
+      { status: 422 },
+    );
   }
 
   const profile = await getOrCreateProfile(tenant.orgId);
