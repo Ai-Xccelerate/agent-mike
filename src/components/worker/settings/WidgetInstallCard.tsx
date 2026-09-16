@@ -34,11 +34,10 @@ export default function WidgetInstallCard() {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-      <p className="text-sm font-medium text-gray-800 dark:text-white/90">Website widget</p>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-        Embed on your site. The snippet is bound to this organization — anyone who embeds it talks to your
-        knowledge and inbox.
+    <div>
+      <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+        Anyone who embeds this snippet talks to this worker&rsquo;s knowledge, and their conversations land in
+        your inbox.
       </p>
       <Button size="sm" variant="outline" className="mt-3" onClick={() => void copyEmbed()}>
         {copied ? "Copied!" : "Copy embed snippet"}
