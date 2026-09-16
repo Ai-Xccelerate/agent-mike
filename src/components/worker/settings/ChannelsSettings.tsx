@@ -1,12 +1,25 @@
 "use client";
 
+import WorkerChat from "@/components/worker/WorkerChat";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass } from "@/components/worker/settings/ui";
+import SettingsSection from "@/components/worker/settings/SettingsSection";
+import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
+import WidgetInstallCard from "@/components/worker/settings/WidgetInstallCard";
+import { dividerClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 import type { ChannelsConfig } from "@/lib/worker-api";
 
+/**
+ * Channels owns the chat channel end to end: the switch, a bench to try it on,
+ * and the snippet that puts it on a website.
+ *
+ * The playground here is deliberately a second door onto the same surface as
+ * the top-level Chat screen, not a replacement for it. Chat is where a manager
+ * works. This is where they check that an edit to the role, guardrails or
+ * knowledge actually landed — without leaving the screen they made it on.
+ */
 const CHANNEL_LABELS: { key: keyof ChannelsConfig; label: string; description: string; disabled?: boolean }[] = [
-  { key: "chat", label: "Chat", description: "Manager test bench and the embeddable website widget." },
+  { key: "chat", label: "Chat", description: "The playground below, and the embeddable website widget." },
   { key: "email", label: "Email", description: "Requires an email provider connected under Integrations." },
   { key: "voice", label: "Voice", description: "Deferred — will be a native integration with AI Xccelerate's voice system, not a separate API key.", disabled: true },
 ];
@@ -32,33 +45,48 @@ export default function ChannelsSettings() {
         noticeError={noticeError}
         lastEditedAt={lastEditedAt}
       />
-      <section className={cardClass}>
-        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+      <SettingsSection
+        title="Where this worker can be reached"
+        description="Attachments, live take-over and conversation history work the same way on every channel that is on."
+        aixId="AIX-164.1"
+      >
+        <div className={dividerClass}>
           {CHANNEL_LABELS.map(({ key, label, description, disabled }) => (
-            <div key={key} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</p>
-                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{description}</p>
-              </div>
-              <button
-                role="switch"
-                aria-checked={profile.channelsConfig[key]}
-                disabled={disabled}
-                onClick={() => toggle(key)}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  profile.channelsConfig[key] ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"
-                }`}
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-theme-sm transition-transform ${
-                    profile.channelsConfig[key] ? "translate-x-5" : ""
-                  }`}
-                />
-              </button>
-            </div>
+            <SettingsToggleRow
+              key={key}
+              title={label}
+              description={description}
+              checked={profile.channelsConfig[key]}
+              onChange={() => toggle(key)}
+              disabled={disabled}
+            />
           ))}
         </div>
-      </section>
+      </SettingsSection>
+
+      {/*
+        Not `interactive` — the card holds a live conversation, so a border
+        that shifts whenever the pointer crosses it is noise, not affordance.
+      */}
+      <SettingsSection
+        title="Playground"
+        description="Talk to this worker the way a visitor would. It answers from the role, guardrails, knowledge and tools it is configured with right now, and nothing said here reaches a customer."
+        aixId="AIX-164.2"
+        interactive={false}
+      >
+        <div className="h-[30rem] sm:h-[34rem]">
+          <WorkerChat />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Website widget"
+        description="Put this same conversation on your own site. The snippet is bound to this organization."
+        aixId="AIX-164.3"
+        interactive={false}
+      >
+        <WidgetInstallCard />
+      </SettingsSection>
     </>
   );
 }

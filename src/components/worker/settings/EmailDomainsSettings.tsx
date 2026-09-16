@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass } from "@/components/worker/settings/ui";
+import { cardClass, sectionHintClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { CheckCircleIcon, CheckLineIcon, CloseIcon, PlusIcon, TimeIcon, TrashBinIcon } from "@/icons";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import type {
@@ -205,7 +205,7 @@ export default function EmailDomainsSettings() {
           )}
 
           <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-166.2">
-            <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Add a domain</h2>
+            <h2 className={sectionTitleClass}>Add a domain</h2>
             <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
               Goes in as pending. Adding it allows nothing on its own — it still has to be approved
               below before the worker can share anything with it.
@@ -400,7 +400,7 @@ function Group({
 }) {
   return (
     <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id={aixId}>
-      <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">{title}</h2>
+      <h2 className={sectionTitleClass}>{title}</h2>
       <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{description}</p>
 
       {loading ? (
@@ -440,7 +440,7 @@ function Group({
               </div>
 
               {row.reason && (
-                <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
+                <p className={sectionHintClass}>
                   {row.reason}
                 </p>
               )}

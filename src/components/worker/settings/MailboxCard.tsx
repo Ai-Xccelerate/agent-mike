@@ -7,6 +7,7 @@ import Button from "@/components/ui/button/Button";
 import { ChevronDownIcon, EnvelopeIcon } from "@/icons";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import type { MailboxConnectionTest, MailboxStatus } from "@/lib/worker-api";
+import { panelClass } from "@/components/worker/settings/ui";
 
 /**
  * The worker's own mailbox and calendar, connected through Nylas.
@@ -194,7 +195,7 @@ export default function MailboxCard() {
 
   if (phase === "loading") {
     return (
-      <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className={panelClass}>
         <div className="h-4 w-28 animate-pulse rounded-md bg-gray-200 dark:bg-gray-800" />
         <div className="mt-3 h-3 w-full max-w-md animate-pulse rounded-md bg-gray-100 dark:bg-gray-800/70" />
       </div>
@@ -203,7 +204,7 @@ export default function MailboxCard() {
 
   if (phase === "failed" || !status) {
     return (
-      <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Nylas</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Could not load the mailbox — check that the API is running.
@@ -223,7 +224,7 @@ export default function MailboxCard() {
   const needsReconnect = Boolean(mailbox) && (mailbox?.status === "invalid" || !status.connected);
 
   return (
-    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+    <div className={panelClass}>
       <div className="flex items-start gap-4">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
           <EnvelopeIcon className="size-4" />

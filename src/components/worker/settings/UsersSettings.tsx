@@ -3,7 +3,7 @@
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, fieldClass } from "@/components/worker/settings/ui";
+import { cardClass, fieldClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { apiFetch } from "@/lib/worker-api";
 import { useEffect, useState } from "react";
 
@@ -47,7 +47,7 @@ export default function UsersSettings() {
     <>
       <SettingsPageHeader title="User management" description="Who can manage this worker." />
       <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Add a manager</h2>
+        <h2 className={sectionTitleClass}>Add a manager</h2>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Email
@@ -69,7 +69,7 @@ export default function UsersSettings() {
       </section>
 
       <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Current users</h2>
+        <h2 className={sectionTitleClass}>Current users</h2>
         <div className="mt-4 divide-y divide-gray-100 dark:divide-gray-800">
           {users.map((user) => (
             <div key={user.id} className="flex items-center justify-between gap-4 py-3">

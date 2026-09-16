@@ -1,7 +1,7 @@
 "use client";
 
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
+import { cardClass, fieldClass, sectionHintClass, sectionTitleClass, textareaClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
 const MODELS = ["gpt-5.6-luna", "gpt-5.6-sol"];
@@ -25,7 +25,7 @@ export default function AgentConfigurationSettings() {
       />
 
       <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Model</h2>
+        <h2 className={sectionTitleClass}>Model</h2>
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Model
@@ -52,8 +52,8 @@ export default function AgentConfigurationSettings() {
       </section>
 
       <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">System prompt template</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <h2 className={sectionTitleClass}>System prompt template</h2>
+        <p className={sectionHintClass}>
           The raw scaffold, not just the fields around it. Placeholders: <code className="font-mono">{"{{displayName}}"}</code>,{" "}
           <code className="font-mono">{"{{organizationName}}"}</code>, <code className="font-mono">{"{{role}}"}</code>,{" "}
           <code className="font-mono">{"{{tone}}"}</code>.

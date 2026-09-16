@@ -349,7 +349,7 @@ function SkillRow({
           } ${!skill.requirementsMet ? "cursor-not-allowed opacity-50" : ""}`}
         >
           <span
-            className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-theme-sm transition-transform ${
+            className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${
               isEnabled ? "translate-x-5" : ""
             }`}
           />
