@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { firstAllowedOrigin } from "@/lib/env";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import {
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
     // What must be registered on the Nylas application. Computed here rather
     // than guessed by the screen, which knows its own origin but not this
     // service's, and would print Nylas's host if it guessed from api_url.
-    callback_uri: callbackUri(req.nextUrl.origin),
+    callback_uri: callbackUri(firstAllowedOrigin() || req.nextUrl.origin),
     unavailableReason: available
       ? null
       : "Add a Nylas client ID and API key for this agent, or set them fleet-wide on the API service.",

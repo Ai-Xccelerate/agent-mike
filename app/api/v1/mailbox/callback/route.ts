@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { envList } from "@/lib/env";
+import { firstAllowedOrigin } from "@/lib/env";
 import {
   NylasError,
   callbackUri,
@@ -36,11 +36,6 @@ function settingsUrl(req: NextRequest, params: Record<string, string>): string {
   const url = new URL("/settings/tools", base);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   return url.toString();
-}
-
-function firstAllowedOrigin(): string | null {
-  const origins = envList(process.env.CORS_ALLOWED_ORIGINS);
-  return origins[0] ?? null;
 }
 
 export async function GET(req: NextRequest) {
@@ -84,7 +79,7 @@ export async function GET(req: NextRequest) {
     const grant = await exchangeCodeForGrant({
       credentials: resolved.values,
       code,
-      redirectUri: callbackUri(req.nextUrl.origin),
+      redirectUri: callbackUri(firstAllowedOrigin() || req.nextUrl.origin),
     });
     await saveMailbox({
       organizationId: issued.orgId,
