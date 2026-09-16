@@ -32,7 +32,6 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       { href: "/settings/tools", label: "Tools", available: true },
       { href: "/settings/integrations", label: "Integrations", available: true },
       { href: "/settings/channels", label: "Channels", available: true },
-      { href: "/settings/automation", label: "Automation" },
     ],
   },
   {
@@ -40,16 +39,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     items: [
       { href: "/settings/guardrails", label: "Guardrails", available: true },
       { href: "/settings/email-domains", label: "Email domains", available: true },
-      { href: "/settings/verification", label: "Verification" },
       { href: "/settings/manager", label: "Human manager", available: true },
     ],
   },
   {
     title: "Workspace",
     items: [
-      { href: "/settings/branding", label: "Branding" },
       { href: "/settings/users", label: "User management", available: true },
-      { href: "/settings/data", label: "Data" },
     ],
   },
 ];
