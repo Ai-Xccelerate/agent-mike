@@ -42,6 +42,16 @@ export default function IntegrationConnectionCard({
       .finally(() => setLoaded(true));
   }, [integrationType, title]);
 
+  useEffect(() => {
+    if (connection?.status !== "pending") return;
+    const interval = setInterval(() => {
+      getIntegrationConnection(integrationType)
+        .then((row) => setConnection(row))
+        .catch(() => setError(`Could not load ${title} connection status.`));
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [connection?.status, integrationType, title]);
+
   async function handleConnect(system: string) {
     const vendorLabel = labelFor(system);
     setError("");
