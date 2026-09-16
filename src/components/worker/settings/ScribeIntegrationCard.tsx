@@ -6,7 +6,7 @@ import Button from "@/components/ui/button/Button";
 import { PlugInIcon } from "@/icons";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import type { ScribeConnectionTest, ScribeIntegration, ScribePatch } from "@/lib/worker-api";
-import { NOT_CONNECTED_NOTE } from "@/components/worker/settings/ui";
+import { NOT_CONNECTED_NOTE, panelClass } from "@/components/worker/settings/ui";
 
 /**
  * Scribe is opt-IN.
@@ -101,7 +101,7 @@ export default function ScribeIntegrationCard() {
 
   if (phase === "loading") {
     return (
-      <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className={panelClass}>
         <div className="h-4 w-28 animate-pulse rounded-md bg-gray-200 dark:bg-gray-800" />
         <div className="mt-3 h-3 w-full max-w-md animate-pulse rounded-md bg-gray-100 dark:bg-gray-800/70" />
       </div>
@@ -110,7 +110,7 @@ export default function ScribeIntegrationCard() {
 
   if (phase === "failed" || !integration) {
     return (
-      <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Scribe</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Could not load this integration — check that the API is running.
@@ -125,7 +125,7 @@ export default function ScribeIntegrationCard() {
   const badge = statusBadge(integration);
 
   return (
-    <div className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+    <div className={panelClass}>
       <div className="flex items-start gap-4">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
           <PlugInIcon className="size-4" />
@@ -154,7 +154,7 @@ export default function ScribeIntegrationCard() {
           }`}
         >
           <span
-            className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-theme-sm transition-transform ${
+            className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${
               integration.enabled ? "translate-x-5" : ""
             }`}
           />

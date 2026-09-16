@@ -1,7 +1,7 @@
 "use client";
 
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, textareaClass } from "@/components/worker/settings/ui";
+import { cardClass, sectionTitleClass, textareaClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
 export default function RoleSettings() {
@@ -22,7 +22,7 @@ export default function RoleSettings() {
         lastEditedAt={lastEditedAt}
       />
       <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Role and scope</h2>
+        <h2 className={sectionTitleClass}>Role and scope</h2>
         <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
           Role description
           <textarea rows={4} value={profile.role} onChange={(e) => update("role", e.target.value)} className={`${textareaClass} mt-2`} />
@@ -50,7 +50,7 @@ export default function RoleSettings() {
             className={`relative h-6 w-11 rounded-full transition-colors ${profile.autoReply ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"}`}
           >
             <span
-              className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-theme-sm transition-transform ${
+              className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${
                 profile.autoReply ? "translate-x-5" : ""
               }`}
             />

@@ -50,13 +50,14 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   },
 ];
 
+/**
+ * Borrows the app sidebar's own utilities rather than restating them, so the
+ * settings nav and the main nav cannot drift into two different active states.
+ */
 function navItemClass(active: boolean, disabled: boolean) {
-  const state = active
-    ? "bg-brand-50 font-semibold text-brand-700 dark:bg-brand-500/15 dark:text-brand-400"
-    : "text-gray-600 dark:text-gray-400";
-  return `flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${state} ${
-    disabled ? "cursor-not-allowed opacity-60" : "hover:bg-gray-100 dark:hover:bg-white/5"
-  }`;
+  return `menu-item group min-h-10 text-sm ${
+    active ? "menu-item-active font-semibold" : "menu-item-inactive"
+  } ${disabled ? "cursor-not-allowed opacity-60" : ""}`;
 }
 
 export default function SettingsNav() {
@@ -67,10 +68,10 @@ export default function SettingsNav() {
     .sort((a, b) => b.length - a.length)[0];
 
   return (
-    <nav aria-label="Settings sections" className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:block lg:space-y-5">
+    <nav aria-label="Settings sections" className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4 lg:block lg:space-y-6">
       {SETTINGS_SECTIONS.map((section) => (
         <div key={section.title} className="min-w-0 space-y-0.5">
-          <h2 className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <h2 className="mb-1.5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
             {section.title}
           </h2>
           {section.items.map((item) => {
@@ -87,7 +88,7 @@ export default function SettingsNav() {
                 <Tooltip content="Coming soon" placement="right">
                   <span className={navItemClass(false, true)} aria-disabled="true" tabIndex={0}>
                     <span className="truncate">{item.label}</span>
-                    <span className="ml-auto hidden text-[10px] sm:inline">Soon</span>
+                    <span className="ml-auto hidden text-xs sm:inline">Soon</span>
                   </span>
                 </Tooltip>
               </div>

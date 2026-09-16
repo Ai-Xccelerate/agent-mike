@@ -1,7 +1,7 @@
 "use client";
 
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, fieldClass } from "@/components/worker/settings/ui";
+import { cardClass, fieldClass, sectionHintClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
 export default function GuardrailsSettings() {
@@ -23,7 +23,7 @@ export default function GuardrailsSettings() {
       />
 
       <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Confidence &amp; escalation</h2>
+        <h2 className={sectionTitleClass}>Confidence &amp; escalation</h2>
         <div className="mt-5">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Minimum confidence</label>
@@ -57,8 +57,8 @@ export default function GuardrailsSettings() {
       </section>
 
       <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Domain &amp; user restriction</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <h2 className={sectionTitleClass}>Domain &amp; user restriction</h2>
+        <p className={sectionHintClass}>
           A standard, foundation-level feature — not something built per worker. Leave empty to allow any sender.
         </p>
         <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -87,7 +87,7 @@ export default function GuardrailsSettings() {
             }`}
           >
             <span
-              className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-theme-sm transition-transform ${
+              className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${
                 profile.requireUserVerification ? "translate-x-5" : ""
               }`}
             />

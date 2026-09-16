@@ -8,7 +8,9 @@ import MailboxCard from "@/components/worker/settings/MailboxCard";
 import ParchmentIntegrationCard from "@/components/worker/settings/ParchmentIntegrationCard";
 import ScribeIntegrationCard from "@/components/worker/settings/ScribeIntegrationCard";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass } from "@/components/worker/settings/ui";
+import SettingsSection from "@/components/worker/settings/SettingsSection";
+import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
+import { dividerClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 import type { ToolsConfig } from "@/lib/worker-api";
 
@@ -50,65 +52,51 @@ export default function ToolsSettings() {
         lastEditedAt={lastEditedAt}
       />
 
-      <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">General</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Broad capabilities the worker can draw on. Changes here are saved with the button above.
-        </p>
-        <div className="mt-4 divide-y divide-gray-100 dark:divide-gray-800">
+      <SettingsSection
+        title="General"
+        description="Broad capabilities the worker can draw on. Saved with the button above."
+        aixId="AIX-163.1"
+      >
+        <div className={dividerClass}>
           {TOOL_LABELS.map(({ key, label, description }) => (
-            <div key={key} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</p>
-                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{description}</p>
-              </div>
-              <button
-                role="switch"
-                aria-checked={profile.toolsConfig[key]}
-                aria-label={`${profile.toolsConfig[key] ? "Disable" : "Enable"} ${label}`}
-                onClick={() => toggle(key)}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 ${
-                  profile.toolsConfig[key] ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"
-                }`}
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-theme-sm transition-transform ${
-                    profile.toolsConfig[key] ? "translate-x-5" : ""
-                  }`}
-                />
-              </button>
-            </div>
+            <SettingsToggleRow
+              key={key}
+              title={label}
+              description={description}
+              checked={profile.toolsConfig[key]}
+              onChange={() => toggle(key)}
+            />
           ))}
         </div>
-      </section>
+      </SettingsSection>
 
-      <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Internal tools</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          AI Xccelerate&apos;s own tools, connected with credentials held on the API service. These save as
-          soon as you switch them — the button above does not apply to them.
-        </p>
-        <div className="mt-4 space-y-4">
+      <SettingsSection
+        title="Internal tools"
+        description="AI Xccelerate's own tools, connected with credentials held on the API service. These save as soon as you switch them — the button above does not apply to them."
+        aixId="AIX-163.2"
+        interactive={false}
+      >
+        <div className="space-y-4">
           <AgentDbIntegrationCard />
           <AgentWikiIntegrationCard />
           <ParchmentIntegrationCard />
           <ScribeIntegrationCard />
           <ArtifactsIntegrationCard />
         </div>
-      </section>
+      </SettingsSection>
 
-      <section className={cardClass}>
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">External tools</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Third-party systems this worker connects to directly, with credentials held on the API
-          service. These save as soon as you use them — the button above does not apply to them.
-        </p>
-        <div className="mt-4 space-y-4">
+      <SettingsSection
+        title="External tools"
+        description="Third-party systems this worker connects to directly, with credentials held on the API service. These save as soon as you use them — the button above does not apply to them."
+        aixId="AIX-163.3"
+        interactive={false}
+      >
+        <div className="space-y-4">
           <Suspense fallback={null}>
             <MailboxCard />
           </Suspense>
         </div>
-      </section>
+      </SettingsSection>
     </>
   );
 }

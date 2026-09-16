@@ -1,7 +1,9 @@
 "use client";
 
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass } from "@/components/worker/settings/ui";
+import SettingsSection from "@/components/worker/settings/SettingsSection";
+import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
+import { dividerClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 import type { ChannelsConfig } from "@/lib/worker-api";
 
@@ -32,33 +34,24 @@ export default function ChannelsSettings() {
         noticeError={noticeError}
         lastEditedAt={lastEditedAt}
       />
-      <section className={cardClass}>
-        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+      <SettingsSection
+        title="Where this worker can be reached"
+        description="Attachments, live take-over and conversation history work the same way on every channel that is on."
+        aixId="AIX-164.1"
+      >
+        <div className={dividerClass}>
           {CHANNEL_LABELS.map(({ key, label, description, disabled }) => (
-            <div key={key} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</p>
-                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{description}</p>
-              </div>
-              <button
-                role="switch"
-                aria-checked={profile.channelsConfig[key]}
-                disabled={disabled}
-                onClick={() => toggle(key)}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  profile.channelsConfig[key] ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"
-                }`}
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-theme-sm transition-transform ${
-                    profile.channelsConfig[key] ? "translate-x-5" : ""
-                  }`}
-                />
-              </button>
-            </div>
+            <SettingsToggleRow
+              key={key}
+              title={label}
+              description={description}
+              checked={profile.channelsConfig[key]}
+              onChange={() => toggle(key)}
+              disabled={disabled}
+            />
           ))}
         </div>
-      </section>
+      </SettingsSection>
     </>
   );
 }
