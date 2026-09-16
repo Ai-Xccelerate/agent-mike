@@ -92,9 +92,9 @@ describe("scribe status", () => {
     expect(status.settings.api_url).toBe("https://scribe.example.com/api/mcp");
   });
 
-  it("is listed alongside the other integrations", () => {
+  it("is listed alongside the other integrations", async () => {
     // The full, ordered list is asserted once, in artifacts.test.ts.
-    expect(integrationStatuses({}, "default").map((s) => s.key)).toContain("scribe");
+    expect((await integrationStatuses({}, "default")).map((s) => s.key)).toContain("scribe");
   });
 });
 

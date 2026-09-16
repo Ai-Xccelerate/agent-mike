@@ -104,7 +104,7 @@ export const workerProfiles = pgTable(
       .$type<Record<string, { enabled: boolean; [key: string]: unknown }>>()
       .notNull()
       .default(
-        sql`'{"parchment":{"enabled":true,"workspaceId":null,"orgId":null},"agentdb":{"enabled":false,"workspaceId":null,"orgId":null},"scribe":{"enabled":false,"lookbackDays":null},"artifacts":{"enabled":false,"brandKitId":null,"allowPublish":false},"agent_wiki":{"enabled":false,"spaceId":null,"allowWrite":false}}'::jsonb`,
+        sql`'{"parchment":{"enabled":true,"workspaceId":null,"orgId":null},"agentdb":{"enabled":false,"workspaceId":null,"orgId":null},"scribe":{"enabled":false,"lookbackDays":null},"artifacts":{"enabled":false,"brandKitId":null,"allowPublish":false},"agent_wiki":{"enabled":false,"spaceId":null,"allowWrite":false},"agent_skills":{"enabled":false,"category":null,"maxResults":5}}'::jsonb`,
       ),
 
     // Channels (settings > Channels)

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent } from "@openai/agents";
 import {
   buildAgentTools,
+  buildInstructions,
   buildSkillsBlock,
   LOAD_SKILL_TOOL_NAME,
   CRM_LOOKUP_FAILURE_MESSAGE,
@@ -1044,6 +1045,26 @@ describe("agent skills wiring", () => {
     }
   });
 
+  it("carries the repository search instruction on every return path", async () => {
+    const SEARCH_HINT = "search_skills";
+
+    // No skills enabled at all.
+    expect(await buildSkillsBlock([], "org-1", true)).toContain(SEARCH_HINT);
+    // Enabled ids that match nothing.
+    expect(await buildSkillsBlock(["not-a-real-skill"], "org-1", true)).toContain(SEARCH_HINT);
+    // The path that actually matters: real skills AND the repository on. The
+    // search tool is registered from the integration toggle, so dropping the
+    // instruction here leaves it defined and never called.
+    const both = await buildSkillsBlock(["stay-on-topic"], "org-1", true);
+    expect(both).toContain("stay-on-topic");
+    expect(both).toContain(SEARCH_HINT);
+  });
+
+  it("omits the repository instruction when the repository is off", async () => {
+    expect(await buildSkillsBlock(["stay-on-topic"], "org-1", false)).not.toContain("search_skills");
+    expect(await buildSkillsBlock([], "org-1", false)).toBe("");
+  });
+
   it("does not add load_skill tool when no skills are enabled", async () => {
     const tools = await buildAgentTools({ toolsConfig: {}, enabledSkills: [] }, "org-1");
     expect(tools.some(isLoadSkillTool)).toBe(false);
@@ -1122,5 +1143,44 @@ describe("agent skills wiring", () => {
     } finally {
       await deleteCustomSkill(orgId, custom.id);
     }
+  });
+});
+
+describe("agent instructions — job description", () => {
+  const baseProfile = {
+    displayName: "Nick",
+    role: "Sales assistant",
+    tone: "Warm and concise.",
+    systemPromptTemplate: "You are {{displayName}}. Role: {{role}}. Tone: {{tone}}.",
+    model: "gpt-5.6-luna",
+    maxAgentTurns: 3,
+    confidenceThreshold: 0.72,
+    managerName: "Manager",
+  };
+
+  it("includes the job description in the built instructions when set", async () => {
+    const instructions = await buildInstructions(
+      { ...baseProfile, jobDescription: "Qualify inbound leads and book demos with an AE." },
+      "Acme",
+      [],
+      "org-1",
+    );
+    expect(instructions).toContain("Job description (additional detail on this role):");
+    expect(instructions).toContain("Qualify inbound leads and book demos with an AE.");
+  });
+
+  it("omits the job description block when it is unset", async () => {
+    const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1");
+    expect(instructions).not.toContain("Job description");
+  });
+
+  it("omits the job description block when it is null", async () => {
+    const instructions = await buildInstructions(
+      { ...baseProfile, jobDescription: null },
+      "Acme",
+      [],
+      "org-1",
+    );
+    expect(instructions).not.toContain("Job description");
   });
 });
