@@ -4,6 +4,13 @@ import { getSkill, loadSkills, type SkillDefinition } from "@/lib/tools-integrat
 
 export type SkillSource = "catalog" | "custom";
 
+/**
+ * The built-in skill behind the "Require user verification" guardrail. The
+ * guardrail switches this on rather than merely pointing at it, so the id has
+ * to be nameable from outside the catalog.
+ */
+export const VERIFY_CUSTOMER_SKILL_ID = "verify-customer";
+
 export type SkillCatalogItem = {
   id: string;
   name: string;
@@ -14,7 +21,10 @@ export type SkillCatalogItem = {
   source: SkillSource;
 };
 
-async function requirementsMetFor(organizationId: string, requires: string[]): Promise<boolean> {
+export async function skillRequirementsMet(
+  organizationId: string,
+  requires: string[],
+): Promise<boolean> {
   if (requires.length === 0) return true;
   const connections = await Promise.all(
     requires.map((type) => getConnectionForOrg(organizationId, type)),
@@ -33,7 +43,7 @@ async function toCatalogItem(
     name: skill.name,
     description: skill.description,
     requires: skill.requires,
-    requirementsMet: await requirementsMetFor(organizationId, skill.requires),
+    requirementsMet: await skillRequirementsMet(organizationId, skill.requires),
     enabled: enabled.has(skill.id),
     source,
   };
@@ -53,6 +63,25 @@ export async function listSkillsForOrg(
     custom.map((skill) => toCatalogItem(organizationId, enabled, skill, "custom")),
   );
   return [...catalogItems, ...customItems];
+}
+
+/**
+ * The skills that are switched on *and* whose integrations are actually
+ * connected right now.
+ *
+ * `enabled` and `requirementsMet` are two different questions and the gap
+ * between them is not hypothetical: a skill is switched on while its CRM is
+ * connected, the connection is later revoked, and the skill stays switched on.
+ * Anything that decides what the agent is told it can do has to ask this
+ * rather than reading enabledSkills directly — otherwise the agent is handed
+ * instructions that call a tool it was never given.
+ */
+export async function listActiveSkillsForOrg(
+  organizationId: string,
+  enabledSkills: string[],
+): Promise<SkillCatalogItem[]> {
+  const listed = await listSkillsForOrg(organizationId, enabledSkills);
+  return listed.filter((skill) => skill.enabled && skill.requirementsMet);
 }
 
 const UUID_RE =

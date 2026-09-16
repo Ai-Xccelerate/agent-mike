@@ -1070,6 +1070,30 @@ describe("agent skills wiring", () => {
     expect(result).toContain("not enabled");
   });
 
+  it("buildSkillsBlock drops an enabled skill whose integration is not connected", async () => {
+    // verify-customer requires an active CRM and the mock reports none, so
+    // advertising it would point the agent at a tool it was never given.
+    expect(await buildSkillsBlock(["verify-customer"], "org-1")).toBe("");
+  });
+
+  it("buildSkillsBlock lists that same skill once the CRM is connected", async () => {
+    getConnectionForOrgMock.mockResolvedValue(activeZohoConnection());
+    const block = await buildSkillsBlock(["verify-customer"], "org-1");
+    expect(block).toContain("verify-customer");
+  });
+
+  it("load_skill refuses a skill whose integration is not connected", async () => {
+    const tools = await buildAgentTools(
+      { toolsConfig: {}, enabledSkills: ["verify-customer"] },
+      "org-1",
+    );
+    const result = await invokeLoadSkill(tools, "verify-customer");
+    expect(result).toContain("needs crm connected");
+    // And it withholds the instructions rather than handing over a procedure
+    // built on a tool that is not there.
+    expect(result).not.toContain("lookup_crm_contact");
+  });
+
   it("load_skill returns a custom skill body when that skill is enabled for the org", async () => {
     const orgId = `org-${crypto.randomUUID()}`;
     await ensureOrganization(orgId, "Agent custom skill org");
