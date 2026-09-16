@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { firstAllowedOrigin } from "@/lib/env";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import {
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
   const loginHint =
     typeof body?.email === "string" && body.email.trim() ? body.email.trim() : profile.email;
 
-  const redirectUri = callbackUri(req.nextUrl.origin);
+  const redirectUri = callbackUri(firstAllowedOrigin() || req.nextUrl.origin);
 
   try {
     const url = buildAuthUrl({
