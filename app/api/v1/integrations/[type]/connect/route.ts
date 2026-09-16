@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { envList } from "@/lib/env";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { getAuthConfigId } from "@/lib/tools-integrations/auth-configs";
@@ -11,6 +12,16 @@ import {
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
 
 export const dynamic = "force-dynamic";
+
+// The frontend and this API commonly live on different hosts (split deploy)
+// — req.nextUrl.origin is this API's own origin (on Railway, an internal
+// bind address the browser can never reach), not the page Composio must send
+// the manager back to. Prefer the configured allowed origin, same fix as the
+// Nylas mailbox callback in app/api/v1/mailbox/callback/route.ts.
+function firstAllowedOrigin(): string | null {
+  const origins = envList(process.env.CORS_ALLOWED_ORIGINS);
+  return origins[0] ?? null;
+}
 
 export async function POST(req: NextRequest, { params }: { params: { type: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
@@ -34,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: { type: strin
     return NextResponse.json({ error: message }, { status });
   }
 
-  const callbackUrl = `${req.nextUrl.origin}/settings/integrations`;
+  const callbackUrl = `${firstAllowedOrigin() || req.nextUrl.origin}/settings/integrations`;
   let linked: { redirectUrl: string; id: string | null };
   try {
     linked = await linkConnection(tenant.orgId, authConfigId, callbackUrl);
