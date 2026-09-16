@@ -5,6 +5,7 @@ import { WorkerIdentityProvider } from "@/context/WorkerIdentityContext";
 import AppHeader from "@/layout/AppHeader";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
+import GrabWidget from "@/components/common/GrabWidget";
 import React from "react";
 
 export default function AdminLayout({
@@ -34,6 +35,13 @@ export default function AdminLayout({
           </div>
         </div>
       </div>
+
+      {/*
+        Console only. The root layout also renders /widget — the chat embed
+        customers see on someone else's site — and an internal bug reporter
+        must not appear there.
+      */}
+      <GrabWidget />
     </WorkerIdentityProvider>
   );
 }
