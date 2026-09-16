@@ -74,7 +74,11 @@ export async function buildSkillsBlock(
   return (
     "\n\nSkills available to you (call load_skill with the skill id to read its full instructions " +
     "before relying on it):\n" +
-    list
+    list +
+    // Both early returns carry this; so must the one path where a worker has
+    // skills switched on *and* the repository connected — which is the case
+    // the search tool exists for.
+    repositoryBlock
   );
 }
 
