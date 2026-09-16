@@ -362,6 +362,68 @@ export async function executeCalendarSearch(
   return JSON.stringify(result);
 }
 
+export const JIRA_SEARCH_ISSUES_SLUG = "JIRA_SEARCH_ISSUES";
+/** Toolkit version from composio.toolkits.get("jira") (Version: 20260915_00). */
+export const JIRA_TOOLKIT_VERSION = "20260915_00";
+export const JIRA_LOOKUP_TOOL_NAME = "lookup_jira_issue";
+export const JIRA_LOOKUP_RETRY_BACKOFF_MS = 500;
+export const JIRA_LOOKUP_FAILURE_MESSAGE =
+  "Jira issue search failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+
+/** JQL text-search clause. Escapes backslashes then quotes so the value is a valid JQL string literal. */
+export function buildJiraTextSearchJql(query: string): string {
+  const escaped = query.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `text ~ "${escaped}"`;
+}
+
+export async function executeJiraSearch(
+  query: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { query };
+  const run = () =>
+    executeTool(
+      JIRA_SEARCH_ISSUES_SLUG,
+      { jql: buildJiraTextSearchJql(query) },
+      {
+        connectedAccountId,
+        userId: organizationId,
+        version: JIRA_TOOLKIT_VERSION,
+      },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(JIRA_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: JIRA_LOOKUP_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return JIRA_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: JIRA_LOOKUP_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
 export async function buildAgentTools(
   profile: Pick<WorkerProfileLike, "toolsConfig" | "enabledSkills">,
   organizationId: string,
@@ -466,6 +528,29 @@ export async function buildAgentTools(
         }),
         execute: async ({ query }) =>
           executeCalendarSearch(query, organizationId, connectedAccountId),
+      }),
+    );
+  }
+
+  const helpdeskConnection = await getConnectionForOrg(organizationId, "helpdesk");
+  if (
+    helpdeskConnection?.status === "active" &&
+    helpdeskConnection.composioConnectedAccountId &&
+    helpdeskConnection.system === "jira"
+  ) {
+    const connectedAccountId = helpdeskConnection.composioConnectedAccountId;
+    tools.push(
+      tool({
+        name: JIRA_LOOKUP_TOOL_NAME,
+        description:
+          "Search the connected Jira project for issues matching a free-text query. Read-only; does not create, update, or delete issues.",
+        parameters: z.object({
+          query: z
+            .string()
+            .describe("Free-text search across Jira issue summary, description, and comments"),
+        }),
+        execute: async ({ query }) =>
+          executeJiraSearch(query, organizationId, connectedAccountId),
       }),
     );
   }

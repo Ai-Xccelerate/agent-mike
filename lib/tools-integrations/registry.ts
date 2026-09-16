@@ -48,6 +48,7 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     system: "googlecalendar",
     requiresAuth: true,
   },
+  { id: "helpdesk_jira", integrationType: "helpdesk", system: "jira", requiresAuth: true },
 ];
 
 export function getTool(toolId: string): ToolDefinition | undefined {

@@ -5,6 +5,7 @@ const ORIGINAL_LINEAR = process.env.COMPOSIO_LINEAR_AUTH_CONFIG_ID;
 const ORIGINAL_GMAIL = process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID;
 const ORIGINAL_OUTLOOK = process.env.COMPOSIO_OUTLOOK_AUTH_CONFIG_ID;
 const ORIGINAL_GOOGLECALENDAR = process.env.COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID;
+const ORIGINAL_JIRA = process.env.COMPOSIO_JIRA_AUTH_CONFIG_ID;
 
 afterEach(() => {
   if (ORIGINAL_ZOHO === undefined) delete process.env.COMPOSIO_ZOHO_AUTH_CONFIG_ID;
@@ -17,6 +18,8 @@ afterEach(() => {
   else process.env.COMPOSIO_OUTLOOK_AUTH_CONFIG_ID = ORIGINAL_OUTLOOK;
   if (ORIGINAL_GOOGLECALENDAR === undefined) delete process.env.COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID;
   else process.env.COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID = ORIGINAL_GOOGLECALENDAR;
+  if (ORIGINAL_JIRA === undefined) delete process.env.COMPOSIO_JIRA_AUTH_CONFIG_ID;
+  else process.env.COMPOSIO_JIRA_AUTH_CONFIG_ID = ORIGINAL_JIRA;
   vi.resetModules();
 });
 
@@ -54,6 +57,13 @@ describe("auth config lookup", () => {
     vi.resetModules();
     const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
     expect(getAuthConfigId("googlecalendar")).toBe("ac_test_googlecalendar");
+  });
+
+  it("returns the Jira auth config id from env", async () => {
+    process.env.COMPOSIO_JIRA_AUTH_CONFIG_ID = "ac_test_jira";
+    vi.resetModules();
+    const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
+    expect(getAuthConfigId("jira")).toBe("ac_test_jira");
   });
 
   it("throws when the system is unmapped", async () => {

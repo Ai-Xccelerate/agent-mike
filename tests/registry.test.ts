@@ -76,6 +76,14 @@ describe("tools/integrations registry", () => {
       system: "googlecalendar",
       requiresAuth: true,
     });
+    expect(getIntegration("helpdesk_jira")).toEqual({
+      id: "helpdesk_jira",
+      integrationType: "helpdesk",
+      system: "jira",
+      requiresAuth: true,
+    });
+    expect(getIntegrationType("helpdesk")).toEqual({ type: "helpdesk", name: "Helpdesk" });
+    expect(getIntegration("helpdesk_jira")?.integrationType).toBe(getIntegrationType("helpdesk")?.type);
     expect(getIntegration("crm_zoho")?.integrationType).toBe(getIntegrationType("crm")?.type);
     expect(INTEGRATIONS.every((vendor) => INTEGRATION_TYPES.some((t) => t.type === vendor.integrationType))).toBe(
       true,

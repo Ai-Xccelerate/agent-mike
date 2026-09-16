@@ -11,8 +11,10 @@ import {
   CALENDAR_LOOKUP_RETRY_BACKOFF_MS,
   CALENDAR_LOOKUP_TOOL_NAME,
   executeCalendarSearch,
+  buildJiraTextSearchJql,
   executeCrmLookup,
   executeGmailSearch,
+  executeJiraSearch,
   executeLinearSearch,
   executeOutlookSearch,
   EMAIL_LOOKUP_FAILURE_MESSAGE,
@@ -22,6 +24,11 @@ import {
   GMAIL_TOOLKIT_VERSION,
   GOOGLECALENDAR_EVENTS_LIST_SLUG,
   GOOGLECALENDAR_TOOLKIT_VERSION,
+  JIRA_LOOKUP_FAILURE_MESSAGE,
+  JIRA_LOOKUP_RETRY_BACKOFF_MS,
+  JIRA_LOOKUP_TOOL_NAME,
+  JIRA_SEARCH_ISSUES_SLUG,
+  JIRA_TOOLKIT_VERSION,
   LINEAR_LOOKUP_FAILURE_MESSAGE,
   LINEAR_LOOKUP_RETRY_BACKOFF_MS,
   LINEAR_LOOKUP_TOOL_NAME,
@@ -90,6 +97,12 @@ function isCalendarLookupTool(tool: unknown): boolean {
   if (!tool || typeof tool !== "object") return false;
   const candidate = tool as { type?: string; name?: string };
   return candidate.type === "function" && candidate.name === CALENDAR_LOOKUP_TOOL_NAME;
+}
+
+function isJiraLookupTool(tool: unknown): boolean {
+  if (!tool || typeof tool !== "object") return false;
+  const candidate = tool as { type?: string; name?: string };
+  return candidate.type === "function" && candidate.name === JIRA_LOOKUP_TOOL_NAME;
 }
 
 function isLoadSkillTool(tool: unknown): boolean {
@@ -188,6 +201,24 @@ function activeGoogleCalendarConnection(
     system: "googlecalendar",
     composioAuthConfigId: "ac_googlecalendar_test",
     composioConnectedAccountId: "ca_googlecalendar_test",
+    status: "active",
+    connectedBy: null,
+    metadata: {},
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastUsed: null,
+    ...overrides,
+  };
+}
+
+function activeJiraConnection(overrides: Partial<IntegrationConnection> = {}): IntegrationConnection {
+  return {
+    id: "66666666-6666-6666-6666-666666666666",
+    organizationId: "org-1",
+    integrationType: "helpdesk",
+    system: "jira",
+    composioAuthConfigId: "ac_jira_test",
+    composioConnectedAccountId: "ca_jira_test",
     status: "active",
     connectedBy: null,
     metadata: {},
@@ -816,6 +847,154 @@ describe("Google Calendar search retry-once and tool_calls logging", () => {
       organizationId: "org-1",
       toolId: CALENDAR_LOOKUP_TOOL_NAME,
       input: { query: "meeting" },
+      output: null,
+      status: "error",
+      errorMessage: "still unauthorized",
+    });
+  });
+});
+
+describe("agent Jira lookup tool wiring", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+  });
+
+  it("includes lookup_jira_issue for an active Jira helpdesk connection", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "helpdesk" ? activeJiraConnection() : null,
+    );
+    executeToolMock.mockResolvedValue({ data: { issues: [] }, error: null, successful: true });
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(getConnectionForOrgMock).toHaveBeenCalledWith("org-1", "helpdesk");
+    expect(tools.some(isJiraLookupTool)).toBe(true);
+    expect(tools.some(isCrmLookupTool)).toBe(false);
+    expect(tools.some(isLinearLookupTool)).toBe(false);
+    expect(tools.some(isEmailLookupTool)).toBe(false);
+    expect(tools.some(isCalendarLookupTool)).toBe(false);
+
+    const jiraTool = tools.find(isJiraLookupTool) as
+      | { invoke: (context: unknown, input: string) => Promise<string> }
+      | undefined;
+    if (!jiraTool) throw new Error("lookup_jira_issue tool not found");
+    await jiraTool.invoke(undefined, JSON.stringify({ query: "login failed" }));
+    expect(executeToolMock).toHaveBeenCalledWith(
+      JIRA_SEARCH_ISSUES_SLUG,
+      { jql: 'text ~ "login failed"' },
+      {
+        connectedAccountId: "ca_jira_test",
+        userId: "org-1",
+        version: JIRA_TOOLKIT_VERSION,
+      },
+    );
+  });
+
+  it("omits the Jira lookup tool when there is no connection", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isJiraLookupTool)).toBe(false);
+  });
+
+  it("omits the Jira lookup tool when the connection is still pending", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "helpdesk" ? activeJiraConnection({ status: "pending" }) : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
+    expect(tools.some(isJiraLookupTool)).toBe(false);
+  });
+});
+
+describe("Jira issue search JQL, retry-once, and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("builds text-search JQL and embeds quotes without breaking the literal", () => {
+    expect(buildJiraTextSearchJql("login failed")).toBe('text ~ "login failed"');
+    expect(buildJiraTextSearchJql('say "hello"')).toBe('text ~ "say \\"hello\\""');
+  });
+
+  it("logs the original query, not the constructed JQL, on success", async () => {
+    const payload = { data: { issues: [] }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeJiraSearch("login failed", "org-1", "ca_jira_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      JIRA_SEARCH_ISSUES_SLUG,
+      { jql: 'text ~ "login failed"' },
+      { connectedAccountId: "ca_jira_test", userId: "org-1", version: JIRA_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: JIRA_LOOKUP_TOOL_NAME,
+      input: { query: "login failed" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("passes escaped quotes through to JIRA_SEARCH_ISSUES", async () => {
+    executeToolMock.mockResolvedValueOnce({ data: { issues: [] }, error: null, successful: true });
+    await executeJiraSearch('say "hello"', "org-1", "ca_jira_test");
+    expect(executeToolMock).toHaveBeenCalledWith(
+      JIRA_SEARCH_ISSUES_SLUG,
+      { jql: 'text ~ "say \\"hello\\""' },
+      { connectedAccountId: "ca_jira_test", userId: "org-1", version: JIRA_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledWith(
+      expect.objectContaining({ input: { query: 'say "hello"' } }),
+    );
+  });
+
+  it("retries once after a failure then logs success for the recovered result", async () => {
+    vi.useFakeTimers();
+    const payload = { data: { issues: [{ id: "1" }] }, error: null, successful: true };
+    executeToolMock.mockRejectedValueOnce(new Error("rate limited")).mockResolvedValueOnce(payload);
+
+    const pending = executeJiraSearch("outage", "org-1", "ca_jira_test");
+    await vi.advanceTimersByTimeAsync(JIRA_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: JIRA_LOOKUP_TOOL_NAME,
+      input: { query: "outage" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and returns an escalation string when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock
+      .mockRejectedValueOnce(new Error("auth expired"))
+      .mockRejectedValueOnce(new Error("still unauthorized"));
+
+    const pending = executeJiraSearch("timeout", "org-1", "ca_jira_test");
+    await vi.advanceTimersByTimeAsync(JIRA_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(JIRA_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+    expect(logToolCallMock).toHaveBeenCalledTimes(1);
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: JIRA_LOOKUP_TOOL_NAME,
+      input: { query: "timeout" },
       output: null,
       status: "error",
       errorMessage: "still unauthorized",
