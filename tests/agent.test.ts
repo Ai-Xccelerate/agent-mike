@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent } from "@openai/agents";
 import {
   buildAgentTools,
+  buildInstructions,
   buildSkillsBlock,
   LOAD_SKILL_TOOL_NAME,
   CRM_LOOKUP_FAILURE_MESSAGE,
@@ -1118,5 +1119,44 @@ describe("agent skills wiring", () => {
     } finally {
       await deleteCustomSkill(orgId, custom.id);
     }
+  });
+});
+
+describe("agent instructions — job description", () => {
+  const baseProfile = {
+    displayName: "Nick",
+    role: "Sales assistant",
+    tone: "Warm and concise.",
+    systemPromptTemplate: "You are {{displayName}}. Role: {{role}}. Tone: {{tone}}.",
+    model: "gpt-5.6-luna",
+    maxAgentTurns: 3,
+    confidenceThreshold: 0.72,
+    managerName: "Manager",
+  };
+
+  it("includes the job description in the built instructions when set", async () => {
+    const instructions = await buildInstructions(
+      { ...baseProfile, jobDescription: "Qualify inbound leads and book demos with an AE." },
+      "Acme",
+      [],
+      "org-1",
+    );
+    expect(instructions).toContain("Job description (additional detail on this role):");
+    expect(instructions).toContain("Qualify inbound leads and book demos with an AE.");
+  });
+
+  it("omits the job description block when it is unset", async () => {
+    const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1");
+    expect(instructions).not.toContain("Job description");
+  });
+
+  it("omits the job description block when it is null", async () => {
+    const instructions = await buildInstructions(
+      { ...baseProfile, jobDescription: null },
+      "Acme",
+      [],
+      "org-1",
+    );
+    expect(instructions).not.toContain("Job description");
   });
 });

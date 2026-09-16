@@ -33,6 +33,7 @@ export interface WorkerProfileLike {
   managerName: string;
   timezone?: string;
   emailSignature?: string;
+  jobDescription?: string | null;
   toolsConfig?: Record<string, boolean>;
   enabledSkills?: string[];
   /** Read for the skill repository toggle; see lib/integrations.ts. */
@@ -681,7 +682,7 @@ function fillTemplate(template: string, vars: Record<string, string>): string {
   );
 }
 
-async function buildInstructions(
+export async function buildInstructions(
   profile: WorkerProfileLike,
   organizationName: string,
   knowledge: KnowledgeMatch[],
@@ -707,8 +708,13 @@ async function buildInstructions(
     .filter(Boolean)
     .join("\n");
 
+  const jobDescriptionBlock = profile.jobDescription
+    ? `\n\nJob description (additional detail on this role):\n${profile.jobDescription}`
+    : "";
+
   return (
     base +
+    jobDescriptionBlock +
     (identityBlock ? `\n\n${identityBlock}` : "") +
     knowledgeBlock +
     (await buildSkillsBlock(
