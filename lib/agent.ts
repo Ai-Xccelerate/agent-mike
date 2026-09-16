@@ -6,9 +6,11 @@ import { isDemoMode } from "@/lib/env";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
-import { getSkillForOrg } from "@/lib/tools-integrations/skills-catalog";
-import { listCustomSkills } from "@/lib/tools-integrations/custom-skills-repository";
-import { loadSkills } from "@/lib/tools-integrations/skills-loader";
+import {
+  getSkillForOrg,
+  listActiveSkillsForOrg,
+  skillRequirementsMet,
+} from "@/lib/tools-integrations/skills-catalog";
 import { readAgentSkillsSettings } from "@/lib/integrations";
 import {
   SkillsRepositoryError,
@@ -66,12 +68,15 @@ export async function buildSkillsBlock(
 
   if (!enabledSkillIds || enabledSkillIds.length === 0) return repositoryBlock;
 
-  const custom = await listCustomSkills(organizationId);
-  const combined = [...loadSkills(), ...custom];
-  const enabled = combined.filter((skill) => enabledSkillIds.includes(skill.id));
-  if (enabled.length === 0) return repositoryBlock;
+  // Switched on is not the same as usable. A skill can be enabled while its
+  // integration is connected and outlive that connection, and the tools it
+  // tells the agent to call are registered from the live connection — so
+  // advertising it here would hand the agent instructions for a tool it was
+  // never given. It drops out of the prompt instead.
+  const active = await listActiveSkillsForOrg(organizationId, enabledSkillIds);
+  if (active.length === 0) return repositoryBlock;
 
-  const list = enabled.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
+  const list = active.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
   return (
     "\n\nSkills available to you (call load_skill with the skill id to read its full instructions " +
     "before relying on it):\n" +
@@ -169,6 +174,14 @@ function buildLoadSkillTool(
       const skill = await getSkillForOrg(organizationId, skillId);
       if (!skill) {
         return `Skill "${skillId}" is enabled but its content could not be found.`;
+      }
+      // Re-checked at call time, not build time, so a connection revoked
+      // mid-conversation takes effect on the very next load.
+      if (!(await skillRequirementsMet(organizationId, skill.requires))) {
+        return (
+          `Skill "${skillId}" needs ${skill.requires.join(" and ")} connected, and it is not, ` +
+          `so its instructions cannot be followed right now. Do not improvise them.`
+        );
       }
       return skill.body;
     },
