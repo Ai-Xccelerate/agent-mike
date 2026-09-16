@@ -49,6 +49,12 @@ export default function IntegrationsSettingsPage() {
         description="CRM, helpdesk, ticketing, or project-management tool — always a decoupled, external integration, never hard-coded into the worker."
       />
       <IntegrationConnectionCard
+        integrationType="helpdesk"
+        vendors={[{ system: "jira", label: "Jira" }]}
+        title="Helpdesk"
+        description="Search connected helpdesk issues — always a decoupled, external integration, never hard-coded into the worker."
+      />
+      <IntegrationConnectionCard
         integrationType="project_management"
         vendors={[{ system: "linear", label: "Linear" }]}
         title="Project management"
