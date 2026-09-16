@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getAccountStatus } from "@/lib/tools-integrations/composio-client";
-import { getConnectionForOrg, markConnectionActive } from "@/lib/tools-integrations/connection-repository";
+import {
+  getConnectionForOrg,
+  markConnectionActive,
+  markConnectionFailed,
+} from "@/lib/tools-integrations/connection-repository";
 import { disconnectIntegration } from "@/lib/tools-integrations/disconnect";
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
 
@@ -18,8 +22,15 @@ export async function GET(req: NextRequest, { params }: { params: { type: string
   if (row?.composioConnectedAccountId && row.status === "pending") {
     try {
       const composioStatus = await getAccountStatus(row.composioConnectedAccountId);
-      if (composioStatus.toUpperCase() === "ACTIVE") {
+      const normalized = composioStatus.toUpperCase();
+      if (normalized === "ACTIVE") {
         row = await markConnectionActive(row.id, row.composioConnectedAccountId);
+      } else if (normalized === "EXPIRED" || normalized === "FAILED") {
+        // A terminal, non-active state — the manager never finished (or was
+        // never able to finish) signing in. Without this, a dead attempt sits
+        // in "pending" forever: the frontend keeps polling and the card keeps
+        // saying "Connecting..." with no way to tell the manager to retry.
+        row = await markConnectionFailed(row.id);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Composio status check failed";

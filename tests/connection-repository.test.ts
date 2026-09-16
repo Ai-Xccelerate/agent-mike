@@ -7,6 +7,7 @@ import {
   attachConnectedAccountId,
   getConnectionForOrg,
   markConnectionActive,
+  markConnectionFailed,
   upsertPendingConnection,
 } from "@/lib/tools-integrations/connection-repository";
 
@@ -61,6 +62,29 @@ describe("connection repository", () => {
     expect(afterActive!.status).toBe("active");
     expect(afterActive!.composioConnectedAccountId).toBe("ca_hubspot_123");
     expect(afterActive!.id).toBe(pending.id);
+
+    await db.delete(integrationConnections).where(eq(integrationConnections.id, pending.id));
+  });
+
+  it("marks a dead OAuth attempt failed instead of leaving it pending forever", async () => {
+    const orgId = `org-${crypto.randomUUID()}`;
+    await ensureOrganization(orgId, "Connection failure test org");
+
+    const pending = await upsertPendingConnection({
+      organizationId: orgId,
+      integrationType: "crm",
+      system: "zoho",
+      composioAuthConfigId: "ac_zoho",
+      connectedBy: "manager-1",
+    });
+    await attachConnectedAccountId(pending.id, "ca_expired_123");
+
+    const failed = await markConnectionFailed(pending.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.composioConnectedAccountId).toBe("ca_expired_123");
+
+    const fetched = await getConnectionForOrg(orgId, "crm");
+    expect(fetched!.status).toBe("failed");
 
     await db.delete(integrationConnections).where(eq(integrationConnections.id, pending.id));
   });

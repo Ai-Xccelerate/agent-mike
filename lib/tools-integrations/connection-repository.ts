@@ -72,6 +72,18 @@ export async function markConnectionActive(
   return row;
 }
 
+export async function markConnectionFailed(id: string): Promise<IntegrationConnection> {
+  const [row] = await db
+    .update(integrationConnections)
+    .set({
+      status: "failed",
+      updatedAt: new Date(),
+    })
+    .where(eq(integrationConnections.id, id))
+    .returning();
+  return row;
+}
+
 export async function getConnectionForOrg(
   organizationId: string,
   integrationType: string,
