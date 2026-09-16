@@ -12,6 +12,6 @@ export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   const profile = await getOrCreateProfile(tenant.orgId);
   return NextResponse.json({
-    integrations: integrationStatuses(profile.integrationsConfig, tenant.orgId),
+    integrations: await integrationStatuses(profile.integrationsConfig, tenant.orgId),
   });
 }

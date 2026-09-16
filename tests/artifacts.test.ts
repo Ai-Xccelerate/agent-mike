@@ -110,13 +110,14 @@ describe("artifacts status", () => {
     expect(artifactsStatus({}).settings.workspace).toBe("org_abc");
   });
 
-  it("is listed alongside the other integrations", () => {
-    expect(integrationStatuses({}, "default").map((s) => s.key)).toEqual([
+  it("is listed alongside the other integrations", async () => {
+    expect((await integrationStatuses({}, "default")).map((s) => s.key)).toEqual([
       "parchment",
       "agentdb",
       "scribe",
       "artifacts",
       "agent_wiki",
+      "agent_skills",
     ]);
   });
 });

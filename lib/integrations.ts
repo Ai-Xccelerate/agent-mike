@@ -4,6 +4,13 @@ import { agentDbApiUrl, agentDbOrgId, hasEnableJwt, isAgentDbConfigured } from "
 import { isScribeConfigured, scribeMcpUrl } from "@/lib/scribe";
 import { artifactsMcpUrl, artifactsOrgLabel, isArtifactsConfigured } from "@/lib/artifacts";
 import { agentWikiKeyLabel, agentWikiMcpUrl, isAgentWikiConfigured } from "@/lib/agent-wiki";
+import {
+  SKILLS_PROVIDER,
+  SKILLS_REQUIRED_FIELDS,
+  envSkillsCredentials,
+  resolveSkillsCredentials,
+} from "@/lib/skills-repository";
+import { describeCredentials, type CredentialSummary } from "@/lib/provider-credentials";
 
 /**
  * Settings > Integrations.
@@ -158,12 +165,45 @@ export function agentWikiDefaults(): AgentWikiSettings {
   return { enabled: false, spaceId: null, allowWrite: false };
 }
 
+export const AGENT_SKILLS_KEY = "agent_skills";
+
+export const agentSkillsSettingsSchema = z.object({
+  enabled: z.boolean(),
+  /**
+   * Restrict discovery to one category, or null for the whole repository.
+   *
+   * Unlike the catalog and custom skills, repository skills are not enabled
+   * one by one — the point of the repository is that the worker can find a
+   * skill nobody thought to switch on in advance. A category is the only
+   * scope that does not defeat that.
+   */
+  category: z.string().min(1).nullable(),
+  /** How many candidates a search may pull back before the worker chooses. */
+  maxResults: z.number().int().min(1).max(20),
+});
+
+export type AgentSkillsSettings = z.infer<typeof agentSkillsSettingsSchema>;
+
+/**
+ * Off by default, like every integration that reaches outside the deployment.
+ *
+ * Nothing here is write-capable — the key can only search and load published
+ * skills — so the risk is not damage. It is that every search and load is
+ * logged upstream against this key, including the ones that come back empty.
+ * That is somebody else's visibility into how this worker works, and worth a
+ * deliberate yes.
+ */
+export function agentSkillsDefaults(): AgentSkillsSettings {
+  return { enabled: false, category: null, maxResults: 5 };
+}
+
 export const integrationsConfigSchema = z.object({
   [PARCHMENT_KEY]: parchmentSettingsSchema,
   [AGENTDB_KEY]: agentDbSettingsSchema,
   [SCRIBE_KEY]: scribeSettingsSchema,
   [ARTIFACTS_KEY]: artifactsSettingsSchema,
   [AGENT_WIKI_KEY]: agentWikiSettingsSchema,
+  [AGENT_SKILLS_KEY]: agentSkillsSettingsSchema,
 });
 
 export type IntegrationsConfig = z.infer<typeof integrationsConfigSchema>;
@@ -174,6 +214,7 @@ export const agentDbPatchSchema = agentDbSettingsSchema.partial().strict();
 export const scribePatchSchema = scribeSettingsSchema.partial().strict();
 export const artifactsPatchSchema = artifactsSettingsSchema.partial().strict();
 export const agentWikiPatchSchema = agentWikiSettingsSchema.partial().strict();
+export const agentSkillsPatchSchema = agentSkillsSettingsSchema.partial().strict();
 
 export function integrationsDefaults(): IntegrationsConfig {
   return {
@@ -182,6 +223,7 @@ export function integrationsDefaults(): IntegrationsConfig {
     [SCRIBE_KEY]: scribeDefaults(),
     [ARTIFACTS_KEY]: artifactsDefaults(),
     [AGENT_WIKI_KEY]: agentWikiDefaults(),
+    [AGENT_SKILLS_KEY]: agentSkillsDefaults(),
   };
 }
 
@@ -213,6 +255,7 @@ export function readIntegrations(stored: unknown): IntegrationsConfig {
     [SCRIBE_KEY]: readSlice(stored, SCRIBE_KEY, scribeSettingsSchema, defaults[SCRIBE_KEY]),
     [ARTIFACTS_KEY]: readSlice(stored, ARTIFACTS_KEY, artifactsSettingsSchema, defaults[ARTIFACTS_KEY]),
     [AGENT_WIKI_KEY]: readSlice(stored, AGENT_WIKI_KEY, agentWikiSettingsSchema, defaults[AGENT_WIKI_KEY]),
+    [AGENT_SKILLS_KEY]: readSlice(stored, AGENT_SKILLS_KEY, agentSkillsSettingsSchema, defaults[AGENT_SKILLS_KEY]),
   };
 }
 
@@ -278,6 +321,18 @@ export function mergeAgentWikiSettings(
   return { ...current, [AGENT_WIKI_KEY]: { ...current[AGENT_WIKI_KEY], ...patch } };
 }
 
+export function readAgentSkillsSettings(stored: unknown): AgentSkillsSettings {
+  return readIntegrations(stored)[AGENT_SKILLS_KEY];
+}
+
+export function mergeAgentSkillsSettings(
+  stored: unknown,
+  patch: Partial<AgentSkillsSettings>,
+): IntegrationsConfig {
+  const current = readIntegrations(stored);
+  return { ...current, [AGENT_SKILLS_KEY]: { ...current[AGENT_SKILLS_KEY], ...patch } };
+}
+
 export interface IntegrationStatus {
   key: string;
   name: string;
@@ -291,6 +346,12 @@ export interface IntegrationStatus {
   /** Why it is unavailable, for the settings screen to show inline. */
   unavailableReason: string | null;
   settings: Record<string, unknown>;
+  /**
+   * For an integration whose key can be supplied per agent: whether this one
+   * uses its own or the fleet's. Never carries the key itself. Absent on
+   * integrations that are configured fleet-wide only.
+   */
+  credentials?: CredentialSummary;
 }
 
 export function parchmentStatus(stored: unknown, localOrgId: string): IntegrationStatus {
@@ -421,13 +482,52 @@ export function agentWikiStatus(stored: unknown): IntegrationStatus {
   };
 }
 
+export async function agentSkillsStatus(
+  stored: unknown,
+  organizationId: string,
+): Promise<IntegrationStatus> {
+  const settings = readAgentSkillsSettings(stored);
+  const resolved = await resolveSkillsCredentials(organizationId);
+  const available = Boolean(resolved);
+  return {
+    key: AGENT_SKILLS_KEY,
+    name: "AIX Skills repository",
+    description:
+      "Let this worker search the organization's published skills and follow one instead of improvising. Read-only, and found by describing the task rather than switched on one by one.",
+    available,
+    enabled: settings.enabled,
+    active: available && settings.enabled,
+    unavailableReason: available
+      ? null
+      : "Add a key for this agent, or set AIX_SKILLS_API_KEY fleet-wide on the API service.",
+    // Whether this agent is on its own key or the fleet's, so the screen can
+    // say which and offer to change it.
+    credentials: await describeCredentials(
+      organizationId,
+      SKILLS_PROVIDER,
+      [...SKILLS_REQUIRED_FIELDS],
+      envSkillsCredentials,
+    ),
+    settings: {
+      category: settings.category,
+      max_results: settings.maxResults,
+      // Host only — the key is never serialized.
+      api_url: resolved ? resolved.values.apiUrl : null,
+    },
+  };
+}
+
 /** Everything the Integrations settings screen lists. */
-export function integrationStatuses(stored: unknown, localOrgId: string): IntegrationStatus[] {
+export async function integrationStatuses(
+  stored: unknown,
+  localOrgId: string,
+): Promise<IntegrationStatus[]> {
   return [
     parchmentStatus(stored, localOrgId),
     agentDbStatus(stored, localOrgId),
     scribeStatus(stored),
     artifactsStatus(stored),
     agentWikiStatus(stored),
+    await agentSkillsStatus(stored, localOrgId),
   ];
 }

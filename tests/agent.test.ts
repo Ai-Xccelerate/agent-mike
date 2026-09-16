@@ -1044,6 +1044,26 @@ describe("agent skills wiring", () => {
     }
   });
 
+  it("carries the repository search instruction on every return path", async () => {
+    const SEARCH_HINT = "search_skills";
+
+    // No skills enabled at all.
+    expect(await buildSkillsBlock([], "org-1", true)).toContain(SEARCH_HINT);
+    // Enabled ids that match nothing.
+    expect(await buildSkillsBlock(["not-a-real-skill"], "org-1", true)).toContain(SEARCH_HINT);
+    // The path that actually matters: real skills AND the repository on. The
+    // search tool is registered from the integration toggle, so dropping the
+    // instruction here leaves it defined and never called.
+    const both = await buildSkillsBlock(["stay-on-topic"], "org-1", true);
+    expect(both).toContain("stay-on-topic");
+    expect(both).toContain(SEARCH_HINT);
+  });
+
+  it("omits the repository instruction when the repository is off", async () => {
+    expect(await buildSkillsBlock(["stay-on-topic"], "org-1", false)).not.toContain("search_skills");
+    expect(await buildSkillsBlock([], "org-1", false)).toBe("");
+  });
+
   it("does not add load_skill tool when no skills are enabled", async () => {
     const tools = await buildAgentTools({ toolsConfig: {}, enabledSkills: [] }, "org-1");
     expect(tools.some(isLoadSkillTool)).toBe(false);

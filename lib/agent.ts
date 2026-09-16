@@ -9,6 +9,18 @@ import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
 import { getSkillForOrg } from "@/lib/tools-integrations/skills-catalog";
 import { listCustomSkills } from "@/lib/tools-integrations/custom-skills-repository";
 import { loadSkills } from "@/lib/tools-integrations/skills-loader";
+import { readAgentSkillsSettings } from "@/lib/integrations";
+import {
+  SkillsRepositoryError,
+  getRepositorySkill,
+  isRepositorySkillId,
+  resolveSkillsCredentials,
+  repositorySlugFrom,
+  searchSkills,
+  toRepositorySkillId,
+  type AgentSkillsRuntime,
+  type SkillsRepositoryCredentials,
+} from "@/lib/skills-repository";
 
 export interface WorkerProfileLike {
   displayName: string;
@@ -23,9 +35,12 @@ export interface WorkerProfileLike {
   emailSignature?: string;
   toolsConfig?: Record<string, boolean>;
   enabledSkills?: string[];
+  /** Read for the skill repository toggle; see lib/integrations.ts. */
+  integrationsConfig?: unknown;
 }
 
 export const LOAD_SKILL_TOOL_NAME = "load_skill";
+export const SEARCH_SKILLS_TOOL_NAME = "search_skills";
 
 /**
  * Frontmatter (name + description) for every enabled skill is cheap enough to
@@ -36,23 +51,91 @@ export const LOAD_SKILL_TOOL_NAME = "load_skill";
 export async function buildSkillsBlock(
   enabledSkillIds: string[] | undefined,
   organizationId: string,
+  repositoryEnabled = false,
 ): Promise<string> {
-  if (!enabledSkillIds || enabledSkillIds.length === 0) return "";
+  // The repository's own guidance, and it is right: a tool is only reached for
+  // when the agent knows it exists. Without this the search tool is defined and
+  // never called.
+  const repositoryBlock = repositoryEnabled
+    ? "\n\nBefore starting any non-trivial task, search the organization's skill " +
+      "repository with search_skills, describing the task. If a skill matches, load it with " +
+      "load_skill and follow it instead of improvising — skills encode how this company does " +
+      "the work."
+    : "";
+
+  if (!enabledSkillIds || enabledSkillIds.length === 0) return repositoryBlock;
 
   const custom = await listCustomSkills(organizationId);
   const combined = [...loadSkills(), ...custom];
   const enabled = combined.filter((skill) => enabledSkillIds.includes(skill.id));
-  if (enabled.length === 0) return "";
+  if (enabled.length === 0) return repositoryBlock;
 
   const list = enabled.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
   return (
     "\n\nSkills available to you (call load_skill with the skill id to read its full instructions " +
     "before relying on it):\n" +
-    list
+    list +
+    // Both early returns carry this; so must the one path where a worker has
+    // skills switched on *and* the repository connected — which is the case
+    // the search tool exists for.
+    repositoryBlock
   );
 }
 
-function buildLoadSkillTool(enabledSkillIds: string[] | undefined, organizationId: string): Tool {
+/**
+ * Discovery over the organization's published skills.
+ *
+ * The repository ranks by how well a skill's description matches a task, so
+ * the agent passes what it is about to do rather than a slug it would have no
+ * way to know. Results are candidates only — the body is fetched by load_skill,
+ * keeping the same progressive disclosure the local catalog uses.
+ */
+function buildSearchSkillsTool(
+  credentials: SkillsRepositoryCredentials,
+  runtime: AgentSkillsRuntime,
+): Tool {
+  return tool({
+    name: SEARCH_SKILLS_TOOL_NAME,
+    description:
+      "Search the organization's skill repository by describing the task you are about to do. " +
+      "Returns matching skills with their ids; call load_skill with an id to read the full " +
+      "instructions. Prefer following an existing skill over improvising.",
+    parameters: z.object({
+      task: z
+        .string()
+        .describe("A description of the task you are about to do, in your own words"),
+    }),
+    execute: async ({ task }) => {
+      try {
+        const results = await searchSkills({
+          credentials,
+          query: task,
+          category: runtime.category,
+          limit: runtime.maxResults,
+        });
+        if (results.length === 0) {
+          return "No skill in the repository matches that task. Proceed on your own judgement.";
+        }
+        return results
+          .map(
+            (skill) =>
+              `- ${toRepositorySkillId(skill.slug)}: ${skill.name} — ${skill.description}`,
+          )
+          .join("\n");
+      } catch (error) {
+        return error instanceof SkillsRepositoryError
+          ? `Skill search failed: ${error.message}`
+          : "Skill search failed.";
+      }
+    },
+  });
+}
+
+function buildLoadSkillTool(
+  enabledSkillIds: string[] | undefined,
+  organizationId: string,
+  repositoryCredentials: SkillsRepositoryCredentials | null = null,
+): Tool {
   return tool({
     name: LOAD_SKILL_TOOL_NAME,
     description:
@@ -62,6 +145,23 @@ function buildLoadSkillTool(enabledSkillIds: string[] | undefined, organizationI
       skillId: z.string().describe("The skill id, exactly as listed in your available skills"),
     }),
     execute: async ({ skillId }) => {
+      // Repository skills are found by searching, not switched on in advance,
+      // so they are never in enabledSkills — the integration toggle is what
+      // authorises them.
+      if (isRepositorySkillId(skillId)) {
+        if (!repositoryCredentials) {
+          return `The skill repository is not enabled for this worker.`;
+        }
+        try {
+          const found = await getRepositorySkill(repositoryCredentials, repositorySlugFrom(skillId));
+          return found ? found.body : `Skill "${skillId}" was not found in the repository.`;
+        } catch (error) {
+          return error instanceof SkillsRepositoryError
+            ? `Could not load that skill: ${error.message}`
+            : "Could not load that skill from the repository.";
+        }
+      }
+
       if (!enabledSkillIds || !enabledSkillIds.includes(skillId)) {
         return `Skill "${skillId}" is not enabled for this worker.`;
       }
@@ -425,7 +525,7 @@ export async function executeJiraSearch(
 }
 
 export async function buildAgentTools(
-  profile: Pick<WorkerProfileLike, "toolsConfig" | "enabledSkills">,
+  profile: Pick<WorkerProfileLike, "toolsConfig" | "enabledSkills" | "integrationsConfig">,
   organizationId: string,
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
@@ -433,8 +533,24 @@ export async function buildAgentTools(
     tools.push(webSearchTool());
   }
 
-  if (profile.enabledSkills && profile.enabledSkills.length > 0) {
-    tools.push(buildLoadSkillTool(profile.enabledSkills, organizationId));
+  // The repository is authorised by its integration toggle rather than by
+  // enabling skills one at a time, so it is resolved separately from
+  // enabledSkills — and it can be the only source of skills a worker has.
+  const skillsRepo = readAgentSkillsSettings(profile.integrationsConfig);
+  const skillsCreds = skillsRepo.enabled ? await resolveSkillsCredentials(organizationId) : null;
+  const repositoryCredentials = skillsCreds ? skillsCreds.values : null;
+
+  if (repositoryCredentials) {
+    tools.push(
+      buildSearchSkillsTool(repositoryCredentials, {
+        category: skillsRepo.category,
+        maxResults: skillsRepo.maxResults,
+      }),
+    );
+  }
+
+  if (repositoryCredentials || (profile.enabledSkills && profile.enabledSkills.length > 0)) {
+    tools.push(buildLoadSkillTool(profile.enabledSkills, organizationId, repositoryCredentials));
   }
 
   const connection = await getConnectionForOrg(organizationId, "crm");
@@ -595,7 +711,12 @@ async function buildInstructions(
     base +
     (identityBlock ? `\n\n${identityBlock}` : "") +
     knowledgeBlock +
-    (await buildSkillsBlock(profile.enabledSkills, organizationId)) +
+    (await buildSkillsBlock(
+      profile.enabledSkills,
+      organizationId,
+      readAgentSkillsSettings(profile.integrationsConfig).enabled &&
+        Boolean(await resolveSkillsCredentials(organizationId)),
+    )) +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."
