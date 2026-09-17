@@ -1,6 +1,7 @@
 "use client";
 
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
+import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import UserVerificationToggle from "@/components/worker/settings/UserVerificationToggle";
 import { cardClass, fieldClass, sectionHintClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
@@ -14,7 +15,9 @@ export default function GuardrailsSettings() {
       <SettingsPageHeader
         title="Guardrails"
         description="Checks that run before the model responds. Low-confidence answers are never sent automatically."
-        onSave={() => save(["confidenceThreshold", "escalationTerms", "allowedDomains", "requireUserVerification"])}
+        onSave={() =>
+          save(["confidenceThreshold", "escalationTerms", "allowedDomains", "requireUserVerification", "assistantActionsEnabled"])
+        }
         onDiscard={discard}
         dirty={dirty}
         saving={saving}
@@ -75,6 +78,21 @@ export default function GuardrailsSettings() {
           checked={profile.requireUserVerification}
           onChange={(next) => update("requireUserVerification", next)}
         />
+      </section>
+
+      <section className={cardClass}>
+        <h2 className={sectionTitleClass}>Admin assistant</h2>
+        <p className={sectionHintClass}>
+          Applies to the Assistant page only, not this worker&apos;s customer-facing replies.
+        </p>
+        <div className="mt-5">
+          <SettingsToggleRow
+            title="Let the Assistant take actions"
+            description="Off by default. When on, the Assistant can send a reply, resolve a ticket, or publish a knowledge article, after describing the exact change and getting an explicit yes."
+            checked={profile.assistantActionsEnabled}
+            onChange={() => update("assistantActionsEnabled", !profile.assistantActionsEnabled)}
+          />
+        </div>
       </section>
     </>
   );

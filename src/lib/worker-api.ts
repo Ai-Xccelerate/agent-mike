@@ -75,6 +75,7 @@ export type WorkerProfile = {
   escalationTerms: string[];
   allowedDomains: string[];
   requireUserVerification: boolean;
+  assistantActionsEnabled: boolean;
   managerName: string;
   managerEmail: string | null;
   autoReply: boolean;

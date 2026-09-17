@@ -304,7 +304,7 @@ export default function WorkerAssistant() {
             </div>
           </div>
           <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-gray-500 dark:text-gray-400">
-            {voiceError ?? "Answers questions about your business today. Configuring settings and taking actions are coming later."}
+            {voiceError ?? "Answers questions, drafts replies, and can configure or act on this worker after you confirm."}
           </p>
         </form>
       </div>
