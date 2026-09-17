@@ -32,22 +32,37 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
   // the tab icon against the element itself and never repaint it just
   // because the attribute changed. Removing and re-inserting a fresh <link>
   // forces an actual refetch.
-  const defaultFaviconHrefsRef = useRef<string[] | null>(null);
+  //
+  // Only ever remove/recreate the single <link> THIS effect itself created
+  // (tracked via ownLinkRef) — never Next's own default <link rel="icon">
+  // (rendered from app/icon.svg). That one is a React-managed "hoistable"
+  // head element; ripping it out via raw DOM APIs desyncs React's internal
+  // reference to it, and every navigation afterward that tries to reconcile
+  // it throws "Cannot read properties of null (reading 'removeChild')" -
+  // this crashed on every client-side route change for the rest of the tab's
+  // session once this effect had run a single time.
+  const defaultFaviconHrefRef = useRef<string | null>(null);
+  const ownLinkRef = useRef<HTMLLinkElement | null>(null);
   useEffect(() => {
     if (!profile) return;
-    if (defaultFaviconHrefsRef.current === null) {
-      defaultFaviconHrefsRef.current = Array.from(
-        document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]'),
-      ).map((link) => link.href);
+    if (defaultFaviconHrefRef.current === null) {
+      defaultFaviconHrefRef.current =
+        document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href ?? "";
     }
-    const hrefs = profile.avatarUrl ? [profile.avatarUrl] : defaultFaviconHrefsRef.current;
-    document.querySelectorAll('link[rel="icon"]').forEach((link) => link.remove());
-    hrefs.forEach((href) => {
-      const link = document.createElement("link");
-      link.rel = "icon";
-      link.href = href;
-      document.head.appendChild(link);
-    });
+    const href = profile.avatarUrl || defaultFaviconHrefRef.current;
+    ownLinkRef.current?.remove();
+    if (!href) {
+      ownLinkRef.current = null;
+      return;
+    }
+    // Browsers prefer the most recently inserted <link rel="icon">, so
+    // appending ours after Next's default is enough to win without needing
+    // to remove Next's own tag at all.
+    const link = document.createElement("link");
+    link.rel = "icon";
+    link.href = href;
+    document.head.appendChild(link);
+    ownLinkRef.current = link;
   }, [profile]);
 
   return <WorkerIdentityContext.Provider value={{ profile }}>{children}</WorkerIdentityContext.Provider>;
