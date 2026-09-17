@@ -12,7 +12,7 @@ export type Conversation = {
   id: string;
   organizationId: string;
   ticketNumber: number;
-  channel: "chat" | "email" | "widget";
+  channel: "chat" | "email" | "widget" | "assistant";
   customerName: string;
   customerEmail: string | null;
   subject: string | null;
@@ -301,6 +301,12 @@ export type ChatResponse = {
   status: Conversation["status"];
   confidence: number;
   escalated: boolean;
+};
+
+/** The admin assistant's own chat endpoint (see /api/v1/assistant/chat) — no guardrail/escalation concepts, it's the manager asking their own assistant a question. */
+export type AssistantChatResponse = {
+  conversation_id: string;
+  message: Message;
 };
 
 export type ApiFetchOptions = RequestInit & { widgetSiteToken?: string };

@@ -3,20 +3,22 @@
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
 import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
-import { GridIcon, MailIcon, UserCircleIcon } from "@/icons";
+import { ChatIcon, GridIcon, MailIcon, UserCircleIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
 
 // Knowledge lives under Settings (R14 lists it as one of the ten dedicated
-// capability pages), not as a top-level operational section like the two
+// capability pages), not as a top-level operational section like the three
 // below — those are the day-to-day surfaces, not configuration.
 //
-// Chat (a conversational admin assistant, not yet built) belongs here once
-// it exists. It is not Playground — testing the worker's configured agent
-// now lives under Settings > Channels, reached without a permanent nav slot.
+// Assistant is the manager's own conversational admin assistant, not the
+// worker's customer-facing behavior — that's Playground, which tests the
+// worker's configured agent from under Settings > Channels instead of a
+// permanent nav slot.
 const primaryNav: { name: string; path: string; icon: React.FC }[] = [
   { name: "Overview", path: "/", icon: GridIcon },
+  { name: "Assistant", path: "/assistant", icon: ChatIcon },
   { name: "Inbox", path: "/inbox", icon: MailIcon },
 ];
 
