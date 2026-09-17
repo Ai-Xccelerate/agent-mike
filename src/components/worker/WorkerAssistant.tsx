@@ -154,7 +154,7 @@ export default function WorkerAssistant() {
   const isBlank = !conversationId && messages.length === 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-gray-25 dark:bg-gray-900">
       <AssistantHistoryPanel
         selectedId={conversationId}
         refreshKey={refreshKey}
