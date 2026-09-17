@@ -59,11 +59,29 @@ file path in the manifest → pagination lives in `LIB-DATATABLE`
 - **Every new page** gets: metadata title `"<Name> | AI Xccelerate"`,
   `PageBreadcrumb`, `data-aix-id` stamps (root + `.N` blocks), a nav entry in
   `src/layout/AppSidebar.tsx`, and rows in `AIX-REFERENCE.md` + `aix-manifest.json`.
+- **Density vs chrome width:** Compact/Comfortable scale `--spacing`, which
+  shrinks every Tailwind spacing utility (`w-56`, `p-6`, `h-11`, …). Padding
+  and gaps should follow that. **Column widths for nav/sidebars must not** —
+  use `w-[224px]` / `w-[240px]` (see `AppSidebar`, settings `layout.tsx`).
+  Verify Default, Comfortable, and Compact; labels must not ellipsize.
 - **Responsive + dark mode are non-negotiable:** fluid full-width, KPI grids
   1/2/4, wide content scrolls in its own `overflow-x-auto`, `dark:` variants on
   everything.
 - Sentence case, no emoji in product UI, realistic AIX content (agents: Nick,
   Jules, Pepper, Tony, Joy, George), numbers with separators, friendly times.
+- **Copy voice — no em dashes, no AI-cliché filler, keep it short:** never write
+  an em dash (—) in product copy (headings, `description=` props, placeholders,
+  labels, toast/notice/error text, empty states). Split into two short sentences
+  instead: `"Could not save — check the API."` → `"Could not save. Check the
+  API."` A label:value pair uses a colon instead: `"Connected — 5 items"` →
+  `"Connected: 5 items"`. This rule is copy-only — leave em dashes in code
+  comments (`//`, `/** */`) alone, those are developer docs, not product text.
+  Avoid generic AI-sounding filler ("seamlessly", "leverage", "empower",
+  "unlock", "effortlessly", "cutting-edge", "streamline", "dive into", "harness
+  the power of"). Keep descriptions to one short sentence where possible, two
+  at most — plain and specific beats flowery. Never leak internal ticket/spec
+  IDs like `(R16)` into product copy — those belong in a code comment or the
+  ticket tracker, not a heading or description a manager reads.
 
 ## Commands
 

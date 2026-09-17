@@ -122,7 +122,7 @@ export default function UserVerificationToggle({
             >
               Integrations
             </Link>{" "}
-            to use this — verification works by looking the customer up in it.
+            to use this. Verification works by looking the customer up in it.
           </p>
         )}
 
@@ -148,7 +148,7 @@ export default function UserVerificationToggle({
 
         {skillStillOn && (
           <p className="mt-3 border-t border-gray-200 pt-3 text-xs leading-5 text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            The Verify customer skill stays switched on — turning this off does not remove it, in case you
+            The Verify customer skill stays switched on. Turning this off does not remove it, in case you
             have rewritten it. Switch it off under{" "}
             <Link
               href="/settings/skills"
@@ -173,7 +173,7 @@ export default function UserVerificationToggle({
         <p className="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">
           Saving this switches on the <span className="font-medium">Verify customer</span> skill. It tells
           this worker to ask for the customer&rsquo;s email address, look it up in your CRM, and treat them
-          as verified only on an exact match — a similar name or a matching phone number is not enough.
+          as verified only on an exact match. A similar name or a matching phone number is not enough.
         </p>
         <p className="mt-3 text-sm leading-6 text-gray-500 dark:text-gray-400">
           You can rewrite exactly what it asks for, and what it refuses to discuss until then, under Skills.

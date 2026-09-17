@@ -1,12 +1,17 @@
 "use client";
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
+import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import AvatarUploadCard from "@/components/worker/settings/AvatarUploadCard";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
+import { cardClass, counterClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
 import { EnvelopeIcon } from "@/icons";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 import type { WorkerProfile } from "@/lib/worker-api";
+
+const TONE_MAX_LENGTH = 500;
+const BIO_MAX_LENGTH = 500;
+const SIGNATURE_MAX_LENGTH = 300;
 
 const IDENTITY_FIELDS: (keyof WorkerProfile)[] = [
   "name",
@@ -49,7 +54,7 @@ export default function IdentitySettings() {
     <>
       <SettingsPageHeader
         title="Identity"
-        description="How this worker introduces itself across every channel — white-labelable per deployment (R16)."
+        description="How this worker introduces itself across every channel."
         onSave={() => save(IDENTITY_FIELDS)}
         onDiscard={discard}
         dirty={dirty}
@@ -72,7 +77,7 @@ export default function IdentitySettings() {
           <div className="flex-1">
             <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Basics</h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Name, avatar, and tone — the layer that differs per role (R5).
+              Name, avatar, and tone. The layer that differs per role.
             </p>
           </div>
         </div>
@@ -163,9 +168,8 @@ export default function IdentitySettings() {
               className={`${fieldClass} mt-2 font-mono text-xs`}
             />
             <span className="mt-1.5 block text-xs font-normal text-gray-500">
-              Uploading fills this in for you. Uploads live on the API service&apos;s own disk, so on
-              a host with an ephemeral filesystem a CDN URL is the one that survives a redeploy.
-              Saved with the button above.
+              Uploading fills this in for you. For an image that needs to survive a redeploy, use a
+              permanent URL instead. Saved with the button above.
             </span>
             <FieldError message={fieldErrors.avatarUrl} />
           </label>
@@ -177,19 +181,28 @@ export default function IdentitySettings() {
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">How it sounds when it talks to a customer.</p>
         <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
           Tone
-          <textarea rows={3} value={profile.tone} onChange={(e) => update("tone", e.target.value)} className={`${textareaClass} mt-2`} />
+          <AutoGrowTextarea
+            minRows={2}
+            maxRows={6}
+            maxLength={TONE_MAX_LENGTH}
+            value={profile.tone}
+            onChange={(e) => update("tone", e.target.value)}
+            className={`${textareaClass} mt-2`}
+          />
+          <span className={counterClass}>{profile.tone.length}/{TONE_MAX_LENGTH}</span>
           <FieldError message={fieldErrors.tone} />
         </label>
         <label className="mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300">
           Short bio
-          <textarea
-            rows={3}
-            maxLength={500}
+          <AutoGrowTextarea
+            minRows={3}
+            maxRows={8}
+            maxLength={BIO_MAX_LENGTH}
             value={profile.bio}
             onChange={(e) => update("bio", e.target.value)}
             className={`${textareaClass} mt-2`}
           />
-          <span className="mt-1.5 block text-xs font-normal text-gray-500">{profile.bio.length}/500</span>
+          <span className={counterClass}>{profile.bio.length}/{BIO_MAX_LENGTH}</span>
           <FieldError message={fieldErrors.bio} />
         </label>
       </section>
@@ -238,14 +251,15 @@ export default function IdentitySettings() {
           </label>
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
             Email signature
-            <textarea
-              rows={3}
-              maxLength={300}
+            <AutoGrowTextarea
+              minRows={3}
+              maxRows={8}
+              maxLength={SIGNATURE_MAX_LENGTH}
               value={profile.emailSignature}
               onChange={(e) => update("emailSignature", e.target.value)}
               className={`${textareaClass} mt-2`}
             />
-            <span className="mt-1.5 block text-xs font-normal text-gray-500">{profile.emailSignature.length}/300</span>
+            <span className={counterClass}>{profile.emailSignature.length}/{SIGNATURE_MAX_LENGTH}</span>
             <FieldError message={fieldErrors.emailSignature} />
           </label>
         </div>

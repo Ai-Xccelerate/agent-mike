@@ -1,8 +1,12 @@
 "use client";
 
+import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, sectionTitleClass, textareaClass } from "@/components/worker/settings/ui";
+import { cardClass, counterClass, sectionTitleClass, textareaClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
+
+const ROLE_MAX_LENGTH = 1000;
+const JOB_DESCRIPTION_MAX_LENGTH = 4000;
 
 export default function RoleSettings() {
   const { profile, update, save, discard, dirty, saving, notice, noticeError, lastEditedAt } = useWorkerProfile();
@@ -12,7 +16,7 @@ export default function RoleSettings() {
     <>
       <SettingsPageHeader
         title="Role"
-        description="Define this worker's job in plain language — becomes part of its system prompt."
+        description="Define this worker's job in plain language. Becomes part of its system prompt."
         onSave={() => save(["role", "jobDescription", "autoReply"])}
         onDiscard={discard}
         dirty={dirty}
@@ -25,16 +29,27 @@ export default function RoleSettings() {
         <h2 className={sectionTitleClass}>Role and scope</h2>
         <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
           Role description
-          <textarea rows={4} value={profile.role} onChange={(e) => update("role", e.target.value)} className={`${textareaClass} mt-2`} />
+          <AutoGrowTextarea
+            minRows={3}
+            maxRows={10}
+            maxLength={ROLE_MAX_LENGTH}
+            value={profile.role}
+            onChange={(e) => update("role", e.target.value)}
+            className={`${textareaClass} mt-2`}
+          />
+          <span className={counterClass}>{profile.role.length}/{ROLE_MAX_LENGTH}</span>
         </label>
         <label className="mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300">
           Job description (optional, longer detail)
-          <textarea
-            rows={5}
+          <AutoGrowTextarea
+            minRows={4}
+            maxRows={16}
+            maxLength={JOB_DESCRIPTION_MAX_LENGTH}
             value={profile.jobDescription ?? ""}
             onChange={(e) => update("jobDescription", e.target.value || null)}
             className={`${textareaClass} mt-2`}
           />
+          <span className={counterClass}>{(profile.jobDescription ?? "").length}/{JOB_DESCRIPTION_MAX_LENGTH}</span>
         </label>
         <div className="mt-5 flex items-center justify-between gap-4 rounded-xl bg-gray-50 p-4 dark:bg-white/[0.03]">
           <div>

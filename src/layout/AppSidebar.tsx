@@ -3,18 +3,21 @@
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
 import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
-import { ChatIcon, GridIcon, MailIcon, UserCircleIcon } from "@/icons";
+import { GridIcon, MailIcon, UserCircleIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
 
 // Knowledge lives under Settings (R14 lists it as one of the ten dedicated
-// capability pages), not as a top-level operational section like the three
+// capability pages), not as a top-level operational section like the two
 // below — those are the day-to-day surfaces, not configuration.
+//
+// Chat (a conversational admin assistant, not yet built) belongs here once
+// it exists. It is not Playground — testing the worker's configured agent
+// now lives under Settings > Channels, reached without a permanent nav slot.
 const primaryNav: { name: string; path: string; icon: React.FC }[] = [
   { name: "Overview", path: "/", icon: GridIcon },
   { name: "Inbox", path: "/inbox", icon: MailIcon },
-  { name: "Chat", path: "/chat", icon: ChatIcon },
 ];
 
 export default function AppSidebar() {

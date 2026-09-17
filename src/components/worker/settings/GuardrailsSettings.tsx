@@ -13,7 +13,7 @@ export default function GuardrailsSettings() {
     <>
       <SettingsPageHeader
         title="Guardrails"
-        description="Deterministic checks that run before the model — low-confidence answers never auto-send."
+        description="Checks that run before the model responds. Low-confidence answers are never sent automatically."
         onSave={() => save(["confidenceThreshold", "escalationTerms", "allowedDomains", "requireUserVerification"])}
         onDiscard={discard}
         dirty={dirty}
@@ -60,7 +60,7 @@ export default function GuardrailsSettings() {
       <section className={cardClass}>
         <h2 className={sectionTitleClass}>Domain &amp; user restriction</h2>
         <p className={sectionHintClass}>
-          A standard, foundation-level feature — not something built per worker. Leave empty to allow any sender.
+          A standard, foundation-level feature, not something built per worker. Leave empty to allow any sender.
         </p>
         <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
           Allowed email domains

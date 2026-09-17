@@ -227,7 +227,7 @@ export default function WorkerDashboard() {
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Test a customer question against the current role, guardrails, and knowledge.
             </p>
-            <Link href="/chat" className="mt-4 block">
+            <Link href="/playground" className="mt-4 block">
               <Button className="w-full">Open test conversation</Button>
             </Link>
           </section>
