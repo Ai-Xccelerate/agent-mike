@@ -210,33 +210,35 @@ export default function WorkerAssistant() {
               </div>
             </div>
           ) : (
-            messages.map((message) => {
-              const isAgent = message.senderType === "agent";
-              return isAgent ? (
-                <div key={message.id} className="flex gap-2.5">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+              {messages.map((message) => {
+                const isAgent = message.senderType === "agent";
+                return isAgent ? (
+                  <div key={message.id} className="flex gap-2.5">
+                    <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
+                    <div className="max-w-[82%] pt-1 text-sm leading-6 text-gray-700 dark:text-gray-200">
+                      <Markdown>{message.body}</Markdown>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={message.id} className="flex justify-end">
+                    <p className="max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand-500 px-4 py-3 text-right text-sm leading-6 text-white">
+                      {message.body}
+                    </p>
+                  </div>
+                );
+              })}
+
+              {loading && (
+                <div className="flex items-center gap-2.5">
                   <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-                  <div className="max-w-[82%] pt-1 text-sm leading-6 text-gray-700 dark:text-gray-200">
-                    <Markdown>{message.body}</Markdown>
+                  <div className="flex gap-1 px-1 py-3">
+                    <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
+                    <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
+                    <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms]" />
                   </div>
                 </div>
-              ) : (
-                <div key={message.id} className="flex justify-end">
-                  <p className="max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand-500 px-4 py-3 text-right text-sm leading-6 text-white">
-                    {message.body}
-                  </p>
-                </div>
-              );
-            })
-          )}
-
-          {loading && (
-            <div className="flex items-center gap-2.5">
-              <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-              <div className="flex gap-1 px-1 py-3">
-                <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
-                <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
-                <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms]" />
-              </div>
+              )}
             </div>
           )}
           <div ref={bottomRef} />
@@ -247,9 +249,9 @@ export default function WorkerAssistant() {
             event.preventDefault();
             void sendText(value);
           }}
-          className="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6"
+          className="shrink-0 px-4 pb-8 sm:px-6 sm:pb-10"
         >
-          <div className="mx-auto flex w-full max-w-xl flex-col gap-2 rounded-2xl bg-white p-3.5 shadow-lg shadow-gray-900/10 ring-1 ring-black/[0.04] focus-within:ring-2 focus-within:ring-brand-500/40 dark:bg-gray-800 dark:shadow-black/30 dark:ring-white/[0.06]">
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 rounded-2xl bg-white p-3.5 shadow-lg shadow-gray-900/10 ring-1 ring-black/[0.04] focus-within:ring-2 focus-within:ring-brand-500/40 dark:bg-gray-800 dark:shadow-black/30 dark:ring-white/[0.06]">
             <textarea
               ref={inputRef}
               value={value}
@@ -301,7 +303,7 @@ export default function WorkerAssistant() {
               </button>
             </div>
           </div>
-          <p className="mx-auto mt-2 max-w-xl text-center text-[11px] text-gray-500 dark:text-gray-400">
+          <p className="mx-auto mt-2 max-w-2xl text-center text-[11px] text-gray-500 dark:text-gray-400">
             {voiceError ?? "Answers questions about your business today. Configuring settings and taking actions are coming later."}
           </p>
         </form>
