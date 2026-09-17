@@ -80,6 +80,13 @@ export const workerProfiles = pgTable(
     // Fail-closed: write tools (create/update in an external system) wait for a
     // human unless this worker is explicitly set to auto-execute.
     requireWriteApproval: boolean("require_write_approval").notNull().default(true),
+    // Off by default - gates the admin Assistant's Tier 4 "Act" tools
+    // (send a reply, resolve a ticket, publish a knowledge article) entirely.
+    // Distinct from requireWriteApproval above (that one is about the
+    // customer-facing agent's own external-system writes); the Assistant
+    // always requires an explicit confirm-then-yes turn regardless of this
+    // flag - this just controls whether those tools are offered at all.
+    assistantActionsEnabled: boolean("assistant_actions_enabled").notNull().default(false),
 
     // Human manager (settings > Human Manager)
     managerName: text("manager_name").notNull().default("Manager"),
@@ -323,6 +330,11 @@ export const toolApprovals = pgTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    // Which assistant thread proposed this - so confirm/cancel only ever act
+    // on that same thread's own pending item, never an unrelated thread's
+    // abandoned proposal. Nullable because a pre-existing row (or a future
+    // non-conversational caller) may not have one.
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
     toolId: text("tool_id").notNull(),
     input: jsonb("input")
       .$type<Record<string, unknown>>()
@@ -338,6 +350,7 @@ export const toolApprovals = pgTable(
   },
   (table) => ({
     orgStatusIdx: index("tool_approvals_org_status_idx").on(table.organizationId, table.status),
+    conversationIdx: index("tool_approvals_conversation_idx").on(table.conversationId),
   }),
 );
 

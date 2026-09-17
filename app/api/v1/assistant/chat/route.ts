@@ -103,7 +103,21 @@ export async function POST(req: NextRequest) {
     body: m.body,
   }));
 
-  const result = await runAssistantAgent(profile, tenant.orgId, message, recentHistory, conversation.summary);
+  let result;
+  try {
+    result = await runAssistantAgent(profile, tenant.orgId, conversation.id, message, recentHistory, conversation.summary);
+  } catch (error) {
+    // A raw agent-run failure (e.g. MaxTurnsExceededError from a longer
+    // propose-then-confirm exchange) shouldn't surface as an unhandled 500 -
+    // the manager's message is already persisted above either way.
+    const detail = error instanceof Error ? error.message : "unknown error";
+    result = {
+      answer:
+        "I ran into a problem completing that (" +
+        detail +
+        "). If you were confirming or cancelling a pending change, check whether it went through before trying again.",
+    };
+  }
 
   const [reply] = await db
     .insert(messages)

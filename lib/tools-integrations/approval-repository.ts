@@ -8,6 +8,7 @@ export type CreatePendingApprovalInput = {
   organizationId: string;
   toolId: string;
   input: Record<string, unknown>;
+  conversationId?: string | null;
 };
 
 export async function createPendingApproval(entry: CreatePendingApprovalInput): Promise<ToolApproval> {
@@ -15,6 +16,7 @@ export async function createPendingApproval(entry: CreatePendingApprovalInput): 
     .insert(toolApprovals)
     .values({
       organizationId: entry.organizationId,
+      conversationId: entry.conversationId ?? null,
       toolId: entry.toolId,
       input: entry.input,
       status: "pending",
@@ -28,11 +30,22 @@ export async function getApproval(id: string): Promise<ToolApproval | null> {
   return row ?? null;
 }
 
-export async function listPendingApprovals(organizationId: string): Promise<ToolApproval[]> {
+/**
+ * Scoped to one conversation whenever the caller has one - two assistant
+ * threads must never see or resolve each other's pending proposals. A null
+ * conversationId falls back to the old org-wide lookup for callers that
+ * genuinely have none.
+ */
+export async function listPendingApprovals(
+  organizationId: string,
+  conversationId?: string | null,
+): Promise<ToolApproval[]> {
+  const conditions = [eq(toolApprovals.organizationId, organizationId), eq(toolApprovals.status, "pending")];
+  if (conversationId) conditions.push(eq(toolApprovals.conversationId, conversationId));
   return db
     .select()
     .from(toolApprovals)
-    .where(and(eq(toolApprovals.organizationId, organizationId), eq(toolApprovals.status, "pending")))
+    .where(and(...conditions))
     .orderBy(desc(toolApprovals.createdAt));
 }
 
