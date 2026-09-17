@@ -688,11 +688,20 @@ export async function buildAgentTools(
   return tools;
 }
 
-function fillTemplate(template: string, vars: Record<string, string>): string {
-  return Object.entries(vars).reduce(
-    (text, [key, value]) => text.replaceAll(`{{${key}}}`, value),
-    template,
-  );
+/**
+ * The identity/role/tone opening line, built here in code from the
+ * profile's own fields — never from a manager-editable template. Frontend
+ * counterpart: `AgentConfigurationSettings.tsx`'s read-only preview must
+ * render this exact same format; keep the two in sync by hand (separate
+ * repos, no shared package).
+ */
+export function buildIdentityBlock(
+  displayName: string,
+  organizationName: string,
+  role: string,
+  tone: string,
+): string {
+  return `You are ${displayName}, an AI worker for ${organizationName}.\nRole: ${role}\nTone: ${tone}`;
 }
 
 export async function buildInstructions(
@@ -701,12 +710,13 @@ export async function buildInstructions(
   knowledge: KnowledgeMatch[],
   organizationId: string,
 ): Promise<string> {
-  const base = fillTemplate(profile.systemPromptTemplate, {
-    displayName: profile.displayName,
-    organizationName,
-    role: profile.role,
-    tone: profile.tone,
-  });
+  const identityLine = buildIdentityBlock(profile.displayName, organizationName, profile.role, profile.tone);
+
+  // systemPromptTemplate now holds only *additional* instructions beyond
+  // identity/role/tone — those are guaranteed by identityLine above, so
+  // editing this field (including clearing it) can no longer silently drop
+  // them the way the old single-template-with-placeholders design could.
+  const additionalInstructionsBlock = profile.systemPromptTemplate ? `\n\n${profile.systemPromptTemplate}` : "";
 
   const knowledgeBlock =
     knowledge.length > 0
@@ -714,7 +724,7 @@ export async function buildInstructions(
         knowledge.map((k) => `### ${k.title}${k.heading ? ` — ${k.heading}` : ""}\n${k.content}`).join("\n\n")
       : "\n\nNo matching reference material was found for this question.";
 
-  const identityBlock = [
+  const contactBlock = [
     profile.timezone ? `Timezone: ${profile.timezone}.` : "",
     profile.emailSignature ? `Email sign-off:\n${profile.emailSignature}` : "",
   ]
@@ -726,9 +736,10 @@ export async function buildInstructions(
     : "";
 
   return (
-    base +
+    identityLine +
+    additionalInstructionsBlock +
     jobDescriptionBlock +
-    (identityBlock ? `\n\n${identityBlock}` : "") +
+    (contactBlock ? `\n\n${contactBlock}` : "") +
     knowledgeBlock +
     (await buildSkillsBlock(
       profile.enabledSkills,

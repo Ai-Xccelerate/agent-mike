@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { workerProfiles } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
-import { getOrCreateProfile } from "@/lib/bootstrap";
+import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { fieldErrors, isUniqueViolation, workerPatchSchema } from "@/lib/worker-patch";
 import {
   listSkillsForOrg,
@@ -16,8 +16,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
-  const profile = await getOrCreateProfile(tenant.orgId);
-  return NextResponse.json(profile);
+  const [profile, organizationName] = await Promise.all([
+    getOrCreateProfile(tenant.orgId),
+    getOrganizationName(tenant.orgId),
+  ]);
+  return NextResponse.json({ ...profile, organizationName });
 }
 
 export async function PATCH(req: NextRequest) {

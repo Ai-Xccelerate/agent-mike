@@ -417,7 +417,7 @@ export function scribeStatus(stored: unknown): IntegrationStatus {
     key: SCRIBE_KEY,
     name: "Scribe",
     description:
-      "Let this worker draw on the organization's meeting record — transcripts, decisions and action items — when it answers. Read-only, and off by default: meeting notes are internal.",
+      "Let this worker draw on the organization's meeting record (transcripts, decisions, and action items) when it answers. Read-only, and off by default since meeting notes are internal.",
     available,
     enabled: settings.enabled,
     active: available && settings.enabled,
@@ -464,7 +464,7 @@ export function agentWikiStatus(stored: unknown): IntegrationStatus {
     key: AGENT_WIKI_KEY,
     name: "Agent Wiki",
     description:
-      "Let this worker search and read the organization's wiki spaces when it answers. Read-only unless you allow writing — and the key's own permissions still decide what it can change.",
+      "Let this worker search and read the organization's wiki spaces when it answers. Read-only unless you allow writing, and the key's own permissions still decide what it can change.",
     available,
     enabled: settings.enabled,
     active: available && settings.enabled,

@@ -14,6 +14,17 @@ export async function ensureOrganization(orgId: string, name = orgId) {
 }
 
 /**
+ * The org's real display name (e.g. "Default Workspace"), not its id
+ * (e.g. "default") — those look similar for the seeded default org, which is
+ * how `runAgent`/`buildInstructions` ended up being passed the id in place of
+ * this for every worker's prompt until this function existed.
+ */
+export async function getOrganizationName(orgId: string): Promise<string> {
+  const org = await ensureOrganization(orgId, orgId === DEFAULT_ORG_ID ? DEFAULT_ORG_NAME : orgId);
+  return org.name;
+}
+
+/**
  * Seed the slug and display name from the agent's own id rather than leaving
  * every agent in the fleet called "AI Worker" at slug "worker" — but only
  * when that id is itself slug-shaped. Multi-agent org ids come from a request
