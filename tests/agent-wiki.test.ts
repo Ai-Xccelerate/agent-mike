@@ -112,8 +112,19 @@ describe("agent wiki configuration", () => {
     expect(isAgentWikiConfigured()).toBe(true);
   });
 
-  it("strips the trailing slash so the URL is joined consistently", () => {
+  // This asserted the opposite until the client was first run against a real
+  // server. Stripping the slash sends the request to /mcp, which answers 307 to
+  // *http*://…/mcp/ — a protocol downgrade that fetch will not carry the
+  // Authorization header across. The request then arrives unauthenticated and
+  // the 401 reads as "Agent Wiki rejected the key", which sent us looking at the
+  // key instead of the URL. The path is passed through exactly as configured.
+  it("preserves the trailing slash, which the server requires", () => {
     process.env.AGENT_WIKI_MCP_URL = "https://wiki.example.com/mcp/";
+    expect(agentWikiMcpUrl()).toBe("https://wiki.example.com/mcp/");
+  });
+
+  it("still trims surrounding whitespace", () => {
+    process.env.AGENT_WIKI_MCP_URL = "  https://wiki.example.com/mcp  ";
     expect(agentWikiMcpUrl()).toBe("https://wiki.example.com/mcp");
   });
 
@@ -146,7 +157,7 @@ describe("agent wiki status", () => {
     configured();
     const serialized = JSON.stringify(agentWikiStatus({}));
     expect(serialized).not.toContain("aw_key_supersecret");
-    expect(agentWikiStatus({}).settings.api_url).toBe("https://wiki.example.com/mcp");
+    expect(agentWikiStatus({}).settings.api_url).toBe("https://wiki.example.com/mcp/");
   });
 
   it("joins the other integrations on the settings screen", async () => {

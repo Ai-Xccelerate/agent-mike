@@ -111,8 +111,20 @@ export class AgentWikiError extends Error {
   }
 }
 
+/**
+ * The endpoint exactly as configured — the trailing slash is load-bearing.
+ *
+ * It used to be stripped, which looked harmless and was not: the server answers
+ * `/mcp` with a 307 to `http://…/mcp/` — a *protocol downgrade*. fetch drops the
+ * Authorization header across that, so the request arrived unauthenticated and
+ * came back 401, which this client then reported as "Agent Wiki rejected the
+ * key". The key was never the problem.
+ *
+ * Only whitespace is trimmed now. Scribe and Artifacts configure their URLs
+ * without a trailing slash and are unaffected either way.
+ */
 export function agentWikiMcpUrl(): string {
-  return (process.env.AGENT_WIKI_MCP_URL || "").trim().replace(/\/+$/, "");
+  return (process.env.AGENT_WIKI_MCP_URL || "").trim();
 }
 
 function agentWikiKey(): string {
@@ -214,6 +226,10 @@ async function agentWikiRpc(
       },
       body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }),
       signal: controller.signal,
+      // Never follow a redirect while holding a bearer token: this server
+      // redirects to plain http, which would either strip the header (a
+      // confusing 401) or put the key on the wire in the clear.
+      redirect: "manual",
       // Next patches global fetch and will cache route-handler requests without
       // this. Cast: `cache` is not on the DOM RequestInit this project compiles against.
       ...({ cache: "no-store" } as Record<string, unknown>),
@@ -283,8 +299,8 @@ function toolText(result: Record<string, unknown>): string {
     .join("\n");
 }
 
-/** Agent Wiki returns its payloads as a JSON string inside the text block. */
-async function callTool(
+/** One tool call, with the server's own error convention already applied. */
+async function invokeTool(
   name: string,
   args: Record<string, unknown>,
   timeoutMs?: number,
@@ -303,12 +319,70 @@ async function callTool(
       readOnly ? "read_only" : "protocol",
     );
   }
+  return result;
+}
+
+/** Agent Wiki returns its payloads as a JSON string inside the text block. */
+async function callTool(
+  name: string,
+  args: Record<string, unknown>,
+  timeoutMs?: number,
+): Promise<Record<string, unknown>> {
+  const text = toolText(await invokeTool(name, args, timeoutMs));
   if (!text.trim().startsWith("{")) return { text };
   try {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
     return { text };
   }
+}
+
+/**
+ * Rows from a list-style tool, parsed per content block.
+ *
+ * This server answers `list_spaces` with one block *per space*, each a bare
+ * JSON object rather than a single block wrapping an array. Joining the blocks
+ * and parsing once yields `{…}
+{…}` — not valid JSON — so every list came back
+ * empty and the settings screen showed a key that reached no spaces at all.
+ * Nothing errored; the list was simply always empty.
+ *
+ * Both shapes are accepted: a block per row, a block holding an array, or a
+ * block holding `{ spaces: [...] }`.
+ */
+async function callToolRows(
+  name: string,
+  args: Record<string, unknown>,
+  keys: string[],
+  timeoutMs?: number,
+): Promise<Array<Record<string, unknown>>> {
+  const result = await invokeTool(name, args, timeoutMs);
+  const content = Array.isArray(result.content) ? result.content : [];
+  const rows: Array<Record<string, unknown>> = [];
+
+  for (const part of content) {
+    const text =
+      part && typeof part === "object" ? String((part as { text?: unknown }).text ?? "") : "";
+    const trimmed = text.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (Array.isArray(parsed)) {
+      rows.push(...(parsed as Array<Record<string, unknown>>));
+      continue;
+    }
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      const wrapped = keys.map((key) => record[key]).find(Array.isArray);
+      if (wrapped) rows.push(...(wrapped as Array<Record<string, unknown>>));
+      else rows.push(record);
+    }
+  }
+  return rows;
 }
 
 function str(value: unknown): string {
@@ -355,9 +429,10 @@ function rowsFrom(data: Record<string, unknown>, keys: string[]): Array<Record<s
 
 /** The spaces this key can reach — used by the settings screen to scope search. */
 export async function listSpaces(timeoutMs?: number): Promise<AgentWikiSpace[]> {
-  const data = await callTool("list_spaces", {}, timeoutMs);
-  return rowsFrom(data, ["spaces", "items", "results"]).map((space) => ({
-    id: str(space.id),
+  const rows = await callToolRows("list_spaces", {}, ["spaces", "items", "results"], timeoutMs);
+  return rows.map((space) => ({
+    // The server names it `space_id`; `id` is the fallback for other shapes.
+    id: str(space.space_id ?? space.id),
     name: str(space.name) || "Untitled space",
     role: optional(space.role),
     pageCount: num(space.page_count ?? space.pages),
