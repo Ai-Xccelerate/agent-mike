@@ -18,6 +18,8 @@ import ArrowRightIcon from "./arrow-right.svg";
 import GroupIcon from "./group.svg";
 import BoxIconLine from "./box-line.svg";
 import ShootingStarIcon from "./shooting-star.svg";
+import SparklesIcon from "./sparkles.svg";
+import GearIcon from "./gear.svg";
 import DollarLineIcon from "./dollar-line.svg";
 import TrashBinIcon from "./trash.svg";
 import AngleUpIcon from "./angle-up.svg";
@@ -83,6 +85,8 @@ export {
   GroupIcon,
   BoxIconLine,
   ShootingStarIcon,
+  SparklesIcon,
+  GearIcon,
   DollarLineIcon,
   TrashBinIcon,
   AngleUpIcon,
