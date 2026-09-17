@@ -90,12 +90,12 @@ export default function EmailDomainsSettings() {
       setReason("");
       await load();
       setNoticeError(false);
-      setNotice("Added — it is waiting for approval below.");
+      setNotice("Added. It is waiting for approval below.");
     } catch (error) {
       setAddError(
         error instanceof WorkerApiError
           ? (error.errors?.domain ?? error.message)
-          : "Could not add — check that the API is running.",
+          : "Could not add. Check that the API is running.",
       );
     } finally {
       setAdding(false);
@@ -114,12 +114,12 @@ export default function EmailDomainsSettings() {
       setNoticeError(false);
       setNotice(
         decision === "approve"
-          ? `${row.domain} approved — the worker can share with it now.`
-          : `${row.domain} revoked — the worker can no longer share with it.`,
+          ? `${row.domain} approved. The worker can share with it now.`
+          : `${row.domain} revoked. The worker can no longer share with it.`,
       );
     } catch {
       setNoticeError(true);
-      setNotice("Could not save that decision — check that the API is running.");
+      setNotice("Could not save that decision. Check that the API is running.");
     } finally {
       setBusyId(null);
     }
@@ -135,7 +135,7 @@ export default function EmailDomainsSettings() {
       setNotice(`${row.domain} removed.`);
     } catch {
       setNoticeError(true);
-      setNotice("Could not remove — check that the API is running.");
+      setNotice("Could not remove. Check that the API is running.");
     } finally {
       setBusyId(null);
     }
@@ -155,7 +155,7 @@ export default function EmailDomainsSettings() {
       {phase === "failed" ? (
         <section className={cardClass}>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Could not load email domains — check that the API is running.
+            Could not load email domains. Check that the API is running.
           </p>
           <Button
             size="sm"
@@ -207,7 +207,7 @@ export default function EmailDomainsSettings() {
           <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-166.2">
             <h2 className={sectionTitleClass}>Add a domain</h2>
             <p className="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
-              Goes in as pending. Adding it allows nothing on its own — it still has to be approved
+              Goes in as pending. Adding it allows nothing on its own. It still has to be approved
               below before the worker can share anything with it.
             </p>
 
@@ -295,7 +295,7 @@ export default function EmailDomainsSettings() {
           <Group
             title="Approved"
             description="The worker may share activity with addresses on these domains."
-            empty="No domains approved yet — the worker shares with nobody outside this organization."
+            empty="No domains approved yet. The worker shares with nobody outside this organization."
             rows={approved}
             loading={phase === "loading"}
             aixId="AIX-166.4"

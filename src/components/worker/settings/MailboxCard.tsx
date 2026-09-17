@@ -121,7 +121,7 @@ export default function MailboxCard() {
       setCredsError(
         error instanceof WorkerApiError
           ? (error.errors?.clientId ?? error.errors?.apiKey ?? error.message)
-          : "Could not save — check that the API is running.",
+          : "Could not save. Check that the API is running.",
       );
     }
   }
@@ -138,7 +138,7 @@ export default function MailboxCard() {
       setNotice("Now using the shared Nylas application.");
     } catch {
       setSavingCreds("error");
-      setCredsError("Could not clear — check that the API is running.");
+      setCredsError("Could not clear. Check that the API is running.");
     }
   }
 
@@ -157,7 +157,7 @@ export default function MailboxCard() {
       setNotice(
         error instanceof WorkerApiError
           ? (error.errors?.mailbox ?? error.message)
-          : "Could not start the connection — check that the API is running.",
+          : "Could not start the connection. Check that the API is running.",
       );
       setBusy(false);
     }
@@ -174,7 +174,7 @@ export default function MailboxCard() {
       setNotice("Mailbox disconnected. The worker can no longer send or receive email.");
     } catch {
       setNoticeError(true);
-      setNotice("Could not disconnect — check that the API is running.");
+      setNotice("Could not disconnect. Check that the API is running.");
     } finally {
       setBusy(false);
     }
@@ -187,7 +187,7 @@ export default function MailboxCard() {
       setTest(await apiFetch<MailboxConnectionTest>("/mailbox/test", { method: "POST" }));
     } catch {
       setNoticeError(true);
-      setNotice("Could not run the test — check that the API is running.");
+      setNotice("Could not run the test. Check that the API is running.");
     } finally {
       setTesting(false);
     }
@@ -207,7 +207,7 @@ export default function MailboxCard() {
       <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Nylas</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Could not load the mailbox — check that the API is running.
+          Could not load the mailbox. Check that the API is running.
         </p>
         <Button size="sm" variant="outline" className="mt-3" onClick={() => void load()}>
           Try again
@@ -303,7 +303,7 @@ export default function MailboxCard() {
           <div className="border-t border-gray-100 p-4 dark:border-gray-800">
             <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
                 {status.credentials.source === "env"
-                  ? "Using the shared application configured on the API service. Enter values below to give this agent its own instead."
+                  ? "Using your organization's shared app. Enter values below to give this agent its own instead."
                   : status.credentials.source === "org"
                     ? "This agent has its own application. Clear it to fall back to the shared one."
                     : "Paste the client ID and API key from your Nylas dashboard."}
@@ -376,7 +376,7 @@ export default function MailboxCard() {
             <code className="break-all font-mono text-[11px] text-gray-600 dark:text-gray-400">
               {status.callback_uri}
             </code>{" "}
-              as a callback URI on the application, and add a connector for the provider you use —
+              as a callback URI on the application, and add a connector for the provider you use.
               Nylas cannot create a grant without one.
             </p>
           </div>
@@ -385,7 +385,7 @@ export default function MailboxCard() {
 
       {needsReconnect && (
         <p className="mt-3 text-xs font-medium leading-5 text-warning-600 dark:text-warning-400">
-          This mailbox is no longer authorised — reconnect it before the worker can send again.
+          This mailbox is no longer authorised. Reconnect it before the worker can send again.
         </p>
       )}
 
@@ -444,13 +444,13 @@ export default function MailboxCard() {
               }`}
             >
               {test.ok
-                ? `Connected as ${test.email ?? "this mailbox"} — ${test.messageCount} recent messages, ${test.upcomingEvents.length} upcoming events.`
+                ? `Connected as ${test.email ?? "this mailbox"}: ${test.messageCount} recent messages, ${test.upcomingEvents.length} upcoming events.`
                 : (test.error ?? "The connection test failed.")}
             </p>
           )}
 
           <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
-            Connecting saves straight away — the Save button above does not apply to it. Who the
+            Connecting saves straight away. The Save button above does not apply to it. Who the
             worker may write to is controlled separately, under Settings &gt; Email domains.
           </p>
         </>

@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 
 // Minimal Web Speech API surface — not in the default TS DOM lib.
+interface SpeechRecognitionErrorLike {
+  error: string;
+}
 interface SpeechRecognitionLike {
   lang: string;
   continuous: boolean;
@@ -10,7 +13,7 @@ interface SpeechRecognitionLike {
   stop: () => void;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorLike) => void) | null;
 }
 interface SpeechRecognitionEventLike {
   resultIndex: number;
@@ -26,12 +29,21 @@ function getSpeechRecognition(): SpeechRecognitionLike | null {
   return Ctor ? new Ctor() : null;
 }
 
+/** The mic just didn't catch anything, or the user cancelled — not worth surfacing as an error. */
+const SILENT_ERRORS = new Set(["no-speech", "aborted"]);
+
 export function useVoiceInput(onTranscript: (text: string) => void) {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const onTranscriptRef = useRef(onTranscript);
-  onTranscriptRef.current = onTranscript;
+
+  // Keeps the latest callback without making `toggle` (and the recognition
+  // instance it creates) depend on identity churn from the caller.
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+  });
 
   useEffect(() => {
     setSupported(getSpeechRecognition() !== null);
@@ -44,6 +56,7 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       setListening(false);
       return;
     }
+    setError(null);
     const recognition = getSpeechRecognition();
     if (!recognition) return;
     recognition.lang = "en-US";
@@ -58,11 +71,19 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
       if (finalText) onTranscriptRef.current(finalText.trim());
     };
     recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onerror = (event) => {
+      setListening(false);
+      if (SILENT_ERRORS.has(event.error)) return;
+      setError(
+        event.error === "not-allowed" || event.error === "service-not-allowed"
+          ? "Microphone access blocked. Allow it in your browser settings, then try again."
+          : "Voice input failed. Try again.",
+      );
+    };
     recognitionRef.current = recognition;
     recognition.start();
     setListening(true);
   };
 
-  return { listening, supported, toggle };
+  return { listening, supported, toggle, error };
 }

@@ -19,23 +19,31 @@
 export const fieldClass =
   "h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-500";
 
+/** Auto-grows to fit its content (see `AutoGrowTextarea`) — never a manual resize handle. */
 export const textareaClass =
-  "w-full resize-y rounded-lg border border-gray-300 bg-transparent px-4 py-3 text-sm leading-6 text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-500";
+  "w-full resize-none rounded-lg border border-gray-300 bg-transparent px-4 py-3 text-sm leading-6 text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-500";
+
+/** The `{used}/{max}` counter under a length-limited field. */
+export const counterClass = "mt-1.5 block text-xs font-normal text-gray-500 dark:text-gray-400";
 
 /**
  * A settings card. Opaque and flat — glass is chrome-only, and content cards
  * stay on the surface. Hover shifts the border rather than lifting.
+ *
+ * Light-mode border is gray-300 at reduced opacity — a step above plain
+ * gray-200 (which read as barely-there against the ambient backdrop) without
+ * going as dark as gray-300 at full strength.
  */
 export const cardClass =
-  "rounded-2xl border border-gray-200 bg-white p-5 transition-colors hover:border-gray-300 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-gray-700 md:p-6";
+  "rounded-2xl border border-gray-300/70 bg-white p-5 transition-colors hover:border-gray-400/80 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-gray-700 md:p-6";
 
 /** A card that holds no interactive content, so it should not react to hover. */
 export const staticCardClass =
-  "rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6";
+  "rounded-2xl border border-gray-300/70 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6";
 
 /** A nested panel inside a card — one integration, one row, one sub-form. */
 export const panelClass =
-  "rounded-xl border border-gray-200 p-4 transition-colors hover:border-gray-300 dark:border-gray-800 dark:hover:border-gray-700";
+  "rounded-xl border border-gray-300/70 p-4 transition-colors hover:border-gray-400/80 dark:border-gray-800 dark:hover:border-gray-700";
 
 /** Section heading inside a card. Never the display face — that is for page titles. */
 export const sectionTitleClass =
@@ -63,4 +71,4 @@ export const dividerClass = "divide-y divide-gray-100 dark:divide-gray-800";
  * for support and logs — the screen just says who can fix it.
  */
 export const NOT_CONNECTED_NOTE =
-  "Not connected yet — an administrator sets this up on the API service.";
+  "Not connected yet. An administrator sets this up on the API service.";

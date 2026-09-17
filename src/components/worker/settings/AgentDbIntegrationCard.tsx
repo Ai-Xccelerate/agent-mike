@@ -6,6 +6,7 @@ import Button from "@/components/ui/button/Button";
 import { PlugInIcon } from "@/icons";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import { NOT_CONNECTED_NOTE, panelClass } from "@/components/worker/settings/ui";
+import OrgIdOverrideField from "@/components/worker/settings/OrgIdOverrideField";
 import type {
   AgentDbConnectionTest,
   AgentDbIntegration,
@@ -43,7 +44,7 @@ function workspaceLabel(integration: AgentDbIntegration) {
   const fallback = integration.workspaces.find(
     (workspace) => workspace.id === integration.default_workspace_id,
   );
-  return fallback ? `Organization default — ${fallback.name}` : "Organization default";
+  return fallback ? `Organization default: ${fallback.name}` : "Organization default";
 }
 
 export default function AgentDbIntegrationCard() {
@@ -93,7 +94,7 @@ export default function AgentDbIntegrationCard() {
       if (error instanceof WorkerApiError) {
         setNotice(error.errors?.enabled ?? error.message);
       } else {
-        setNotice("Could not save — check that the API is running.");
+        setNotice("Could not save. Check that the API is running.");
       }
     } finally {
       setSaving(false);
@@ -106,7 +107,7 @@ export default function AgentDbIntegrationCard() {
     try {
       setTest(await apiFetch<AgentDbConnectionTest>("/integrations/agentdb/test", { method: "POST" }));
     } catch {
-      setNotice("Could not run the test — check that the API is running.");
+      setNotice("Could not run the test. Check that the API is running.");
     } finally {
       setTesting(false);
     }
@@ -126,7 +127,7 @@ export default function AgentDbIntegrationCard() {
       <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">AgentDB</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Could not load this integration — check that the API is running.
+          Could not load this integration. Check that the API is running.
         </p>
         <Button size="sm" variant="outline" className="mt-3" onClick={retry}>
           Try again
@@ -164,12 +165,14 @@ export default function AgentDbIntegrationCard() {
           disabled={!integration.available || saving}
           onClick={() => void patch({ enabled: !integration.enabled })}
           className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-40 ${
-            integration.enabled ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"
+            integration.enabled && integration.available
+              ? "bg-brand-500"
+              : "bg-gray-200 dark:bg-gray-700"
           }`}
         >
           <span
             className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${
-              integration.enabled ? "translate-x-5" : ""
+              integration.enabled && integration.available ? "translate-x-5" : ""
             }`}
           />
         </button>
@@ -231,10 +234,19 @@ export default function AgentDbIntegrationCard() {
               }`}
             >
               {test.ok
-                ? `Connected — AgentDB returned its schema guide (${test.agentsMdBytes} characters).`
+                ? `Connected: AgentDB returned its schema guide (${test.agentsMdBytes} characters).`
                 : (test.error ?? "The connection test failed.")}
             </p>
           )}
+
+          <OrgIdOverrideField
+            key={integration.settings.org_id_override ?? "inherit"}
+            serviceName="AgentDB"
+            effectiveId={integration.settings.org_id}
+            override={integration.settings.org_id_override}
+            disabled={saving}
+            onSave={(value) => patch({ orgId: value })}
+          />
 
           <p className="mt-4 border-t border-gray-100 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
             Reading from {workspaceLabel(integration).toLowerCase()}.

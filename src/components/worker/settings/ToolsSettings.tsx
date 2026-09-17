@@ -42,7 +42,7 @@ export default function ToolsSettings() {
     <>
       <SettingsPageHeader
         title="Tools"
-        description="Toggle general-purpose capabilities. Each one is a decoupled, externally-connected integration — never baked into the harness."
+        description="Turn general-purpose capabilities on or off for this worker."
         onSave={() => save(["toolsConfig"])}
         onDiscard={discard}
         dirty={dirty}
@@ -54,7 +54,7 @@ export default function ToolsSettings() {
 
       <SettingsSection
         title="General"
-        description="Broad capabilities the worker can draw on. Saved with the button above."
+        description="Broad capabilities this worker can use. Saved with the button above."
         aixId="AIX-163.1"
       >
         <div className={dividerClass}>
@@ -72,7 +72,7 @@ export default function ToolsSettings() {
 
       <SettingsSection
         title="Internal tools"
-        description="AI Xccelerate's own tools, connected with credentials held on the API service. These save as soon as you switch them — the button above does not apply to them."
+        description="AI Xccelerate's own built-in tools. These save automatically when you switch them, not with the button above."
         aixId="AIX-163.2"
         interactive={false}
       >
@@ -87,7 +87,7 @@ export default function ToolsSettings() {
 
       <SettingsSection
         title="External tools"
-        description="Third-party systems this worker connects to directly, with credentials held on the API service. These save as soon as you use them — the button above does not apply to them."
+        description="Third-party tools this worker connects to directly. These save automatically when you use them, not with the button above."
         aixId="AIX-163.3"
         interactive={false}
       >

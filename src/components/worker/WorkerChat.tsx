@@ -1,10 +1,12 @@
 "use client";
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
+import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import Markdown from "@/components/worker/Markdown";
 import WorkerChatRail from "@/components/worker/WorkerChatRail";
 import Badge from "@/components/ui/badge/Badge";
-import { DocsIcon, PaperPlaneIcon } from "@/icons";
+import { ArrowUpIcon, DocsIcon, MicrophoneIcon } from "@/icons";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { FormEvent, useEffect, useRef, useState } from "react";
@@ -14,6 +16,8 @@ const SAMPLE_PROMPTS = [
   "How do I invite a teammate?",
   "I need a refund for my last charge",
 ];
+
+const MESSAGE_MAX_LENGTH = 4000;
 
 function storageKey(compact: boolean) {
   return compact ? "worker.widget.chat.v1" : "worker.manager.chat.v1";
@@ -67,6 +71,11 @@ export function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
+
+  const { listening, supported: voiceSupported, toggle: toggleVoice, error: voiceError } = useVoiceInput((text) => {
+    setValue((prev) => (prev ? `${prev} ` : "") + text);
+    inputRef.current?.focus();
+  });
 
   const conversationId = compact ? compactConversationId : (externalConversationId ?? undefined);
 
@@ -232,7 +241,7 @@ export function ChatPanel({
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-2xl bg-white p-6 text-center dark:bg-gray-900">
         <p className="text-sm font-semibold text-gray-800 dark:text-white/90">Widget not configured</p>
         <p className="max-w-xs text-xs leading-5 text-gray-500 dark:text-gray-400">
-          Open Chat in the console and use Copy embed snippet — the link must include your org's site token.
+          Open Chat in the console and use Copy embed snippet. The link must include your org's site token.
         </p>
       </div>
     );
@@ -298,7 +307,7 @@ export function ChatPanel({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 dark:bg-gray-950/40 sm:p-5">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 [scrollbar-gutter:stable] dark:bg-gray-950/40 sm:p-5">
         {preview && (
           <div className="mx-auto max-w-md rounded-lg bg-warning-50 px-3 py-2 text-center text-xs text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
             Preview response · API unreachable
@@ -383,7 +392,7 @@ export function ChatPanel({
         className="shrink-0 border-t border-gray-200 p-3 dark:border-gray-800 sm:p-4"
       >
         <div className="flex items-end gap-2 rounded-xl border border-gray-300 bg-white p-1.5 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
-          <textarea
+          <AutoGrowTextarea
             ref={inputRef}
             value={value}
             onChange={(event) => setValue(event.target.value)}
@@ -393,10 +402,33 @@ export function ChatPanel({
                 event.currentTarget.form?.requestSubmit();
               }
             }}
-            rows={1}
-            placeholder={`Ask ${displayName} a question…`}
-            className="max-h-28 min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
+            minRows={1}
+            maxRows={6}
+            maxLength={MESSAGE_MAX_LENGTH}
+            placeholder={listening ? "Listening. Speak now…" : `Ask ${displayName} a question…`}
+            className="flex-1 resize-none bg-transparent px-2 py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
           />
+          <button
+            type="button"
+            onClick={toggleVoice}
+            disabled={!voiceSupported}
+            aria-label={listening ? "Stop voice input" : "Start voice input"}
+            aria-pressed={listening}
+            title={
+              voiceSupported
+                ? listening
+                  ? "Stop voice input"
+                  : "Dictate your message"
+                : "Voice input isn't supported in this browser"
+            }
+            className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              listening
+                ? "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500"
+                : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.05]"
+            }`}
+          >
+            <MicrophoneIcon className="size-4" />
+          </button>
           <button
             type="submit"
             disabled={!value.trim() || loading}
@@ -404,12 +436,17 @@ export function ChatPanel({
             title="Send message"
             className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
           >
-            <PaperPlaneIcon className="size-4" />
+            <ArrowUpIcon className="size-4" />
           </button>
         </div>
-        <p className="mt-2 text-center text-[11px] text-gray-500 dark:text-gray-400">
-          {displayName} can make mistakes. Sensitive requests go to a human.
-        </p>
+        <div className="mt-2 flex items-center justify-center gap-2 text-center text-[11px] text-gray-500 dark:text-gray-400">
+          <p>{voiceError ?? `${displayName} can make mistakes. Sensitive requests go to a human.`}</p>
+          {value.length > MESSAGE_MAX_LENGTH * 0.9 && (
+            <span className="shrink-0 tabular-nums">
+              {value.length}/{MESSAGE_MAX_LENGTH}
+            </span>
+          )}
+        </div>
       </form>
     </div>
   );

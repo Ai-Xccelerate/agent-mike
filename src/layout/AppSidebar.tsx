@@ -3,7 +3,7 @@
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
 import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
-import { ChatIcon, GridIcon, MailIcon, UserCircleIcon } from "@/icons";
+import { GearIcon, GridIcon, MailIcon, SparklesIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
@@ -11,10 +11,15 @@ import React from "react";
 // Knowledge lives under Settings (R14 lists it as one of the ten dedicated
 // capability pages), not as a top-level operational section like the three
 // below — those are the day-to-day surfaces, not configuration.
+//
+// Assistant is the manager's own conversational admin assistant, not the
+// worker's customer-facing behavior — that's Playground, which tests the
+// worker's configured agent from under Settings > Channels instead of a
+// permanent nav slot.
 const primaryNav: { name: string; path: string; icon: React.FC }[] = [
   { name: "Overview", path: "/", icon: GridIcon },
+  { name: "Assistant", path: "/assistant", icon: SparklesIcon },
   { name: "Inbox", path: "/inbox", icon: MailIcon },
-  { name: "Chat", path: "/chat", icon: ChatIcon },
 ];
 
 export default function AppSidebar() {
@@ -99,7 +104,7 @@ export default function AppSidebar() {
                 settingsActive ? "menu-item-icon-active" : "menu-item-icon-inactive"
               }`}
             >
-              <UserCircleIcon />
+              <GearIcon />
             </span>
             {showLabels && <span className="menu-item-text">Settings</span>}
           </Link>

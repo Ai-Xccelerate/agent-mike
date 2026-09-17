@@ -699,17 +699,20 @@
     },
     {
       "id": "AIX-105",
-      "title": "Chat",
-      "route": "/chat",
+      "title": "Playground",
+      "route": "/playground",
       "area": "apps",
-      "file": "src/app/(admin)/(apps)/chat/page.tsx",
+      "file": "src/app/(admin)/(apps)/playground/page.tsx",
       "blocks": [
         {
           "id": "AIX-105.1",
-          "description": "Chat app (conversation list + message pane)"
+          "description": "Manager sandbox: test the worker's configured agent (conversation list + message pane)"
         }
       ],
       "keywords": [
+        "playground",
+        "test",
+        "sandbox",
         "chat",
         "messages",
         "conversation",

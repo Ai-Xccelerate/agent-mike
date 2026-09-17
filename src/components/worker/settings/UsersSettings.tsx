@@ -37,7 +37,7 @@ export default function UsersSettings() {
       setNotice("Added.");
     } catch {
       setNoticeError(true);
-      setNotice("Could not add this user — check that the API is running.");
+      setNotice("Could not add this user. Check that the API is running.");
     } finally {
       setSaving(false);
     }

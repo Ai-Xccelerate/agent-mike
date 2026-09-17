@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Identity | AI Worker" };
 
 export default function IdentitySettingsPage() {
   return (
-    <div data-aix-id="AIX-160">
+    <div data-aix-id="AIX-160" className="space-y-5 md:space-y-6">
       <IdentitySettings />
     </div>
   );

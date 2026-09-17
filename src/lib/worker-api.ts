@@ -12,7 +12,7 @@ export type Conversation = {
   id: string;
   organizationId: string;
   ticketNumber: number;
-  channel: "chat" | "email" | "widget";
+  channel: "chat" | "email" | "widget" | "assistant";
   customerName: string;
   customerEmail: string | null;
   subject: string | null;
@@ -20,6 +20,7 @@ export type Conversation = {
   priority: string;
   assignedTo: string | null;
   humanControlled: boolean;
+  archived: boolean;
   confidence: number | null;
   summary: string | null;
   createdAt: string;
@@ -50,6 +51,8 @@ export type WorkerStatus = "active" | "paused";
 export type WorkerProfile = {
   id: string;
   organizationId: string;
+  /** The org's real display name (e.g. "Default Workspace") — read-only here, set outside this profile. */
+  organizationName: string;
   name: string;
   displayName: string;
   avatarInitials: string;
@@ -72,6 +75,7 @@ export type WorkerProfile = {
   escalationTerms: string[];
   allowedDomains: string[];
   requireUserVerification: boolean;
+  assistantActionsEnabled: boolean;
   managerName: string;
   managerEmail: string | null;
   autoReply: boolean;
@@ -95,6 +99,19 @@ export type SkillCatalogEntry = {
 
 export function getSkillsCatalog(): Promise<SkillCatalogEntry[]> {
   return apiFetch<SkillCatalogEntry[]>("/skills");
+}
+
+/** A skill's full instructions — never included in the list response above. */
+export type SkillDetail = {
+  id: string;
+  name: string;
+  description: string;
+  requires: string[];
+  body: string;
+};
+
+export function getSkillDetail(id: string): Promise<SkillDetail> {
+  return apiFetch<SkillDetail>(`/skills/${id}`);
 }
 
 export type CustomSkillInput = {
@@ -286,6 +303,12 @@ export type ChatResponse = {
   status: Conversation["status"];
   confidence: number;
   escalated: boolean;
+};
+
+/** The admin assistant's own chat endpoint (see /api/v1/assistant/chat) — no guardrail/escalation concepts, it's the manager asking their own assistant a question. */
+export type AssistantChatResponse = {
+  conversation_id: string;
+  message: Message;
 };
 
 export type ApiFetchOptions = RequestInit & { widgetSiteToken?: string };

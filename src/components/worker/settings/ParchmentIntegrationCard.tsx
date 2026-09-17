@@ -7,6 +7,7 @@ import { PlugInIcon } from "@/icons";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import type { ParchmentIntegration, ParchmentPatch } from "@/lib/worker-api";
 import { NOT_CONNECTED_NOTE, panelClass } from "@/components/worker/settings/ui";
+import OrgIdOverrideField from "@/components/worker/settings/OrgIdOverrideField";
 
 /**
  * Parchment is default-allow: once the server holds credentials the toggle
@@ -35,7 +36,7 @@ function workspaceLabel(integration: ParchmentIntegration) {
   const fallback = integration.workspaces.find(
     (workspace) => workspace.id === integration.default_workspace_id,
   );
-  return fallback ? `Organization default — ${fallback.name}` : "Organization default";
+  return fallback ? `Organization default: ${fallback.name}` : "Organization default";
 }
 
 export default function ParchmentIntegrationCard() {
@@ -84,7 +85,7 @@ export default function ParchmentIntegrationCard() {
       if (error instanceof WorkerApiError) {
         setNotice(error.errors?.enabled ?? error.message);
       } else {
-        setNotice("Could not save — check that the API is running.");
+        setNotice("Could not save. Check that the API is running.");
       }
     } finally {
       setSaving(false);
@@ -105,7 +106,7 @@ export default function ParchmentIntegrationCard() {
       <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Parchment</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Could not load this integration — check that the API is running.
+          Could not load this integration. Check that the API is running.
         </p>
         <Button size="sm" variant="outline" className="mt-3" onClick={retry}>
           Try again
@@ -142,12 +143,14 @@ export default function ParchmentIntegrationCard() {
           disabled={!integration.available || saving}
           onClick={() => void patch({ enabled: !integration.enabled })}
           className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-not-allowed disabled:opacity-40 ${
-            integration.enabled ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"
+            integration.enabled && integration.available
+              ? "bg-brand-500"
+              : "bg-gray-200 dark:bg-gray-700"
           }`}
         >
           <span
             className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${
-              integration.enabled ? "translate-x-5" : ""
+              integration.enabled && integration.available ? "translate-x-5" : ""
             }`}
           />
         </button>
@@ -165,6 +168,40 @@ export default function ParchmentIntegrationCard() {
 
       {notice && (
         <p className="mt-3 text-xs font-medium leading-5 text-error-600 dark:text-error-400">{notice}</p>
+      )}
+
+      {integration.enabled && integration.available && (
+        <>
+          <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+            <label className="min-w-0 flex-1 basis-56">
+              <span className="block text-xs text-gray-500 dark:text-gray-400">Workspace</span>
+              <select
+                value={integration.settings.workspace_id ?? ""}
+                disabled={saving || integration.workspaces.length === 0}
+                onChange={(event) =>
+                  void patch({ workspaceId: event.target.value === "" ? null : event.target.value })
+                }
+                className="mt-1 h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-white/90"
+              >
+                <option value="">{workspaceLabel(integration)}</option>
+                {integration.workspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <OrgIdOverrideField
+            key={integration.settings.org_id_override ?? "inherit"}
+            serviceName="Parchment"
+            effectiveId={integration.settings.org_id}
+            override={integration.settings.org_id_override}
+            disabled={saving}
+            onSave={(value) => patch({ orgId: value })}
+          />
+        </>
       )}
 
       {integration.active && !integration.error && (
