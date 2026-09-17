@@ -35,9 +35,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const status = body?.status as string | undefined;
   const subject = body?.subject as string | undefined;
   const humanControlled = body?.humanControlled as boolean | undefined;
+  const archived = body?.archived as boolean | undefined;
 
-  if (status === undefined && subject === undefined && humanControlled === undefined) {
-    return NextResponse.json({ error: "Provide status, subject, and/or humanControlled" }, { status: 400 });
+  if (status === undefined && subject === undefined && humanControlled === undefined && archived === undefined) {
+    return NextResponse.json({ error: "Provide status, subject, humanControlled, and/or archived" }, { status: 400 });
   }
   if (status !== undefined && !VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])) {
     return NextResponse.json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }, { status: 400 });
@@ -47,6 +48,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   if (humanControlled !== undefined && typeof humanControlled !== "boolean") {
     return NextResponse.json({ error: "humanControlled must be a boolean" }, { status: 400 });
+  }
+  if (archived !== undefined && typeof archived !== "boolean") {
+    return NextResponse.json({ error: "archived must be a boolean" }, { status: 400 });
   }
 
   const profile = humanControlled ? await getOrCreateProfile(tenant.orgId) : null;
@@ -58,6 +62,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(subject !== undefined ? { subject: subject.trim() } : {}),
       ...(humanControlled !== undefined ? { humanControlled } : {}),
       ...(humanControlled ? { assignedTo: profile!.managerName } : {}),
+      ...(archived !== undefined ? { archived } : {}),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversation.id))

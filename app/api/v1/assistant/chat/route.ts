@@ -5,7 +5,12 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
-import { runAssistantAgent, type AssistantHistoryTurn } from "@/lib/assistant-agent";
+import {
+  runAssistantAgent,
+  maybeRefreshAssistantSummary,
+  REPLAY_MESSAGE_LIMIT,
+  type AssistantHistoryTurn,
+} from "@/lib/assistant-agent";
 
 /** Matches the customer-facing chat route's cap — same reasoning, same limit. */
 const MAX_MESSAGE_LENGTH = 10000;
@@ -79,20 +84,26 @@ export async function POST(req: NextRequest) {
       .returning();
   }
 
-  await db.insert(messages).values({
-    conversationId: conversation.id,
-    senderType: "manager",
-    senderName: profile.managerName,
-    body: message,
-  });
+  const [userMessage] = await db
+    .insert(messages)
+    .values({
+      conversationId: conversation.id,
+      senderType: "manager",
+      senderName: profile.managerName,
+      body: message,
+    })
+    .returning();
 
-  const history: AssistantHistoryTurn[] = priorMessages.map((m) => ({
+  // Only the most recent REPLAY_MESSAGE_LIMIT messages are replayed verbatim
+  // - anything older is represented by conversation.summary instead, so a
+  // long-running conversation doesn't grow the model input forever.
+  const recentHistory: AssistantHistoryTurn[] = priorMessages.slice(-REPLAY_MESSAGE_LIMIT).map((m) => ({
     senderType: m.senderType === "agent" ? "agent" : "manager",
     senderName: m.senderName,
     body: m.body,
   }));
 
-  const result = await runAssistantAgent(profile, tenant.orgId, message, history);
+  const result = await runAssistantAgent(profile, tenant.orgId, message, recentHistory, conversation.summary);
 
   const [reply] = await db
     .insert(messages)
@@ -104,7 +115,29 @@ export async function POST(req: NextRequest) {
     })
     .returning();
 
-  await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, conversation.id));
+  // Maintenance pass: fold anything that just fell out of the replay window
+  // into the rolling summary. Runs after the turn so it never delays the
+  // manager's answer, and a failure here (see maybeRefreshAssistantSummary)
+  // can't break the response that already went out.
+  const allTurns: AssistantHistoryTurn[] = [...priorMessages, userMessage, reply].map((m) => ({
+    senderType: m.senderType === "agent" ? "agent" : "manager",
+    senderName: m.senderName,
+    body: m.body,
+  }));
+  const summaryState = await maybeRefreshAssistantSummary(
+    profile,
+    { summary: conversation.summary, summarizedMessageCount: conversation.summarizedMessageCount },
+    allTurns,
+  );
+
+  await db
+    .update(conversations)
+    .set({
+      updatedAt: new Date(),
+      summary: summaryState.summary,
+      summarizedMessageCount: summaryState.summarizedMessageCount,
+    })
+    .where(eq(conversations.id, conversation.id));
 
   return NextResponse.json({
     conversation_id: conversation.id,

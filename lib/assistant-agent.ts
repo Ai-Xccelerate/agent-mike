@@ -189,19 +189,33 @@ export interface AssistantHistoryTurn {
 }
 
 /**
+ * How many of the most recent messages get replayed verbatim on every turn.
+ * Anything older than this is folded into `conversations.summary` instead of
+ * growing the input forever — smaller than Jules' 80-message window (40
+ * turns) since this is a lower-volume, single-org admin surface, not a
+ * multi-tenant sales tool; easy to raise later if real usage wants more.
+ */
+export const REPLAY_MESSAGE_LIMIT = 20;
+
+/**
  * Folded into the input as plain text rather than replayed as SDK message
  * items — the agents SDK's own item shapes are meant to come back out of a
  * prior run, not be hand-authored per turn, and this worker's existing
  * customer-facing runAgent() does not carry history between turns at all.
- * A short prior-turns preamble is enough for "summarize that ticket, then
- * ask a follow-up" without taking on RunState persistence.
+ * `summary` (if any) stands in for everything older than the replay window.
  */
-function buildInputWithHistory(history: AssistantHistoryTurn[], message: string, managerName: string): string {
-  if (history.length === 0) return message;
+function buildInputWithHistory(
+  history: AssistantHistoryTurn[],
+  message: string,
+  managerName: string,
+  summary: string | null,
+): string {
+  const summaryBlock = summary ? `Summary of earlier parts of this conversation:\n${summary}\n\n` : "";
+  if (history.length === 0) return summaryBlock + message;
   const transcript = history
     .map((turn) => `${turn.senderType === "manager" ? managerName : turn.senderName}: ${turn.body}`)
     .join("\n");
-  return `Earlier in this conversation:\n${transcript}\n\n${managerName}: ${message}`;
+  return `${summaryBlock}Earlier in this conversation:\n${transcript}\n\n${managerName}: ${message}`;
 }
 
 export async function runAssistantAgent(
@@ -209,6 +223,7 @@ export async function runAssistantAgent(
   organizationId: string,
   message: string,
   history: AssistantHistoryTurn[],
+  summary: string | null,
 ): Promise<AssistantAgentResult> {
   if (isDemoMode() || !process.env.OPENAI_API_KEY) {
     return demoAssistantAnswer();
@@ -222,9 +237,69 @@ export async function runAssistantAgent(
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
   });
 
-  const input = buildInputWithHistory(history, message, profile.managerName);
+  const input = buildInputWithHistory(history, message, profile.managerName, summary);
   const result = await run(agent, input, { maxTurns: Math.max(1, profile.maxAgentTurns || 3) });
 
   const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
   return { answer: text.trim() };
+}
+
+export interface AssistantSummaryState {
+  summary: string | null;
+  summarizedMessageCount: number;
+}
+
+/**
+ * Rolling summarization: once a conversation has more messages than the
+ * replay window, fold the newly-old batch (everything between the last
+ * watermark and the new window boundary) into the existing summary, one
+ * model call, and advance the watermark. Adapted from Jules'
+ * summary_through_sequence_index, using a plain message count instead of a
+ * dedicated sequence column — this conversation model orders by timestamp
+ * already, so a count-based watermark is enough.
+ *
+ * Returns the unchanged state if there's nothing new to fold in yet, or if
+ * summarization can't run (demo mode / no key) — the replay window alone
+ * still bounds cost in that case, just without the older context.
+ */
+export async function maybeRefreshAssistantSummary(
+  profile: Profile,
+  current: AssistantSummaryState,
+  allMessages: AssistantHistoryTurn[],
+): Promise<AssistantSummaryState> {
+  const newBoundary = allMessages.length - REPLAY_MESSAGE_LIMIT;
+  if (newBoundary <= current.summarizedMessageCount) return current;
+  if (isDemoMode() || !process.env.OPENAI_API_KEY) return current;
+
+  const batch = allMessages.slice(current.summarizedMessageCount, newBoundary);
+  const batchText = batch
+    .map((m) => `${m.senderType === "manager" ? profile.managerName : m.senderName}: ${m.body}`)
+    .join("\n");
+
+  const summarizer = new Agent({
+    name: "Assistant conversation summarizer",
+    instructions:
+      "Merge the existing summary (if any) with the new messages into one updated summary of this " +
+      "conversation between an admin assistant and a manager. Be factual and concise - a few sentences " +
+      "to a short paragraph. Preserve specific facts (ticket numbers, names, decisions) a later turn " +
+      "might need; drop pleasantries.",
+    model: profile.model,
+    modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
+  });
+
+  const input = current.summary
+    ? `Existing summary:\n${current.summary}\n\nNew messages to fold in:\n${batchText}`
+    : `Messages to summarize:\n${batchText}`;
+
+  try {
+    const result = await run(summarizer, input, { maxTurns: 1 });
+    const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
+    if (!text.trim()) return current;
+    return { summary: text.trim(), summarizedMessageCount: newBoundary };
+  } catch {
+    // A failed summarization pass shouldn't break the chat turn that
+    // triggered it - the replay window still caps cost either way, this
+    // conversation just keeps less older context until the next attempt.
+    return current;
+  }
 }

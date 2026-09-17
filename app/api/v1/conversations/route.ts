@@ -19,18 +19,22 @@ export async function GET(req: NextRequest) {
   // table, same endpoint, no schema change needed: the channel a
   // conversation came in on already distinguishes internal from real.
   const channel = req.nextUrl.searchParams.get("channel");
+  // Archived conversations (soft-deleted, restorable) are hidden unless a
+  // caller explicitly asks to include them — same "hidden by default" model
+  // as the channel exclusion above, just for a different reason.
+  const includeArchived = req.nextUrl.searchParams.get("includeArchived") === "true";
+
+  const scopeCondition = channel
+    ? and(eq(conversations.organizationId, tenant.orgId), eq(conversations.channel, channel))
+    : and(
+        eq(conversations.organizationId, tenant.orgId),
+        notInArray(conversations.channel, [...INTERNAL_CONVERSATION_CHANNELS]),
+      );
 
   const rows = await db
     .select()
     .from(conversations)
-    .where(
-      channel
-        ? and(eq(conversations.organizationId, tenant.orgId), eq(conversations.channel, channel))
-        : and(
-            eq(conversations.organizationId, tenant.orgId),
-            notInArray(conversations.channel, [...INTERNAL_CONVERSATION_CHANNELS]),
-          ),
-    )
+    .where(includeArchived ? scopeCondition : and(scopeCondition, eq(conversations.archived, false)))
     .orderBy(desc(conversations.updatedAt));
 
   const withMessages = await Promise.all(

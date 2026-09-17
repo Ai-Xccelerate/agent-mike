@@ -154,6 +154,13 @@ export const conversations = pgTable(
     humanControlled: boolean("human_controlled").notNull().default(false),
     confidence: real("confidence"),
     summary: text("summary"),
+    // How many of this conversation's messages (oldest-first) are already
+    // folded into `summary` — the watermark a rolling summarization pass
+    // advances so it never re-summarizes the same messages twice.
+    summarizedMessageCount: integer("summarized_message_count").notNull().default(0),
+    // Soft-delete: archived conversations are hidden by default and
+    // restorable, instead of the row being gone for good.
+    archived: boolean("archived").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
