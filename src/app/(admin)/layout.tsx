@@ -6,6 +6,7 @@ import AppHeader from "@/layout/AppHeader";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
 import GrabWidget from "@/components/common/GrabWidget";
+import { usePathname } from "next/navigation";
 import React from "react";
 
 export default function AdminLayout({
@@ -13,6 +14,8 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  const flushAssistantPane = pathname === "/assistant" || pathname.startsWith("/assistant/");
   const { isExpanded, isHovered, isMobileOpen } = useSidebar();
 
   const mainContentMargin = isMobileOpen
@@ -30,7 +33,14 @@ export default function AdminLayout({
           className={`flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-all duration-300 ease-in-out ${mainContentMargin}`}
         >
           <AppHeader />
-          <div data-aix-id="AIX-F4" className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto p-4 md:p-6">
+          <div
+            data-aix-id="AIX-F4"
+            className={
+              flushAssistantPane
+                ? "flex min-h-0 w-full flex-1 flex-col overflow-hidden p-0"
+                : "flex min-h-0 w-full flex-1 flex-col overflow-y-auto p-4 md:p-6"
+            }
+          >
             {children}
           </div>
         </div>
