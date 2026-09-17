@@ -3,7 +3,7 @@
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
 import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
-import { GridIcon, MailIcon, SparklesIcon, UserCircleIcon } from "@/icons";
+import { GearIcon, GridIcon, MailIcon, SparklesIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
@@ -104,7 +104,7 @@ export default function AppSidebar() {
                 settingsActive ? "menu-item-icon-active" : "menu-item-icon-inactive"
               }`}
             >
-              <UserCircleIcon />
+              <GearIcon />
             </span>
             {showLabels && <span className="menu-item-text">Settings</span>}
           </Link>
