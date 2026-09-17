@@ -382,11 +382,17 @@ export function getIntegrationConnection(type: string): Promise<IntegrationConne
   return apiFetch<IntegrationConnection>(`/integrations/${type}`);
 }
 
-export function connectIntegration(type: string, system: string): Promise<{ redirectUrl: string }> {
-  return apiFetch<{ redirectUrl: string }>(`/integrations/${type}/connect`, {
-    method: "POST",
-    body: JSON.stringify({ system }),
-  });
+export function connectIntegration(
+  type: string,
+  system: string,
+): Promise<{ redirectUrl: string | null; alreadyConnected?: boolean }> {
+  return apiFetch<{ redirectUrl: string | null; alreadyConnected?: boolean }>(
+    `/integrations/${type}/connect`,
+    {
+      method: "POST",
+      body: JSON.stringify({ system }),
+    },
+  );
 }
 
 export async function disconnectIntegration(type: string): Promise<void> {
