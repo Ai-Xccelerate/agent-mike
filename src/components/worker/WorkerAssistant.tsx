@@ -30,7 +30,7 @@ export default function WorkerAssistant() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [preview, setPreview] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -137,7 +137,16 @@ export default function WorkerAssistant() {
   const isBlank = !conversationId && messages.length === 0;
 
   return (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+      <AssistantHistoryPanel
+        selectedId={conversationId}
+        refreshKey={refreshKey}
+        open={historyOpen}
+        onSelect={(id) => setConversationId(id)}
+        onNew={startNew}
+        onClose={() => setHistoryOpen(false)}
+      />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
         <div className="flex min-w-0 items-center gap-3">
           <AgentAvatar initials={avatarInitials} size="md" accentColor={accentColor} avatarUrl={avatarUrl} />
@@ -168,16 +177,6 @@ export default function WorkerAssistant() {
           </button>
         </div>
       </header>
-
-      {historyOpen && (
-        <AssistantHistoryPanel
-          selectedId={conversationId}
-          refreshKey={refreshKey}
-          onSelect={(id) => setConversationId(id)}
-          onNew={startNew}
-          onClose={() => setHistoryOpen(false)}
-        />
-      )}
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 dark:bg-gray-950/40 sm:p-5">
         {preview && (
@@ -287,6 +286,7 @@ export default function WorkerAssistant() {
           Answers questions about your business today. Configuring settings and taking actions are coming later.
         </p>
       </form>
+      </div>
     </div>
   );
 }

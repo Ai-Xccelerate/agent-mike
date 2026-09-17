@@ -20,6 +20,7 @@ export type Conversation = {
   priority: string;
   assignedTo: string | null;
   humanControlled: boolean;
+  archived: boolean;
   confidence: number | null;
   summary: string | null;
   createdAt: string;
