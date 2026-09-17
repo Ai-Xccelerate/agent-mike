@@ -50,6 +50,8 @@ export type WorkerStatus = "active" | "paused";
 export type WorkerProfile = {
   id: string;
   organizationId: string;
+  /** The org's real display name (e.g. "Default Workspace") — read-only here, set outside this profile. */
+  organizationName: string;
   name: string;
   displayName: string;
   avatarInitials: string;
@@ -95,6 +97,19 @@ export type SkillCatalogEntry = {
 
 export function getSkillsCatalog(): Promise<SkillCatalogEntry[]> {
   return apiFetch<SkillCatalogEntry[]>("/skills");
+}
+
+/** A skill's full instructions — never included in the list response above. */
+export type SkillDetail = {
+  id: string;
+  name: string;
+  description: string;
+  requires: string[];
+  body: string;
+};
+
+export function getSkillDetail(id: string): Promise<SkillDetail> {
+  return apiFetch<SkillDetail>(`/skills/${id}`);
 }
 
 export type CustomSkillInput = {
