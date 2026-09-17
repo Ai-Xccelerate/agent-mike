@@ -55,11 +55,16 @@ export const workerProfiles = pgTable(
 
     // Agent Configuration (settings > Agent Configuration) — R15: system prompt
     // must be exposed and editable without a code deployment.
+    //
+    // Holds only the *additional* instructions beyond identity/role/tone —
+    // those three are built deterministically in lib/agent.ts's
+    // buildInstructions from the Identity/Role columns above, not from this
+    // field, so they can never be silently lost by editing this text. This
+    // field used to hold the whole scaffold including a "{{role}}"-style
+    // placeholder block; see migration 0019 for the one-time cleanup of rows
+    // saved under that older shape.
     systemPromptTemplate: text("system_prompt_template").notNull().default(
-      "You are {{displayName}}, an AI worker for {{organizationName}}.\n" +
-        "Role: {{role}}\n" +
-        "Tone: {{tone}}\n" +
-        "Only use the supplied knowledge when making factual claims. If you are not confident, say so and escalate.",
+      "Only use the supplied knowledge when making factual claims. If you are not confident, say so and escalate.",
     ),
     model: text("model").notNull().default("gpt-5.6-luna"),
     maxAgentTurns: integer("max_agent_turns").notNull().default(3),

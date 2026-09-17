@@ -4,7 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, emailDomains, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
-import { getOrCreateProfile } from "@/lib/bootstrap";
+import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { evaluateMessage } from "@/lib/guardrails";
 import { approvedDomains } from "@/lib/email-domains";
 import { retrieveKnowledge } from "@/lib/retrieval";
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
         escalate: true,
         citations: [] as string[],
       }
-    : await runAgent(profile, tenant.orgId, message, knowledgeMatches, tenant.orgId);
+    : await runAgent(profile, await getOrganizationName(tenant.orgId), message, knowledgeMatches, tenant.orgId);
 
   const [reply] = await db
     .insert(messages)

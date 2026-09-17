@@ -1151,7 +1151,7 @@ describe("agent instructions — job description", () => {
     displayName: "Nick",
     role: "Sales assistant",
     tone: "Warm and concise.",
-    systemPromptTemplate: "You are {{displayName}}. Role: {{role}}. Tone: {{tone}}.",
+    systemPromptTemplate: "Only use the supplied knowledge when making factual claims.",
     model: "gpt-5.6-luna",
     maxAgentTurns: 3,
     confidenceThreshold: 0.72,
@@ -1182,5 +1182,58 @@ describe("agent instructions — job description", () => {
       "org-1",
     );
     expect(instructions).not.toContain("Job description");
+  });
+});
+
+describe("agent instructions — identity/role/tone are deterministic, not template-driven", () => {
+  const baseProfile = {
+    displayName: "Nick",
+    role: "Sales assistant",
+    tone: "Warm and concise.",
+    systemPromptTemplate: "Only use the supplied knowledge when making factual claims.",
+    model: "gpt-5.6-luna",
+    maxAgentTurns: 3,
+    confidenceThreshold: 0.72,
+    managerName: "Manager",
+  };
+
+  it("always opens with the identity/role/tone line built from the profile's own fields", async () => {
+    const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1");
+    expect(instructions).toContain("You are Nick, an AI worker for Acme.");
+    expect(instructions).toContain("Role: Sales assistant");
+    expect(instructions).toContain("Tone: Warm and concise.");
+  });
+
+  it("still includes role/tone even when systemPromptTemplate is cleared", async () => {
+    const instructions = await buildInstructions(
+      { ...baseProfile, systemPromptTemplate: "" },
+      "Acme",
+      [],
+      "org-1",
+    );
+    expect(instructions).toContain("Role: Sales assistant");
+    expect(instructions).toContain("Tone: Warm and concise.");
+  });
+
+  it("still includes role/tone no matter what systemPromptTemplate is edited to", async () => {
+    const instructions = await buildInstructions(
+      { ...baseProfile, systemPromptTemplate: "Always respond in haiku." },
+      "Acme",
+      [],
+      "org-1",
+    );
+    expect(instructions).toContain("Role: Sales assistant");
+    expect(instructions).toContain("Tone: Warm and concise.");
+    expect(instructions).toContain("Always respond in haiku.");
+  });
+
+  it("appends systemPromptTemplate verbatim as additional instructions — no placeholder substitution happens on it", async () => {
+    const instructions = await buildInstructions(
+      { ...baseProfile, systemPromptTemplate: "Never mention {{organizationName}} by name." },
+      "Acme",
+      [],
+      "org-1",
+    );
+    expect(instructions).toContain("Never mention {{organizationName}} by name.");
   });
 });
