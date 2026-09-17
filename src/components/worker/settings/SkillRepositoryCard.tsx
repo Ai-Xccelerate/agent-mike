@@ -96,7 +96,7 @@ export default function SkillRepositoryCard() {
       setNotice(
         error instanceof WorkerApiError
           ? (error.errors?.enabled ?? error.message)
-          : "Could not save — check that the API is running.",
+          : "Could not save. Check that the API is running.",
       );
     } finally {
       setSaving(false);
@@ -121,7 +121,7 @@ export default function SkillRepositoryCard() {
       setKeyError(
         error instanceof WorkerApiError
           ? (error.errors?.apiKey ?? error.message)
-          : "Could not save — check that the API is running.",
+          : "Could not save. Check that the API is running.",
       );
     } finally {
       setSavingKey(false);
@@ -137,7 +137,7 @@ export default function SkillRepositoryCard() {
       await load();
       setNotice("Now using the shared key.");
     } catch {
-      setKeyError("Could not clear — check that the API is running.");
+      setKeyError("Could not clear. Check that the API is running.");
     } finally {
       setSavingKey(false);
     }
@@ -153,7 +153,7 @@ export default function SkillRepositoryCard() {
         }),
       );
     } catch {
-      setNotice("Could not run the test — check that the API is running.");
+      setNotice("Could not run the test. Check that the API is running.");
     } finally {
       setTesting(false);
     }
@@ -192,7 +192,7 @@ export default function SkillRepositoryCard() {
       <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Skill repository</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Could not load this integration — check that the API is running.
+          Could not load this integration. Check that the API is running.
         </p>
         <Button size="sm" variant="outline" className="mt-3" onClick={() => void load()}>
           Try again
@@ -279,10 +279,10 @@ export default function SkillRepositoryCard() {
           <div className="border-t border-gray-100 p-4 dark:border-gray-800">
             <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
               {source === "env"
-                ? "Using the shared key configured on the API service. Enter one below to give this agent its own instead."
+                ? "Using your organization's shared key. Enter one below to give this agent its own instead."
                 : source === "org"
                   ? "This agent has its own key. Clear it to fall back to the shared one."
-                  : "Create a key in the skills app under Connect an agent, then paste it here. Keys are read-only — an agent holding one can search and load published skills, nothing else."}
+                  : "Create a key in the skills app under Connect an agent, then paste it here. Keys are read-only. An agent holding one can search and load published skills, nothing else."}
             </p>
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -414,7 +414,7 @@ export default function SkillRepositoryCard() {
               }`}
             >
               {test.ok
-                ? `Connected — ${test.toolCount} tools, ${test.categories.length} categories.`
+                ? `Connected: ${test.toolCount} tools, ${test.categories.length} categories.`
                 : (test.error ?? "The connection test failed.")}
             </p>
           )}
@@ -453,7 +453,7 @@ export default function SkillRepositoryCard() {
             {results !== null &&
               (results.length === 0 ? (
                 <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                  Nothing matched. The worker would carry on without a skill — and an empty search
+                  Nothing matched. The worker would carry on without a skill, and an empty search
                   is the clearest signal of a skill worth writing.
                 </p>
               ) : (

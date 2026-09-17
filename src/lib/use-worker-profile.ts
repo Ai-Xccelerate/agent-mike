@@ -109,7 +109,7 @@ export function useWorkerProfile() {
         setFieldErrors(error.errors);
         setNotice(Object.values(error.errors)[0] ?? "Could not save.");
       } else {
-        setNotice("Could not save — check that the API is running.");
+        setNotice("Could not save. Check that the API is running.");
       }
     } finally {
       setSaving(false);

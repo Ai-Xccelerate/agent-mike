@@ -11,10 +11,15 @@ import React from "react";
 // Knowledge lives under Settings (R14 lists it as one of the ten dedicated
 // capability pages), not as a top-level operational section like the three
 // below — those are the day-to-day surfaces, not configuration.
+//
+// Assistant is the manager's own conversational admin assistant, not the
+// worker's customer-facing behavior — that's Playground, which tests the
+// worker's configured agent from under Settings > Channels instead of a
+// permanent nav slot.
 const primaryNav: { name: string; path: string; icon: React.FC }[] = [
   { name: "Overview", path: "/", icon: GridIcon },
+  { name: "Assistant", path: "/assistant", icon: ChatIcon },
   { name: "Inbox", path: "/inbox", icon: MailIcon },
-  { name: "Chat", path: "/chat", icon: ChatIcon },
 ];
 
 export default function AppSidebar() {

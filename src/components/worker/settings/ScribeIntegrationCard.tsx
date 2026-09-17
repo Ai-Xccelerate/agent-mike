@@ -80,7 +80,7 @@ export default function ScribeIntegrationCard() {
       if (error instanceof WorkerApiError) {
         setNotice(error.errors?.enabled ?? error.message);
       } else {
-        setNotice("Could not save — check that the API is running.");
+        setNotice("Could not save. Check that the API is running.");
       }
     } finally {
       setSaving(false);
@@ -93,7 +93,7 @@ export default function ScribeIntegrationCard() {
     try {
       setTest(await apiFetch<ScribeConnectionTest>("/integrations/scribe/test", { method: "POST" }));
     } catch {
-      setNotice("Could not run the test — check that the API is running.");
+      setNotice("Could not run the test. Check that the API is running.");
     } finally {
       setTesting(false);
     }
@@ -113,7 +113,7 @@ export default function ScribeIntegrationCard() {
       <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Scribe</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Could not load this integration — check that the API is running.
+          Could not load this integration. Check that the API is running.
         </p>
         <Button size="sm" variant="outline" className="mt-3" onClick={retry}>
           Try again
@@ -212,7 +212,7 @@ export default function ScribeIntegrationCard() {
               }`}
             >
               {test.ok
-                ? `Connected — ${test.meetingCount} meetings available.`
+                ? `Connected: ${test.meetingCount} meetings available.`
                 : (test.error ?? "The connection test failed.")}
             </p>
           )}
@@ -229,7 +229,7 @@ export default function ScribeIntegrationCard() {
                     {meeting.startTime && (
                       <span className="text-gray-400 dark:text-gray-500">
                         {" "}
-                        — {meeting.startTime.slice(0, 10)}
+                        ({meeting.startTime.slice(0, 10)})
                       </span>
                     )}
                   </li>

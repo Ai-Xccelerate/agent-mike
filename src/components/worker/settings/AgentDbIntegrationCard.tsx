@@ -43,7 +43,7 @@ function workspaceLabel(integration: AgentDbIntegration) {
   const fallback = integration.workspaces.find(
     (workspace) => workspace.id === integration.default_workspace_id,
   );
-  return fallback ? `Organization default — ${fallback.name}` : "Organization default";
+  return fallback ? `Organization default: ${fallback.name}` : "Organization default";
 }
 
 export default function AgentDbIntegrationCard() {
@@ -93,7 +93,7 @@ export default function AgentDbIntegrationCard() {
       if (error instanceof WorkerApiError) {
         setNotice(error.errors?.enabled ?? error.message);
       } else {
-        setNotice("Could not save — check that the API is running.");
+        setNotice("Could not save. Check that the API is running.");
       }
     } finally {
       setSaving(false);
@@ -106,7 +106,7 @@ export default function AgentDbIntegrationCard() {
     try {
       setTest(await apiFetch<AgentDbConnectionTest>("/integrations/agentdb/test", { method: "POST" }));
     } catch {
-      setNotice("Could not run the test — check that the API is running.");
+      setNotice("Could not run the test. Check that the API is running.");
     } finally {
       setTesting(false);
     }
@@ -126,7 +126,7 @@ export default function AgentDbIntegrationCard() {
       <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">AgentDB</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Could not load this integration — check that the API is running.
+          Could not load this integration. Check that the API is running.
         </p>
         <Button size="sm" variant="outline" className="mt-3" onClick={retry}>
           Try again
@@ -231,7 +231,7 @@ export default function AgentDbIntegrationCard() {
               }`}
             >
               {test.ok
-                ? `Connected — AgentDB returned its schema guide (${test.agentsMdBytes} characters).`
+                ? `Connected: AgentDB returned its schema guide (${test.agentsMdBytes} characters).`
                 : (test.error ?? "The connection test failed.")}
             </p>
           )}

@@ -1,10 +1,34 @@
 "use client";
 
+import Link from "next/link";
+import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, fieldClass, sectionHintClass, sectionTitleClass, textareaClass } from "@/components/worker/settings/ui";
+import {
+  cardClass,
+  counterClass,
+  fieldClass,
+  sectionHintClass,
+  sectionTitleClass,
+  textareaClass,
+} from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
 const MODELS = ["gpt-5.6-luna", "gpt-5.6-sol"];
+const ADDITIONAL_INSTRUCTIONS_MAX_LENGTH = 12000;
+
+/**
+ * Mirrors lib/agent.ts's buildIdentityBlock on the backend exactly. Two
+ * separate repos, no shared package, so kept in sync by hand. If this ever
+ * drifts from that function, the preview below stops telling the truth.
+ */
+function buildIdentityPreview(displayName: string, organizationName: string, role: string, tone: string) {
+  return `You are ${displayName}, an AI worker for ${organizationName}.\nRole: ${role}\nTone: ${tone}`;
+}
+
+/** Mirrors lib/agent.ts's jobDescriptionBlock exactly. Same hand-sync note as above. */
+function buildJobDescriptionPreview(jobDescription: string | null) {
+  return jobDescription ? `\n\nJob description (additional detail on this role):\n${jobDescription}` : "";
+}
 
 export default function AgentConfigurationSettings() {
   const { profile, update, save, discard, dirty, saving, notice, noticeError, lastEditedAt } = useWorkerProfile();
@@ -14,7 +38,7 @@ export default function AgentConfigurationSettings() {
     <>
       <SettingsPageHeader
         title="Agent configuration"
-        description="The underlying model and system prompt — exposed and editable without a code deployment (R15)."
+        description="The model and system prompt this worker uses."
         onSave={() => save(["model", "maxAgentTurns", "systemPromptTemplate"])}
         onDiscard={discard}
         dirty={dirty}
@@ -52,18 +76,47 @@ export default function AgentConfigurationSettings() {
       </section>
 
       <section className={cardClass}>
-        <h2 className={sectionTitleClass}>System prompt template</h2>
+        <h2 className={sectionTitleClass}>System prompt</h2>
         <p className={sectionHintClass}>
-          The raw scaffold, not just the fields around it. Placeholders: <code className="font-mono">{"{{displayName}}"}</code>,{" "}
-          <code className="font-mono">{"{{organizationName}}"}</code>, <code className="font-mono">{"{{role}}"}</code>,{" "}
-          <code className="font-mono">{"{{tone}}"}</code>.
+          What the agent actually receives, start to finish. The block below is fixed. It always reflects
+          Identity and Role, and can&apos;t be broken by editing text below it.
         </p>
-        <textarea
-          rows={10}
-          value={profile.systemPromptTemplate}
-          onChange={(e) => update("systemPromptTemplate", e.target.value)}
-          className={`${textareaClass} mt-4 font-mono text-xs`}
-        />
+
+        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.03]">
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-gray-600 dark:text-gray-400">
+            {buildIdentityPreview(profile.displayName, profile.organizationName, profile.role, profile.tone)}
+            {buildJobDescriptionPreview(profile.jobDescription)}
+          </pre>
+          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+            Synced from{" "}
+            <Link href="/settings/identity" className="underline hover:text-brand-600 dark:hover:text-brand-400">
+              Identity
+            </Link>{" "}
+            and{" "}
+            <Link href="/settings/role" className="underline hover:text-brand-600 dark:hover:text-brand-400">
+              Role
+            </Link>
+            . Not editable here.
+          </p>
+        </div>
+
+        <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          Additional instructions
+          <p className={sectionHintClass}>
+            Anything else the agent should follow, appended after the block above.
+          </p>
+          <AutoGrowTextarea
+            minRows={10}
+            maxRows={30}
+            maxLength={ADDITIONAL_INSTRUCTIONS_MAX_LENGTH}
+            value={profile.systemPromptTemplate}
+            onChange={(e) => update("systemPromptTemplate", e.target.value)}
+            className={`${textareaClass} mt-2 font-mono text-xs`}
+          />
+        </label>
+        <span className={counterClass}>
+          {profile.systemPromptTemplate.length}/{ADDITIONAL_INSTRUCTIONS_MAX_LENGTH}
+        </span>
       </section>
     </>
   );

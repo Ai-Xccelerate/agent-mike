@@ -51,8 +51,16 @@ import HorizontaLDots from "./horizontal-dots.svg";
 import ChatIcon from "./chat.svg";
 import MoreDotIcon from "./more-dot.svg";
 import BellIcon from "./bell.svg";
+import MicrophoneIcon from "./microphone.svg";
+import ZohoIcon from "./zoho.svg";
+import LinearLogoIcon from "./linear-logo.svg";
+import GmailIcon from "./gmail.svg";
+import OutlookIcon from "./outlook.svg";
+import GoogleCalendarIcon from "./google-calendar.svg";
+import FilterLinesIcon from "./filter-lines.svg";
 
 export {
+  FilterLinesIcon,
   DownloadIcon,
   BellIcon,
   MoreDotIcon,
@@ -106,4 +114,10 @@ export {
   HorizontaLDots,
   ChevronUpIcon,
   ChatIcon,
+  MicrophoneIcon,
+  ZohoIcon,
+  LinearLogoIcon,
+  GmailIcon,
+  OutlookIcon,
+  GoogleCalendarIcon,
 };

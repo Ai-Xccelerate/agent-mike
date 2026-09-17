@@ -82,7 +82,7 @@ export default function AgentWikiIntegrationCard() {
       if (error instanceof WorkerApiError) {
         setNotice(error.errors?.enabled ?? error.errors?.allowWrite ?? error.message);
       } else {
-        setNotice("Could not save — check that the API is running.");
+        setNotice("Could not save. Check that the API is running.");
       }
     } finally {
       setSaving(false);
@@ -99,7 +99,7 @@ export default function AgentWikiIntegrationCard() {
         }),
       );
     } catch {
-      setNotice("Could not run the test — check that the API is running.");
+      setNotice("Could not run the test. Check that the API is running.");
     } finally {
       setTesting(false);
     }
@@ -119,7 +119,7 @@ export default function AgentWikiIntegrationCard() {
       <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Agent Wiki</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Could not load this integration — check that the API is running.
+          Could not load this integration. Check that the API is running.
         </p>
         <Button size="sm" variant="outline" className="mt-3" onClick={retry}>
           Try again
@@ -210,7 +210,7 @@ export default function AgentWikiIntegrationCard() {
                 {integration.spaces.map((space) => (
                   <option key={space.id} value={space.id}>
                     {space.name}
-                    {space.role ? ` — ${space.role}` : ""}
+                    {space.role ? `: ${space.role}` : ""}
                   </option>
                 ))}
               </select>
@@ -265,7 +265,7 @@ export default function AgentWikiIntegrationCard() {
               }`}
             >
               {test.ok
-                ? `Connected — ${test.toolCount} tools, ${test.spaces.length} spaces, ${
+                ? `Connected: ${test.toolCount} tools, ${test.spaces.length} spaces, ${
                     test.canWrite ? "key can change pages" : "read-only key"
                   }.`
                 : (test.error ?? "The connection test failed.")}

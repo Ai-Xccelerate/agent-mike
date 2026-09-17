@@ -67,7 +67,7 @@ export default function NotificationDropdown() {
               </span>
               <span className="min-w-0">
                 <span className="block text-sm text-gray-700 dark:text-gray-300">
-                  <strong>{conversation.customerName}</strong> — {conversation.subject}. Escalated for review.
+                  <strong>{conversation.customerName}</strong>: {conversation.subject}. Escalated for review.
                 </span>
                 <span className="mt-1 block text-xs text-gray-500">
                   {relativeTime(conversation.updatedAt)} · {conversation.channel === "email" ? "Email" : "Chat"}

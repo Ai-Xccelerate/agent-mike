@@ -58,7 +58,7 @@ export default function AvatarUploadCard({ profile, onUpdated }: Props) {
     if (next.size > MAX_BYTES) {
       setFile(null);
       setPreviewUrl(null);
-      setError(`Images must be 1 MB or smaller — this one is ${formatBytes(next.size)}.`);
+      setError(`Images must be 1 MB or smaller. This one is ${formatBytes(next.size)}.`);
       return;
     }
 
@@ -92,7 +92,7 @@ export default function AvatarUploadCard({ profile, onUpdated }: Props) {
       setError(
         err instanceof WorkerApiError
           ? (err.errors?.file ?? err.message)
-          : "Could not upload — check that the API is running.",
+          : "Could not upload. Check that the API is running.",
       );
     } finally {
       setBusy(false);
@@ -107,9 +107,9 @@ export default function AvatarUploadCard({ profile, onUpdated }: Props) {
       const updated = await apiFetch<WorkerProfile>("/worker/avatar", { method: "DELETE" });
       onUpdated(updated, ["avatarUrl"]);
       reset();
-      setNotice("Avatar removed — the worker shows its initials again.");
+      setNotice("Avatar removed. The worker shows its initials again.");
     } catch {
-      setError("Could not remove — check that the API is running.");
+      setError("Could not remove. Check that the API is running.");
     } finally {
       setBusy(false);
     }
@@ -197,7 +197,7 @@ export default function AvatarUploadCard({ profile, onUpdated }: Props) {
           </div>
 
           <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
-            Uploading saves straight away — the Save button above does not apply to it.
+            Uploading saves straight away. The Save button above does not apply to it.
           </p>
         </div>
       </div>

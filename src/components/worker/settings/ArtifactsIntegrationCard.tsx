@@ -79,7 +79,7 @@ export default function ArtifactsIntegrationCard() {
       if (error instanceof WorkerApiError) {
         setNotice(error.errors?.enabled ?? error.message);
       } else {
-        setNotice("Could not save — check that the API is running.");
+        setNotice("Could not save. Check that the API is running.");
       }
     } finally {
       setSaving(false);
@@ -94,7 +94,7 @@ export default function ArtifactsIntegrationCard() {
         await apiFetch<ArtifactsConnectionTest>("/integrations/artifacts/test", { method: "POST" }),
       );
     } catch {
-      setNotice("Could not run the test — check that the API is running.");
+      setNotice("Could not run the test. Check that the API is running.");
     } finally {
       setTesting(false);
     }
@@ -114,7 +114,7 @@ export default function ArtifactsIntegrationCard() {
       <div className={panelClass}>
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Agent Artifacts</p>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Could not load this tool — check that the API is running.
+          Could not load this tool. Check that the API is running.
         </p>
         <Button size="sm" variant="outline" className="mt-3" onClick={retry}>
           Try again
@@ -244,7 +244,7 @@ export default function ArtifactsIntegrationCard() {
               }`}
             >
               {test.ok
-                ? `Connected — ${test.toolCount} tools available${
+                ? `Connected: ${test.toolCount} tools available${
                     test.brandKits.length > 0 ? `, ${test.brandKits.length} brand kits` : ""
                   }.`
                 : (test.error ?? "The connection test failed.")}
