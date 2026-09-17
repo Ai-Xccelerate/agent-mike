@@ -154,15 +154,7 @@ export default function WorkerAssistant() {
   const isBlank = !conversationId && messages.length === 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-gray-25 dark:bg-gray-900">
-      <AssistantHistoryPanel
-        selectedId={conversationId}
-        refreshKey={refreshKey}
-        open={historyOpen}
-        onSelect={(id) => setConversationId(id)}
-        onNew={startNew}
-        onClose={() => setHistoryOpen(false)}
-      />
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-5">
           <p className="min-w-0 truncate text-sm font-medium text-gray-600 dark:text-gray-400">{conversationTitle ?? ""}</p>
@@ -265,7 +257,7 @@ export default function WorkerAssistant() {
           }}
           className="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6"
         >
-          <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl bg-white p-2.5 shadow-lg shadow-gray-900/10 ring-1 ring-black/[0.04] focus-within:ring-2 focus-within:ring-brand-500/40 dark:bg-gray-800 dark:shadow-black/30 dark:ring-white/[0.06]">
+          <div className="mx-auto flex w-full max-w-xl flex-col gap-2 rounded-2xl bg-white p-3.5 shadow-lg shadow-gray-900/10 ring-1 ring-black/[0.04] focus-within:ring-2 focus-within:ring-brand-500/40 dark:bg-gray-800 dark:shadow-black/30 dark:ring-white/[0.06]">
             <textarea
               ref={inputRef}
               value={value}
@@ -279,44 +271,57 @@ export default function WorkerAssistant() {
               rows={1}
               maxLength={MESSAGE_MAX_LENGTH}
               placeholder={listening ? "Listening. Speak now…" : `Ask ${displayName}'s assistant a question…`}
-              className="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-2.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
+              className="max-h-32 min-h-9 w-full resize-none bg-transparent px-1 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
             />
-            <button
-              type="button"
-              onClick={toggleVoice}
-              disabled={!voiceSupported}
-              aria-label={listening ? "Stop voice input" : "Start voice input"}
-              aria-pressed={listening}
-              title={
-                voiceSupported
-                  ? listening
-                    ? "Stop voice input"
-                    : "Dictate your message"
-                  : "Voice input isn't supported in this browser"
-              }
-              className={`flex size-11 shrink-0 items-center justify-center rounded-xl transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                listening
-                  ? "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500"
-                  : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.05]"
-              }`}
-            >
-              <MicrophoneIcon className="size-4" />
-            </button>
-            <button
-              type="submit"
-              disabled={!value.trim() || loading}
-              aria-label="Send message"
-              title="Send message"
-              className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
-            >
-              <ArrowUpIcon className="size-4" />
-            </button>
+            <div className="flex items-center justify-end gap-2">
+              <span className="mr-auto hidden items-center gap-1 rounded-md border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-400 sm:flex dark:border-gray-700 dark:text-gray-500">
+                ↵ to send
+              </span>
+              <button
+                type="button"
+                onClick={toggleVoice}
+                disabled={!voiceSupported}
+                aria-label={listening ? "Stop voice input" : "Start voice input"}
+                aria-pressed={listening}
+                title={
+                  voiceSupported
+                    ? listening
+                      ? "Stop voice input"
+                      : "Dictate your message"
+                    : "Voice input isn't supported in this browser"
+                }
+                className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  listening
+                    ? "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500"
+                    : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.05]"
+                }`}
+              >
+                <MicrophoneIcon className="size-4" />
+              </button>
+              <button
+                type="submit"
+                disabled={!value.trim() || loading}
+                aria-label="Send message"
+                title="Send message"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
+              >
+                <ArrowUpIcon className="size-4" />
+              </button>
+            </div>
           </div>
-          <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-gray-500 dark:text-gray-400">
+          <p className="mx-auto mt-2 max-w-xl text-center text-[11px] text-gray-500 dark:text-gray-400">
             {voiceError ?? "Answers questions about your business today. Configuring settings and taking actions are coming later."}
           </p>
         </form>
       </div>
+      <AssistantHistoryPanel
+        selectedId={conversationId}
+        refreshKey={refreshKey}
+        open={historyOpen}
+        onSelect={(id) => setConversationId(id)}
+        onNew={startNew}
+        onClose={() => setHistoryOpen(false)}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { BoxIcon, PencilIcon, PlusIcon } from "@/icons";
+import { BoxIcon, CloseIcon, PencilIcon, PlusIcon } from "@/icons";
 import { apiFetch, Conversation } from "@/lib/worker-api";
 import { useEffect, useMemo, useState } from "react";
 
@@ -15,9 +15,10 @@ function relativeTime(iso: string) {
 }
 
 /**
- * The Assistant's own conversation history: a permanent collapsible rail on
- * desktop, and the same content as a full overlay drawer below `lg` - one
- * `open` state drives both, since only one of the two ever renders at a
+ * The Assistant's own conversation history: a collapsible panel on the
+ * *right* (matching the Jules reference - not a left rail), rendered as a
+ * permanent panel on desktop and a full overlay drawer below `lg`. One
+ * `open` state drives both, since only one of the two is ever visible at a
  * given width. Lists channel=assistant only, so it never mixes with
  * Playground's channel=chat test conversations or real customer traffic.
  *
@@ -99,26 +100,45 @@ export default function AssistantHistoryPanel({
   }
 
   const listContent = (
-    <div className="flex h-full min-h-0 w-full flex-col bg-white dark:bg-gray-900">
-      <div className="flex items-center gap-2 border-b border-gray-200 p-2.5 dark:border-gray-800">
+    <div className="glass-surface flex h-full min-h-0 w-full flex-col">
+      <div className="flex items-center justify-between gap-2 border-b border-gray-200/70 p-4 dark:border-white/10">
+        <div>
+          <p className="text-base font-semibold text-gray-800 dark:text-white/90">Chat history</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {conversations.length} conversation{conversations.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close history"
+          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-white/5 dark:hover:text-gray-200"
+        >
+          <CloseIcon className="size-4" />
+        </button>
+      </div>
+
+      <div className="p-3">
+        <button
+          type="button"
+          onClick={onNew}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+        >
+          <PlusIcon className="size-4" />
+          Start new chat
+        </button>
+      </div>
+
+      <div className="px-3 pb-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search history"
-          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-transparent px-2.5 py-1.5 text-xs text-gray-800 outline-none focus:border-brand-500 dark:border-gray-700 dark:text-white/90"
+          className="w-full rounded-lg border border-gray-200 bg-transparent px-2.5 py-1.5 text-xs text-gray-800 outline-none focus:border-brand-500 dark:border-white/10 dark:text-white/90"
         />
-        <button
-          type="button"
-          onClick={onNew}
-          aria-label="New chat"
-          title="New chat"
-          className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white hover:bg-brand-600"
-        >
-          <PlusIcon className="size-3.5" />
-        </button>
       </div>
 
-      <label className="flex items-center gap-1.5 border-b border-gray-200 px-2.5 py-2 text-[11px] text-gray-500 dark:border-gray-800 dark:text-gray-400">
+      <label className="flex items-center gap-1.5 border-b border-gray-200/70 px-3.5 pb-3 text-[11px] text-gray-500 dark:border-white/10 dark:text-gray-400">
         <input
           type="checkbox"
           checked={showArchived}
@@ -227,13 +247,11 @@ export default function AssistantHistoryPanel({
 
   return (
     <>
-      <div className={open ? "hidden h-full w-[260px] shrink-0 border-r border-gray-200 lg:flex dark:border-gray-800" : "hidden"}>
-        {listContent}
-      </div>
+      <div className={open ? "hidden h-full w-[300px] shrink-0 lg:flex" : "hidden"}>{listContent}</div>
       {open && (
-        <div className="fixed inset-0 z-[60] flex lg:hidden">
+        <div className="fixed inset-0 z-[60] flex justify-end lg:hidden">
           <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-          <div className="relative h-full w-[280px] shadow-xl">{listContent}</div>
+          <div className="relative h-full w-[300px] shadow-xl">{listContent}</div>
         </div>
       )}
     </>
