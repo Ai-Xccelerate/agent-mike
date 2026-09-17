@@ -145,21 +145,21 @@
     {
       "idx": 20,
       "version": "7",
-      "when": 1789615467849,
+      "when": 1790660000001,
       "tag": "0020_assistant_history_columns",
       "breakpoints": true
     },
     {
       "idx": 21,
       "version": "7",
-      "when": 1789639137399,
+      "when": 1790660000002,
       "tag": "0021_assistant_actions_toggle",
       "breakpoints": true
     },
     {
       "idx": 22,
       "version": "7",
-      "when": 1789640377847,
+      "when": 1790660000003,
       "tag": "0022_tool_approvals_conversation_scope",
       "breakpoints": true
     }
