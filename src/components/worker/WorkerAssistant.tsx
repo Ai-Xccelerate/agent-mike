@@ -212,26 +212,18 @@ export default function WorkerAssistant() {
           ) : (
             messages.map((message) => {
               const isAgent = message.senderType === "agent";
-              return (
-                <div key={message.id} className={`flex gap-2.5 ${isAgent ? "" : "flex-row-reverse"}`}>
-                  {isAgent ? (
-                    <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-                  ) : (
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gray-800 text-xs font-semibold text-white dark:bg-gray-200 dark:text-gray-800">
-                      {(managerName ?? "M").charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <div className={`max-w-[82%] ${isAgent ? "" : "text-right"}`}>
-                    <div
-                      className={`rounded-2xl px-4 py-3 text-left text-sm leading-6 ${
-                        isAgent
-                          ? "rounded-tl-md border border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-white/[0.04] dark:text-gray-200"
-                          : "rounded-tr-md bg-brand-500 text-white"
-                      }`}
-                    >
-                      {isAgent ? <Markdown>{message.body}</Markdown> : <p className="whitespace-pre-wrap">{message.body}</p>}
-                    </div>
+              return isAgent ? (
+                <div key={message.id} className="flex gap-2.5">
+                  <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
+                  <div className="max-w-[82%] pt-1 text-sm leading-6 text-gray-700 dark:text-gray-200">
+                    <Markdown>{message.body}</Markdown>
                   </div>
+                </div>
+              ) : (
+                <div key={message.id} className="flex justify-end">
+                  <p className="max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand-500 px-4 py-3 text-right text-sm leading-6 text-white">
+                    {message.body}
+                  </p>
                 </div>
               );
             })
@@ -240,7 +232,7 @@ export default function WorkerAssistant() {
           {loading && (
             <div className="flex items-center gap-2.5">
               <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-              <div className="flex gap-1 rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-white/[0.04]">
+              <div className="flex gap-1 px-1 py-3">
                 <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
                 <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
                 <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms]" />
