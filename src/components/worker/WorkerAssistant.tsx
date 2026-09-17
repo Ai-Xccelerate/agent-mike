@@ -156,7 +156,7 @@ export default function WorkerAssistant() {
   return (
     <div className="flex h-full min-h-0 flex-1 overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-5">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-gray-300 px-5 dark:border-white/15">
           <p className="min-w-0 truncate text-sm font-medium text-gray-600 dark:text-gray-400">{conversationTitle ?? ""}</p>
           <div className="flex shrink-0 items-center gap-2">
             <button
@@ -249,9 +249,9 @@ export default function WorkerAssistant() {
             event.preventDefault();
             void sendText(value);
           }}
-          className="shrink-0 px-4 pb-8 sm:px-6 sm:pb-10"
+          className="shrink-0 px-4 pb-2 sm:px-6 sm:pb-3"
         >
-          <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 rounded-2xl bg-white p-3.5 shadow-lg shadow-gray-900/10 ring-1 ring-black/[0.04] focus-within:ring-2 focus-within:ring-brand-500/40 dark:bg-gray-800 dark:shadow-black/30 dark:ring-white/[0.06]">
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl bg-white p-3.5 shadow-lg shadow-gray-900/10 ring-1 ring-black/[0.04] focus-within:ring-2 focus-within:ring-brand-500/40 dark:bg-gray-800 dark:shadow-black/30 dark:ring-white/[0.06]">
             <textarea
               ref={inputRef}
               value={value}
@@ -303,7 +303,7 @@ export default function WorkerAssistant() {
               </button>
             </div>
           </div>
-          <p className="mx-auto mt-2 max-w-2xl text-center text-[11px] text-gray-500 dark:text-gray-400">
+          <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-gray-500 dark:text-gray-400">
             {voiceError ?? "Answers questions about your business today. Configuring settings and taking actions are coming later."}
           </p>
         </form>
