@@ -3,21 +3,23 @@
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AssistantHistoryPanel from "@/components/worker/AssistantHistoryPanel";
 import Markdown from "@/components/worker/Markdown";
-import { ArrowUpIcon, PlusIcon, TimeIcon } from "@/icons";
+import { ArrowUpIcon, MicrophoneIcon, PlusIcon, TimeIcon } from "@/icons";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { apiFetch, AssistantChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 const MESSAGE_MAX_LENGTH = 4000;
 
-// Generic across whatever this worker is configured to do - none of these
-// assume a support/ticketing domain (no "ticket", no "refund"), since the
-// same Assistant page ships for any AI Worker persona.
+// Short label for the chip button, full sentence actually sent on click -
+// same split Jules uses (compact pills, longer prompt underneath). Generic
+// across whatever this worker is configured to do: no "ticket", no
+// "refund" - this page ships for any AI Worker persona, not just support.
 const SUGGESTION_CHIPS = [
-  "How many conversations are open right now?",
-  "Summarize my most recently escalated conversation",
-  "What does my current guardrail escalate on?",
-  "Search my knowledge base for a topic",
+  { label: "Open conversations", prompt: "How many conversations are open right now?" },
+  { label: "Summarize a conversation", prompt: "Summarize my most recently escalated conversation" },
+  { label: "Guardrail rules", prompt: "What does my current guardrail escalate on?" },
+  { label: "Search knowledge", prompt: "Search my knowledge base for a topic" },
 ];
 
 function greetingForHour(hour: number): string {
@@ -40,6 +42,11 @@ export default function WorkerAssistant() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
+
+  const { listening, supported: voiceSupported, toggle: toggleVoice, error: voiceError } = useVoiceInput((text) => {
+    setValue((prev) => (prev ? `${prev} ` : "") + text);
+    inputRef.current?.focus();
+  });
 
   useEffect(() => {
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
@@ -157,8 +164,8 @@ export default function WorkerAssistant() {
         onClose={() => setHistoryOpen(false)}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
-          <p className="min-w-0 truncate text-sm font-medium text-gray-700 dark:text-gray-300">{conversationTitle ?? ""}</p>
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-5">
+          <p className="min-w-0 truncate text-sm font-medium text-gray-600 dark:text-gray-400">{conversationTitle ?? ""}</p>
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
@@ -180,7 +187,7 @@ export default function WorkerAssistant() {
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 dark:bg-gray-950/40 sm:p-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-6">
           {preview && (
             <div className="mx-auto max-w-md rounded-lg bg-warning-50 px-3 py-2 text-center text-xs text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
               Couldn&apos;t reach the assistant
@@ -198,14 +205,14 @@ export default function WorkerAssistant() {
                 Ask about your conversations, check your guardrails, or search your knowledge base.
               </p>
               <div className="mt-2 flex flex-wrap justify-center gap-2">
-                {SUGGESTION_CHIPS.map((prompt) => (
+                {SUGGESTION_CHIPS.map((chip) => (
                   <button
-                    key={prompt}
+                    key={chip.label}
                     type="button"
-                    onClick={() => void sendText(prompt)}
-                    className="rounded-lg border border-gray-200 px-3 py-2 text-left text-xs text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
+                    onClick={() => void sendText(chip.prompt)}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
                   >
-                    {prompt}
+                    {chip.label}
                   </button>
                 ))}
               </div>
@@ -256,9 +263,9 @@ export default function WorkerAssistant() {
             event.preventDefault();
             void sendText(value);
           }}
-          className="shrink-0 border-t border-gray-200 p-4 dark:border-gray-800 sm:p-6"
+          className="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6"
         >
-          <div className="mx-auto flex max-w-2xl items-end gap-2 rounded-2xl border border-gray-300 bg-white p-2.5 shadow-sm focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
+          <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-gray-300 bg-white p-2.5 shadow-sm focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
             <textarea
               ref={inputRef}
               value={value}
@@ -271,21 +278,42 @@ export default function WorkerAssistant() {
               }}
               rows={1}
               maxLength={MESSAGE_MAX_LENGTH}
-              placeholder={`Ask ${displayName}'s assistant a question…`}
+              placeholder={listening ? "Listening. Speak now…" : `Ask ${displayName}'s assistant a question…`}
               className="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-2.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
             />
+            <button
+              type="button"
+              onClick={toggleVoice}
+              disabled={!voiceSupported}
+              aria-label={listening ? "Stop voice input" : "Start voice input"}
+              aria-pressed={listening}
+              title={
+                voiceSupported
+                  ? listening
+                    ? "Stop voice input"
+                    : "Dictate your message"
+                  : "Voice input isn't supported in this browser"
+              }
+              className={`flex size-11 shrink-0 items-center justify-center rounded-xl transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                listening
+                  ? "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500"
+                  : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.05]"
+              }`}
+            >
+              <MicrophoneIcon className="size-4" />
+            </button>
             <button
               type="submit"
               disabled={!value.trim() || loading}
               aria-label="Send message"
               title="Send message"
-              className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
+              className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
             >
               <ArrowUpIcon className="size-4" />
             </button>
           </div>
-          <p className="mx-auto mt-2 max-w-2xl text-center text-[11px] text-gray-500 dark:text-gray-400">
-            Answers questions about your business today. Configuring settings and taking actions are coming later.
+          <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-gray-500 dark:text-gray-400">
+            {voiceError ?? "Answers questions about your business today. Configuring settings and taking actions are coming later."}
           </p>
         </form>
       </div>
