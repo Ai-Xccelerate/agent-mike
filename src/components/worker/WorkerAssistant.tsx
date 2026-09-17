@@ -10,11 +10,14 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 const MESSAGE_MAX_LENGTH = 4000;
 
+// Generic across whatever this worker is configured to do - none of these
+// assume a support/ticketing domain (no "ticket", no "refund"), since the
+// same Assistant page ships for any AI Worker persona.
 const SUGGESTION_CHIPS = [
   "How many conversations are open right now?",
-  "Summarize my most recently escalated ticket",
+  "Summarize my most recently escalated conversation",
   "What does my current guardrail escalate on?",
-  "Search the knowledge base for our refund policy",
+  "Search my knowledge base for a topic",
 ];
 
 function greetingForHour(hour: number): string {
@@ -27,10 +30,11 @@ function greetingForHour(hour: number): string {
 export default function WorkerAssistant() {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [preview, setPreview] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -51,6 +55,7 @@ export default function WorkerAssistant() {
     if (!conversationId) {
       loadedIdRef.current = null;
       setMessages([]);
+      setConversationTitle(null);
       return;
     }
     if (loadedIdRef.current === conversationId) return; // already showing it (e.g. just created)
@@ -59,7 +64,10 @@ export default function WorkerAssistant() {
     (async () => {
       try {
         const conversation = await apiFetch<Conversation>(`/conversations/${conversationId}`);
-        if (!cancelled) setMessages(conversation.messages ?? []);
+        if (!cancelled) {
+          setMessages(conversation.messages ?? []);
+          setConversationTitle(conversation.subject ?? null);
+        }
       } catch {
         if (!cancelled) setMessages([]);
       }
@@ -77,6 +85,7 @@ export default function WorkerAssistant() {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
     const managerName = profile?.managerName ?? "You";
+    if (!conversationId && !conversationTitle) setConversationTitle(trimmed.slice(0, 120));
     setMessages((items) => [
       ...items,
       {
@@ -125,6 +134,7 @@ export default function WorkerAssistant() {
   function startNew() {
     setConversationId(null);
     setMessages([]);
+    setConversationTitle(null);
     setValue("");
     inputRef.current?.focus();
   }
@@ -147,145 +157,137 @@ export default function WorkerAssistant() {
         onClose={() => setHistoryOpen(false)}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
-        <div className="flex min-w-0 items-center gap-3">
-          <AgentAvatar initials={avatarInitials} size="md" accentColor={accentColor} avatarUrl={avatarUrl} />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">
-              {displayName} Assistant
-            </p>
-            <p className="truncate text-xs text-gray-500 dark:text-gray-400">Answers questions. Can&apos;t change anything yet.</p>
+        <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
+          <p className="min-w-0 truncate text-sm font-medium text-gray-700 dark:text-gray-300">{conversationTitle ?? ""}</p>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((open) => !open)}
+              aria-expanded={historyOpen}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-white/5 dark:hover:text-gray-200"
+            >
+              <TimeIcon className="size-3.5" />
+              History
+            </button>
+            <button
+              type="button"
+              onClick={startNew}
+              className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-600"
+            >
+              <PlusIcon className="size-3.5" />
+              New chat
+            </button>
           </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={startNew}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-white/5 dark:hover:text-gray-200"
-          >
-            <PlusIcon className="size-3.5" />
-            New chat
-          </button>
-          <button
-            type="button"
-            onClick={() => setHistoryOpen((open) => !open)}
-            aria-expanded={historyOpen}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-white/5 dark:hover:text-gray-200"
-          >
-            <TimeIcon className="size-3.5" />
-            History
-          </button>
-        </div>
-      </header>
+        </header>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 dark:bg-gray-950/40 sm:p-5">
-        {preview && (
-          <div className="mx-auto max-w-md rounded-lg bg-warning-50 px-3 py-2 text-center text-xs text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
-            Couldn&apos;t reach the assistant
-          </div>
-        )}
-
-        {isBlank && !loading ? (
-          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-3 text-center">
-            <AgentAvatar initials={avatarInitials} size="lg" accentColor={accentColor} avatarUrl={avatarUrl} />
-            <p className="text-lg font-semibold text-gray-800 dark:text-white/90">
-              {greetingForHour(new Date().getHours())}
-              {managerName ? `, ${managerName}` : ""}
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Ask about your conversations, or ask me to summarize a ticket.
-            </p>
-            <div className="mt-2 flex w-full flex-col gap-2">
-              {SUGGESTION_CHIPS.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  onClick={() => void sendText(prompt)}
-                  className="block w-full rounded-lg border border-gray-200 px-3 py-2.5 text-left text-xs text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
-                >
-                  {prompt}
-                </button>
-              ))}
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 dark:bg-gray-950/40 sm:p-5">
+          {preview && (
+            <div className="mx-auto max-w-md rounded-lg bg-warning-50 px-3 py-2 text-center text-xs text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
+              Couldn&apos;t reach the assistant
             </div>
-          </div>
-        ) : (
-          messages.map((message) => {
-            const isAgent = message.senderType === "agent";
-            return (
-              <div key={message.id} className={`flex gap-2.5 ${isAgent ? "" : "flex-row-reverse"}`}>
-                {isAgent ? (
-                  <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-                ) : (
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gray-800 text-xs font-semibold text-white dark:bg-gray-200 dark:text-gray-800">
-                    {(managerName ?? "M").charAt(0).toUpperCase()}
-                  </span>
-                )}
-                <div className={`max-w-[82%] ${isAgent ? "" : "text-right"}`}>
-                  <div
-                    className={`rounded-2xl px-4 py-3 text-left text-sm leading-6 ${
-                      isAgent
-                        ? "rounded-tl-md border border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-white/[0.04] dark:text-gray-200"
-                        : "rounded-tr-md bg-brand-500 text-white"
-                    }`}
+          )}
+
+          {isBlank && !loading ? (
+            <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center gap-3 text-center">
+              <AgentAvatar initials={avatarInitials} size="lg" accentColor={accentColor} avatarUrl={avatarUrl} />
+              <p className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                {greetingForHour(new Date().getHours())}
+                {managerName ? `, ${managerName}` : ""}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Ask about your conversations, check your guardrails, or search your knowledge base.
+              </p>
+              <div className="mt-2 flex flex-wrap justify-center gap-2">
+                {SUGGESTION_CHIPS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => void sendText(prompt)}
+                    className="rounded-lg border border-gray-200 px-3 py-2 text-left text-xs text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
                   >
-                    {isAgent ? <Markdown>{message.body}</Markdown> : <p className="whitespace-pre-wrap">{message.body}</p>}
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            messages.map((message) => {
+              const isAgent = message.senderType === "agent";
+              return (
+                <div key={message.id} className={`flex gap-2.5 ${isAgent ? "" : "flex-row-reverse"}`}>
+                  {isAgent ? (
+                    <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
+                  ) : (
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gray-800 text-xs font-semibold text-white dark:bg-gray-200 dark:text-gray-800">
+                      {(managerName ?? "M").charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <div className={`max-w-[82%] ${isAgent ? "" : "text-right"}`}>
+                    <div
+                      className={`rounded-2xl px-4 py-3 text-left text-sm leading-6 ${
+                        isAgent
+                          ? "rounded-tl-md border border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-white/[0.04] dark:text-gray-200"
+                          : "rounded-tr-md bg-brand-500 text-white"
+                      }`}
+                    >
+                      {isAgent ? <Markdown>{message.body}</Markdown> : <p className="whitespace-pre-wrap">{message.body}</p>}
+                    </div>
                   </div>
                 </div>
+              );
+            })
+          )}
+
+          {loading && (
+            <div className="flex items-center gap-2.5">
+              <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
+              <div className="flex gap-1 rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-white/[0.04]">
+                <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
+                <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
+                <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms]" />
               </div>
-            );
-          })
-        )}
-
-        {loading && (
-          <div className="flex items-center gap-2.5">
-            <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-            <div className="flex gap-1 rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-white/[0.04]">
-              <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
-              <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
-              <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms]" />
             </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      <form
-        onSubmit={(event: FormEvent) => {
-          event.preventDefault();
-          void sendText(value);
-        }}
-        className="shrink-0 border-t border-gray-200 p-3 dark:border-gray-800 sm:p-4"
-      >
-        <div className="flex items-end gap-2 rounded-xl border border-gray-300 bg-white p-1.5 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
-          <textarea
-            ref={inputRef}
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            rows={1}
-            maxLength={MESSAGE_MAX_LENGTH}
-            placeholder={`Ask ${displayName}'s assistant a question…`}
-            className="max-h-28 min-h-9 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
-          />
-          <button
-            type="submit"
-            disabled={!value.trim() || loading}
-            aria-label="Send message"
-            title="Send message"
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
-          >
-            <ArrowUpIcon className="size-4" />
-          </button>
+          )}
+          <div ref={bottomRef} />
         </div>
-        <p className="mt-2 text-center text-[11px] text-gray-500 dark:text-gray-400">
-          Answers questions about your business today. Configuring settings and taking actions are coming later.
-        </p>
-      </form>
+
+        <form
+          onSubmit={(event: FormEvent) => {
+            event.preventDefault();
+            void sendText(value);
+          }}
+          className="shrink-0 border-t border-gray-200 p-4 dark:border-gray-800 sm:p-6"
+        >
+          <div className="mx-auto flex max-w-2xl items-end gap-2 rounded-2xl border border-gray-300 bg-white p-2.5 shadow-sm focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
+            <textarea
+              ref={inputRef}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              rows={1}
+              maxLength={MESSAGE_MAX_LENGTH}
+              placeholder={`Ask ${displayName}'s assistant a question…`}
+              className="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-2.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
+            />
+            <button
+              type="submit"
+              disabled={!value.trim() || loading}
+              aria-label="Send message"
+              title="Send message"
+              className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
+            >
+              <ArrowUpIcon className="size-4" />
+            </button>
+          </div>
+          <p className="mx-auto mt-2 max-w-2xl text-center text-[11px] text-gray-500 dark:text-gray-400">
+            Answers questions about your business today. Configuring settings and taking actions are coming later.
+          </p>
+        </form>
       </div>
     </div>
   );
