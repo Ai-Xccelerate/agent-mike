@@ -265,7 +265,7 @@ export default function WorkerAssistant() {
           }}
           className="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6"
         >
-          <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-gray-300 bg-white p-2.5 shadow-sm focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
+          <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl bg-white p-2.5 shadow-lg shadow-gray-900/10 ring-1 ring-black/[0.04] focus-within:ring-2 focus-within:ring-brand-500/40 dark:bg-gray-800 dark:shadow-black/30 dark:ring-white/[0.06]">
             <textarea
               ref={inputRef}
               value={value}
