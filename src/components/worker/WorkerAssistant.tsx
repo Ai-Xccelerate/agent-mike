@@ -249,7 +249,7 @@ export default function WorkerAssistant() {
             event.preventDefault();
             void sendText(value);
           }}
-          className="shrink-0 px-4 pb-1 sm:px-6 sm:pb-1"
+          className="shrink-0 px-4 pb-4 sm:px-6 sm:pb-5"
         >
           <div className="glass-surface mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl p-3.5 shadow-lg shadow-gray-900/10 outline outline-2 outline-offset-1 outline-transparent transition-[outline-color] focus-within:outline-brand-500 dark:shadow-black/30">
             <textarea
