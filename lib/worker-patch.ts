@@ -33,6 +33,7 @@ export const workerPatchSchema = z
     // without this the only way to let a worker auto-execute write tools was
     // editing the database by hand.
     requireWriteApproval: z.boolean(),
+    assistantActionsEnabled: z.boolean(),
     managerName: z.string().min(1),
     managerEmail: emptyToNull(z.string().email().nullable()),
     autoReply: z.boolean(),
