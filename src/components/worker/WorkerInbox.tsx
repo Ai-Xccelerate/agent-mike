@@ -24,6 +24,9 @@ const CHANNEL_LABEL: Record<Conversation["channel"], string> = {
   chat: "Chat",
   widget: "Widget",
   email: "Email",
+  // Inbox's own query already excludes assistant conversations; this label
+  // only matters if that filter is ever bypassed (e.g. a future debug view).
+  assistant: "Assistant",
 };
 
 function relativeTime(iso: string) {
