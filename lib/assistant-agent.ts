@@ -717,6 +717,36 @@ export async function runAssistantAgent(
   return { answer: text.trim() };
 }
 
+/**
+ * A short, human-readable title for a brand-new conversation, generated once
+ * from the manager's opening message - same one-shot Agent + run(...,
+ * {maxTurns:1}) shape as maybeRefreshAssistantSummary. Falls back to a plain
+ * truncation in demo mode / without an API key, or if the model call fails,
+ * so conversation creation never depends on this succeeding.
+ */
+export async function generateAssistantTitle(profile: Profile, message: string): Promise<string> {
+  const fallback = message.slice(0, 120);
+  if (isDemoMode() || !process.env.OPENAI_API_KEY) return fallback;
+
+  const titler = new Agent({
+    name: "Assistant conversation titler",
+    instructions:
+      "Write a short title (3-6 words) summarizing what this conversation is about, based on the " +
+      "manager's opening message. Sentence case, no ending punctuation, no quotes, no filler words.",
+    model: profile.model,
+    modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
+  });
+
+  try {
+    const result = await run(titler, message, { maxTurns: 1 });
+    const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
+    const title = text.trim().replace(/^["']|["']$/g, "");
+    return title || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export interface AssistantSummaryState {
   summary: string | null;
   summarizedMessageCount: number;

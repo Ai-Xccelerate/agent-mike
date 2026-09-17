@@ -8,6 +8,7 @@ import { getOrCreateProfile } from "@/lib/bootstrap";
 import {
   runAssistantAgent,
   maybeRefreshAssistantSummary,
+  generateAssistantTitle,
   REPLAY_MESSAGE_LIMIT,
   type AssistantHistoryTurn,
 } from "@/lib/assistant-agent";
@@ -67,9 +68,12 @@ export async function POST(req: NextRequest) {
     : [];
 
   if (!conversation) {
-    const ticketResult = await db.execute<{ next_ticket: number }>(
-      sql`select coalesce(max(ticket_number), 1000) + 1 as next_ticket from conversations where organization_id = ${tenant.orgId}`,
-    );
+    const [ticketResult, title] = await Promise.all([
+      db.execute<{ next_ticket: number }>(
+        sql`select coalesce(max(ticket_number), 1000) + 1 as next_ticket from conversations where organization_id = ${tenant.orgId}`,
+      ),
+      generateAssistantTitle(profile, message),
+    ]);
     const nextTicket = Number(ticketResult.rows[0]?.next_ticket ?? 1001);
 
     [conversation] = await db
@@ -79,7 +83,7 @@ export async function POST(req: NextRequest) {
         ticketNumber: nextTicket,
         channel: "assistant",
         customerName: profile.managerName,
-        subject: message.slice(0, 120),
+        subject: title,
       })
       .returning();
   }
@@ -156,5 +160,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     conversation_id: conversation.id,
     message: reply,
+    conversation_title: conversation.subject,
   });
 }
