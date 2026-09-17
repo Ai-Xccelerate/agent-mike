@@ -116,6 +116,7 @@ export default function WorkerAssistant() {
       const isNew = !conversationId;
       setConversationId(response.conversation_id);
       if (isNew) setRefreshKey((k) => k + 1);
+      if (response.conversation_title) setConversationTitle(response.conversation_title);
       setMessages((items) => [...items, response.message]);
       setPreview(false);
     } catch {
@@ -222,7 +223,7 @@ export default function WorkerAssistant() {
                   </div>
                 ) : (
                   <div key={message.id} className="flex justify-end">
-                    <p className="max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand-500 px-4 py-3 text-right text-sm leading-6 text-white">
+                    <p className="max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand-500 px-4 py-3 text-left text-sm leading-6 text-white">
                       {message.body}
                     </p>
                   </div>

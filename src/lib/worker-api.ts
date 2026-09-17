@@ -309,6 +309,7 @@ export type ChatResponse = {
 export type AssistantChatResponse = {
   conversation_id: string;
   message: Message;
+  conversation_title: string | null;
 };
 
 export type ApiFetchOptions = RequestInit & { widgetSiteToken?: string };
