@@ -58,7 +58,16 @@ export default function IntegrationConnectionCard({
     setConnectingSystem(system);
     try {
       const { redirectUrl } = await connectIntegration(integrationType, system);
-      window.location.href = redirectUrl;
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+        return;
+      }
+      // Composio already had an active account for this vendor (e.g. one made
+      // outside this app's own tracking) — the backend adopted it directly
+      // instead of starting a new OAuth round trip, so just refresh status.
+      const row = await getIntegrationConnection(integrationType);
+      setConnection(row);
+      setConnectingSystem(null);
     } catch (err) {
       setConnectingSystem(null);
       setError(err instanceof Error ? err.message : `Could not start ${vendorLabel} connection.`);
