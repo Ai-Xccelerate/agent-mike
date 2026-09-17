@@ -29,6 +29,11 @@
  * away from a DROP TABLE.
  */
 
+import {
+  resolveCredentials,
+  type ResolvedCredentials,
+} from "@/lib/provider-credentials";
+
 const DEFAULT_TIMEOUT_MS = 12000;
 const MCP_PROTOCOL_VERSION = "2025-03-26";
 
@@ -124,6 +129,57 @@ export function agentDbOrgId(localOrgId: string, override?: string | null): stri
   return localOrgId;
 }
 
+/**
+ * A per-agent MCP key, the alternative to the fleet-wide internal key.
+ *
+ * The internal key identifies the *deployment* and has to assert which org it
+ * is acting for via X-Clerk-Org-Id — an id this build has no Clerk to supply.
+ * An MCP key identifies itself: it was issued inside a workspace, so there is
+ * no org to assert and nothing to look up.
+ *
+ * It is also the only way to drop below full scope. The internal-key path is
+ * always full (SQL/DML/DDL, files), leaving `assertReadOnlySql` as the only
+ * thing between a prompt injection and a DROP TABLE. A read-scoped MCP key
+ * makes AgentDB itself refuse the write, so our guard stops being the only one.
+ */
+export interface AgentDbCredentials extends Record<string, string> {
+  mcpUrl: string;
+  apiKey: string;
+}
+
+export const AGENTDB_PROVIDER = "agentdb";
+/** What the settings screen reports as set or missing. */
+export const AGENTDB_REQUIRED_FIELDS = ["apiKey"] as const;
+
+/** MCP lives under the same host as the REST API, at /mcp/ (trailing slash). */
+function defaultMcpUrl(): string {
+  const base = agentDbApiUrl().replace(/\/+$/, "");
+  return base ? `${base}/mcp/` : "";
+}
+
+export function envAgentDbCredentials(): AgentDbCredentials {
+  return {
+    mcpUrl: (process.env.AGENTDB_MCP_URL || defaultMcpUrl()).trim(),
+    apiKey: (process.env.AGENTDB_MCP_KEY || "").trim(),
+  };
+}
+
+export function isCompleteAgentDbCredentials(values: Partial<AgentDbCredentials>): boolean {
+  return Boolean((values.mcpUrl || "").trim() && (values.apiKey || "").trim());
+}
+
+/** This agent's own key first, then the deployment's. Null when neither is set. */
+export async function resolveAgentDbCredentials(
+  orgId: string,
+): Promise<ResolvedCredentials<AgentDbCredentials> | null> {
+  return resolveCredentials<AgentDbCredentials>(
+    orgId,
+    AGENTDB_PROVIDER,
+    envAgentDbCredentials,
+    isCompleteAgentDbCredentials,
+  );
+}
+
 function internalHeaders(orgId: string, agentId: string, workspaceId?: string | null) {
   const headers: Record<string, string> = {
     "X-Internal-Key": internalKey(),
@@ -178,14 +234,16 @@ function httpError(status: number, detail: string): AgentDbError {
 
 async function agentDbFetch(
   path: string,
-  init: RequestInit & { timeoutMs?: number },
+  init: RequestInit & { timeoutMs?: number; absoluteUrl?: string; skipEnvCheck?: boolean },
 ): Promise<Response> {
-  requireConfigured();
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, ...rest } = init;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, absoluteUrl, skipEnvCheck, ...rest } = init;
+  // A per-agent MCP key is a complete credential on its own, so the env pair
+  // is not required when one is in play.
+  if (!skipEnvCheck) requireConfigured();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(`${agentDbApiUrl()}${path}`, {
+    return await fetch(absoluteUrl || `${agentDbApiUrl()}${path}`, {
       ...rest,
       signal: controller.signal,
       // Next patches global fetch and will cache route-handler requests without
@@ -336,11 +394,26 @@ class McpSession {
     private readonly agentId: string,
     private readonly workspaceId: string | null,
     private readonly timeoutMs: number,
+    /**
+     * A per-agent MCP key. With one, the session authenticates as that key and
+     * the org is implied by it — no X-Clerk-Org-Id, so none of the "default"
+     * fallback that makes the internal-key path query an org that isn't yours.
+     * Without one, the internal-key path is used unchanged.
+     */
+    private readonly credentials: AgentDbCredentials | null = null,
   ) {}
+
+  /** Bearer when this agent has its own key, internal headers otherwise. */
+  private authHeaders(): Record<string, string> {
+    if (this.credentials?.apiKey) {
+      return { Authorization: `Bearer ${this.credentials.apiKey}` };
+    }
+    return internalHeaders(this.orgId, this.agentId, this.workspaceId);
+  }
 
   private async rpc(method: string, params: Record<string, unknown>, notification = false) {
     const headers: Record<string, string> = {
-      ...internalHeaders(this.orgId, this.agentId, this.workspaceId),
+      ...this.authHeaders(),
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
       "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
@@ -355,6 +428,9 @@ class McpSession {
       headers,
       body: JSON.stringify(payload),
       timeoutMs: this.timeoutMs,
+      // A key brings its own endpoint; env-only deploys keep the derived one.
+      absoluteUrl: this.credentials?.mcpUrl || undefined,
+      skipEnvCheck: Boolean(this.credentials?.apiKey),
     });
 
     const returned = res.headers.get("mcp-session-id");
@@ -501,11 +577,15 @@ export async function queryAgentDb(options: {
 }): Promise<AgentDbQueryResult> {
   const sql = assertReadOnlySql(options.sql);
   const limit = Math.min(200, Math.max(1, options.limit ?? 50));
+  // This agent's own MCP key when it has one, else the deployment's internal
+  // key — resolved per call so a key added in Settings takes effect at once.
+  const credentials = await resolveAgentDbCredentials(options.orgId);
   const session = new McpSession(
     options.orgId,
     options.agentId,
     options.workspaceId ?? null,
     options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    credentials?.values ?? null,
   );
   await session.open();
   return session.query(sql, limit);
@@ -538,11 +618,13 @@ export async function checkAgentDbConnection(options: {
     workspaceId: options.workspaceId ?? null,
   };
   try {
+    const credentials = await resolveAgentDbCredentials(options.orgId);
     const session = new McpSession(
       options.orgId,
       options.agentId,
       options.workspaceId ?? null,
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      credentials?.values ?? null,
     );
     await session.open();
     const agentsMd = await session.loadAgentsMd();

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { workerProfiles } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
+import { resolveAgentDbCredentials } from "@/lib/agentdb";
 import { fieldErrors } from "@/lib/identity-fields";
 import {
   agentDbPatchSchema,
@@ -37,7 +38,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   const profile = await getOrCreateProfile(tenant.orgId);
-  const status = agentDbStatus(profile.integrationsConfig, tenant.orgId);
+  const hasOwnKey = Boolean((await resolveAgentDbCredentials(tenant.orgId))?.values.apiKey);
+  const status = agentDbStatus(profile.integrationsConfig, tenant.orgId, hasOwnKey);
 
   if (!status.active) {
     return NextResponse.json({
@@ -117,5 +119,6 @@ export async function PATCH(req: NextRequest) {
     .where(eq(workerProfiles.id, profile.id))
     .returning();
 
-  return NextResponse.json(agentDbStatus(updated.integrationsConfig, tenant.orgId));
+  const hasOwnKey = Boolean((await resolveAgentDbCredentials(tenant.orgId))?.values.apiKey);
+  return NextResponse.json(agentDbStatus(updated.integrationsConfig, tenant.orgId, hasOwnKey));
 }
