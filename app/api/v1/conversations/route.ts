@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
+import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -11,11 +12,12 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
 
-  // Chat's rail asks for ?channel=chat (the manager's own test conversations,
-  // as opposed to real "widget"/"email" traffic). Inbox omits this param and
-  // should only ever see real customer traffic, so the default (no explicit
-  // channel) excludes chat rather than returning every channel — otherwise a
-  // manager's own Playground sessions show up mixed into real tickets.
+  // Playground's rail asks for ?channel=chat and the Assistant's history
+  // panel asks for ?channel=assistant (each the manager's own conversations
+  // with a specific internal surface) — Inbox omits channel entirely and
+  // should see neither, only real "widget"/"email" customer traffic. Same
+  // table, same endpoint, no schema change needed: the channel a
+  // conversation came in on already distinguishes internal from real.
   const channel = req.nextUrl.searchParams.get("channel");
 
   const rows = await db
@@ -24,7 +26,10 @@ export async function GET(req: NextRequest) {
     .where(
       channel
         ? and(eq(conversations.organizationId, tenant.orgId), eq(conversations.channel, channel))
-        : and(eq(conversations.organizationId, tenant.orgId), ne(conversations.channel, "chat")),
+        : and(
+            eq(conversations.organizationId, tenant.orgId),
+            notInArray(conversations.channel, [...INTERNAL_CONVERSATION_CHANNELS]),
+          ),
     )
     .orderBy(desc(conversations.updatedAt));
 
