@@ -47,9 +47,25 @@ export function parseOkf(raw: string, fallbackConceptId: string): OkfDocument {
   };
 }
 
-/** Wrap a plain-text/PDF-extracted upload into synthetic OKF frontmatter. */
-export function wrapAsOkf(conceptId: string, title: string, body: string): string {
-  return `---\ntype: reference\ntitle: "${title.replace(/"/g, '\\"')}"\n---\n\n${body}`;
+/**
+ * Wrap a plain-text/PDF-extracted upload into synthetic OKF frontmatter.
+ *
+ * `keep` carries forward a description/tags an earlier ingest already parsed
+ * — editing a doc's title or body through a plain text field has no way to
+ * express those, and re-wrapping without them would silently erase whatever
+ * frontmatter the original file arrived with.
+ */
+export function wrapAsOkf(
+  conceptId: string,
+  title: string,
+  body: string,
+  keep?: { description?: string | null; tags?: string[] },
+): string {
+  const description = keep?.description
+    ? `\ndescription: "${keep.description.replace(/"/g, '\\"')}"`
+    : "";
+  const tags = keep?.tags?.length ? `\ntags: [${keep.tags.join(", ")}]` : "";
+  return `---\ntype: reference\ntitle: "${title.replace(/"/g, '\\"')}"${description}${tags}\n---\n\n${body}`;
 }
 
 export async function ingestOkf(organizationId: string, conceptId: string, raw: string) {

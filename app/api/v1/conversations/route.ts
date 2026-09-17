@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
@@ -12,9 +12,10 @@ export async function GET(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
 
   // Chat's rail asks for ?channel=chat (the manager's own test conversations,
-  // as opposed to real "widget"/"email" traffic) — Inbox omits this and gets
-  // everything. Same table, same endpoint, no schema change needed: the
-  // channel a conversation came in on already distinguishes test from real.
+  // as opposed to real "widget"/"email" traffic). Inbox omits this param and
+  // should only ever see real customer traffic, so the default (no explicit
+  // channel) excludes chat rather than returning every channel — otherwise a
+  // manager's own Playground sessions show up mixed into real tickets.
   const channel = req.nextUrl.searchParams.get("channel");
 
   const rows = await db
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
     .where(
       channel
         ? and(eq(conversations.organizationId, tenant.orgId), eq(conversations.channel, channel))
-        : eq(conversations.organizationId, tenant.orgId),
+        : and(eq(conversations.organizationId, tenant.orgId), ne(conversations.channel, "chat")),
     )
     .orderBy(desc(conversations.updatedAt));
 
