@@ -380,9 +380,20 @@ export function parchmentStatus(stored: unknown, localOrgId: string): Integratio
   };
 }
 
-export function agentDbStatus(stored: unknown, localOrgId: string): IntegrationStatus {
+/**
+ * `hasOwnKey` is passed in rather than looked up, because this is sync and the
+ * lookup is a decrypt against the database. It matters for exactly the case
+ * this integration exists to serve: a deployment with no AgentDB env vars at
+ * all, where the only credential is the one an agent pasted in itself. Without
+ * it that agent's card would stay greyed out next to a working key.
+ */
+export function agentDbStatus(
+  stored: unknown,
+  localOrgId: string,
+  hasOwnKey = false,
+): IntegrationStatus {
   const settings = readAgentDbSettings(stored);
-  const available = isAgentDbConfigured();
+  const available = isAgentDbConfigured() || hasOwnKey;
   return {
     key: AGENTDB_KEY,
     name: "AgentDB",

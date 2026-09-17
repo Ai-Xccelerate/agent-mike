@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
+import { resolveAgentDbCredentials } from "@/lib/agentdb";
 import { agentDbStatus, readAgentDbSettings } from "@/lib/integrations";
 import { agentDbAgentId, agentDbOrgId, checkAgentDbConnection } from "@/lib/agentdb";
 
@@ -21,7 +22,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   const profile = await getOrCreateProfile(tenant.orgId);
-  const status = agentDbStatus(profile.integrationsConfig, tenant.orgId);
+  const hasOwnKey = Boolean((await resolveAgentDbCredentials(tenant.orgId))?.values.apiKey);
+  const status = agentDbStatus(profile.integrationsConfig, tenant.orgId, hasOwnKey);
 
   if (!status.available) {
     return NextResponse.json({
