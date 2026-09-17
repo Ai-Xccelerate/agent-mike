@@ -3,7 +3,7 @@
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
 import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
-import { GridIcon, MailIcon, ShootingStarIcon, UserCircleIcon } from "@/icons";
+import { GridIcon, MailIcon, SparklesIcon, UserCircleIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
@@ -18,7 +18,7 @@ import React from "react";
 // permanent nav slot.
 const primaryNav: { name: string; path: string; icon: React.FC }[] = [
   { name: "Overview", path: "/", icon: GridIcon },
-  { name: "Assistant", path: "/assistant", icon: ShootingStarIcon },
+  { name: "Assistant", path: "/assistant", icon: SparklesIcon },
   { name: "Inbox", path: "/inbox", icon: MailIcon },
 ];
 
