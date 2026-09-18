@@ -160,7 +160,7 @@ export default function IdentitySettings() {
 
         <div className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-800">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Or use an external image URL
+            Or use an image URL
             <input
               value={profile.avatarUrl ?? ""}
               onChange={(e) => update("avatarUrl", e.target.value || null)}
@@ -168,8 +168,8 @@ export default function IdentitySettings() {
               className={`${fieldClass} mt-2 font-mono text-xs`}
             />
             <span className="mt-1.5 block text-xs font-normal text-gray-500">
-              Uploading fills this in for you. For an image that needs to survive a redeploy, use a
-              permanent URL instead. Saved with the button above.
+              Upload fills this in for you. To use a photo hosted elsewhere, paste the link and
+              click Save.
             </span>
             <FieldError message={fieldErrors.avatarUrl} />
           </label>
