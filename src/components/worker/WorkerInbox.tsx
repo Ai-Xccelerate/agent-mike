@@ -457,11 +457,6 @@ export default function WorkerInbox() {
                     <div className={`max-w-[78%] ${outgoing ? "text-right" : ""}`}>
                       <div className={`mb-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ${outgoing ? "justify-end" : ""}`}>
                         <span className="font-medium text-gray-700 dark:text-gray-300">{message.senderName}</span>
-                        {isAgent && (
-                          <Badge size="sm" color="info">
-                            AI
-                          </Badge>
-                        )}
                       </div>
                       <div
                         className={`px-4 py-3 text-left text-sm leading-6 ${
