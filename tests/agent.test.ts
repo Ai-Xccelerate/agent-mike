@@ -15,12 +15,25 @@ import {
   buildJiraTextSearchJql,
   executeCrmLookup,
   executeGmailSearch,
+  executeGmailGetMessage,
+  executeGmailSendEmail,
+  executeGmailReplyToThread,
+  applyEmailWriteApproval,
   executeJiraSearch,
   executeLinearSearch,
   executeOutlookSearch,
   EMAIL_LOOKUP_FAILURE_MESSAGE,
   EMAIL_LOOKUP_RETRY_BACKOFF_MS,
   EMAIL_LOOKUP_TOOL_NAME,
+  EMAIL_WRITE_FAILURE_MESSAGE,
+  GMAIL_GET_MESSAGE_SLUG,
+  GMAIL_GET_MESSAGE_TOOL_NAME,
+  GMAIL_SEND_EMAIL_SLUG,
+  GMAIL_REPLY_TO_THREAD_SLUG,
+  GMAIL_SEND_EMAIL_TOOL_NAME,
+  GMAIL_REPLY_TO_THREAD_TOOL_NAME,
+  GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID,
+  GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID,
   GMAIL_LIST_MESSAGES_SLUG,
   GMAIL_TOOLKIT_VERSION,
   GOOGLECALENDAR_EVENTS_LIST_SLUG,
@@ -41,6 +54,7 @@ import {
   ZOHO_TOOLKIT_VERSION,
 } from "@/lib/agent";
 import { ensureOrganization } from "@/lib/bootstrap";
+import { listPendingApprovals } from "@/lib/tools-integrations/approval-repository";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import type { IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
@@ -236,6 +250,14 @@ async function invokeEmailLookup(tools: unknown[], query: string): Promise<strin
     | undefined;
   if (!emailTool) throw new Error("lookup_email tool not found");
   return emailTool.invoke(undefined, JSON.stringify({ query }));
+}
+
+async function invokeToolByName(tools: unknown[], name: string, input: Record<string, unknown>): Promise<string> {
+  const found = tools.find(
+    (t) => t && typeof t === "object" && (t as { name?: string }).name === name,
+  ) as { invoke: (context: unknown, input: string) => Promise<string> } | undefined;
+  if (!found) throw new Error(`${name} tool not found`);
+  return found.invoke(undefined, JSON.stringify(input));
 }
 
 describe("agent internet_search tool wiring", () => {
@@ -719,6 +741,256 @@ describe("Outlook search retry-once and tool_calls logging", () => {
       status: "error",
       errorMessage: "still unauthorized",
     });
+  });
+});
+
+describe("Gmail get-message-details retry-once and tool_calls logging", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("fetches one message's real content by id", async () => {
+    const payload = { data: { id: "m1", subject: "Invoice", from: "a@b.com" }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeGmailGetMessage("m1", "org-1", "ca_gmail_test");
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_GET_MESSAGE_SLUG,
+      { message_id: "m1" },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: GMAIL_GET_MESSAGE_TOOL_NAME,
+      input: { messageId: "m1" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("retries exactly once, logs error, and escalates when both attempts fail", async () => {
+    vi.useFakeTimers();
+    executeToolMock.mockRejectedValueOnce(new Error("x")).mockRejectedValueOnce(new Error("still failing"));
+
+    const pending = executeGmailGetMessage("m1", "org-1", "ca_gmail_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(EMAIL_LOOKUP_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Gmail send/reply tools: wiring, write-approval gating, and direct execution", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    getConnectionForOrgMock.mockResolvedValue(null);
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  it("wires get_email_details, send_email, and reply_to_email_thread for Gmail but not Outlook", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection() : null,
+    );
+    const gmailTools = await buildAgentTools({ toolsConfig: {} }, "org-1", null);
+    expect(gmailTools.some((t) => (t as { name?: string }).name === GMAIL_GET_MESSAGE_TOOL_NAME)).toBe(true);
+    expect(gmailTools.some((t) => (t as { name?: string }).name === GMAIL_SEND_EMAIL_TOOL_NAME)).toBe(true);
+    expect(gmailTools.some((t) => (t as { name?: string }).name === GMAIL_REPLY_TO_THREAD_TOOL_NAME)).toBe(true);
+
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeOutlookConnection() : null,
+    );
+    const outlookTools = await buildAgentTools({ toolsConfig: {} }, "org-1", null);
+    expect(outlookTools.some((t) => (t as { name?: string }).name === GMAIL_SEND_EMAIL_TOOL_NAME)).toBe(false);
+    expect(outlookTools.some((t) => (t as { name?: string }).name === GMAIL_REPLY_TO_THREAD_TOOL_NAME)).toBe(false);
+  });
+
+  it("queues a pending approval instead of sending, by default (requireWriteApproval unset)", async () => {
+    const orgId = `org-${crypto.randomUUID()}`;
+    await ensureOrganization(orgId, "Gmail write-approval org");
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection({ organizationId: orgId }) : null,
+    );
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, orgId, null);
+    const reply = await invokeToolByName(tools, GMAIL_SEND_EMAIL_TOOL_NAME, {
+      to: "customer@example.com",
+      subject: "Re: your ticket",
+      body: "Here is the update.",
+    });
+
+    expect(reply).toContain("Queued for manager approval");
+    expect(reply).toContain("customer@example.com");
+    expect(executeToolMock).not.toHaveBeenCalled();
+
+    const pending = await listPendingApprovals(orgId, null);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      toolId: GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID,
+      status: "pending",
+      input: { to: "customer@example.com", subject: "Re: your ticket", body: "Here is the update." },
+    });
+  });
+
+  it("queues a pending approval for reply_to_email_thread the same way", async () => {
+    const orgId = `org-${crypto.randomUUID()}`;
+    await ensureOrganization(orgId, "Gmail reply-approval org");
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection({ organizationId: orgId }) : null,
+    );
+
+    const tools = await buildAgentTools({ toolsConfig: {} }, orgId, null);
+    const reply = await invokeToolByName(tools, GMAIL_REPLY_TO_THREAD_TOOL_NAME, {
+      threadId: "t1",
+      to: "customer@example.com",
+      body: "Following up on this thread.",
+    });
+
+    expect(reply).toContain("Queued for manager approval");
+    expect(reply).toContain("t1");
+    expect(executeToolMock).not.toHaveBeenCalled();
+
+    const pending = await listPendingApprovals(orgId, null);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].toolId).toBe(GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID);
+  });
+
+  it("sends immediately, with no approval, when requireWriteApproval is explicitly false", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection() : null,
+    );
+    executeToolMock.mockResolvedValueOnce({ data: { id: "sent1" }, error: null, successful: true });
+
+    const tools = await buildAgentTools({ toolsConfig: {}, requireWriteApproval: false }, "org-1", null);
+    const reply = await invokeToolByName(tools, GMAIL_SEND_EMAIL_TOOL_NAME, {
+      to: "customer@example.com",
+      body: "Sent without approval.",
+    });
+
+    expect(reply).not.toContain("Queued for manager approval");
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_SEND_EMAIL_SLUG,
+      { recipient_email: "customer@example.com", subject: null, body: "Sent without approval.", cc: [] },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
+
+    const pending = await listPendingApprovals("org-1", null);
+    expect(pending).toHaveLength(0);
+  });
+});
+
+describe("executeGmailSendEmail / executeGmailReplyToThread direct execution", () => {
+  beforeEach(() => {
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("sends via GMAIL_SEND_EMAIL and logs success", async () => {
+    const payload = { data: { id: "sent1" }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeGmailSendEmail(
+      { to: "a@b.com", subject: "Hi", body: "Body text" },
+      "org-1",
+      "ca_gmail_test",
+    );
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_SEND_EMAIL_SLUG,
+      { recipient_email: "a@b.com", subject: "Hi", body: "Body text", cc: [] },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: GMAIL_SEND_EMAIL_TOOL_NAME,
+      input: { to: "a@b.com", subject: "Hi", body: "Body text" },
+      output: payload,
+      status: "success",
+    });
+  });
+
+  it("replies via GMAIL_REPLY_TO_THREAD and logs success", async () => {
+    const payload = { data: { id: "reply1" }, error: null, successful: true };
+    executeToolMock.mockResolvedValueOnce(payload);
+
+    const result = await executeGmailReplyToThread(
+      { threadId: "t1", to: "a@b.com", body: "Following up" },
+      "org-1",
+      "ca_gmail_test",
+    );
+
+    expect(result).toBe(JSON.stringify(payload));
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_REPLY_TO_THREAD_SLUG,
+      { thread_id: "t1", recipient_email: "a@b.com", message_body: "Following up", cc: [] },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
+  });
+
+  it("retries exactly once, logs error, and escalates when a send fails twice", async () => {
+    vi.useFakeTimers();
+    executeToolMock.mockRejectedValueOnce(new Error("x")).mockRejectedValueOnce(new Error("still down"));
+
+    const pending = executeGmailSendEmail({ to: "a@b.com", body: "x" }, "org-1", "ca_gmail_test");
+    await vi.advanceTimersByTimeAsync(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    const result = await pending;
+
+    expect(result).toBe(EMAIL_WRITE_FAILURE_MESSAGE);
+    expect(result).toContain("[[ESCALATE]]");
+    expect(executeToolMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("applyEmailWriteApproval", () => {
+  beforeEach(() => {
+    getConnectionForOrgMock.mockReset();
+    executeToolMock.mockReset();
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
+  });
+
+  it("refuses when there is no active Gmail connection anymore", async () => {
+    getConnectionForOrgMock.mockResolvedValue(null);
+    const result = await applyEmailWriteApproval(GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID, { to: "a@b.com", body: "x" }, "org-1");
+    expect(result.ok).toBe(false);
+    expect(executeToolMock).not.toHaveBeenCalled();
+  });
+
+  it("sends for real once approved, when the connection is still active Gmail", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection() : null,
+    );
+    executeToolMock.mockResolvedValueOnce({ data: { id: "sent1" }, error: null, successful: true });
+
+    const result = await applyEmailWriteApproval(
+      GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID,
+      { to: "a@b.com", subject: "Hi", body: "x" },
+      "org-1",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      GMAIL_SEND_EMAIL_SLUG,
+      { recipient_email: "a@b.com", subject: "Hi", body: "x", cc: [] },
+      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+    );
   });
 });
 

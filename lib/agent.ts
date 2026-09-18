@@ -15,6 +15,7 @@ import {
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
+import { createPendingApproval } from "@/lib/tools-integrations/approval-repository";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
 import {
   getSkillForOrg,
@@ -51,6 +52,12 @@ export interface WorkerProfileLike {
   enabledSkills?: string[];
   /** Read for the skill repository toggle; see lib/integrations.ts. */
   integrationsConfig?: unknown;
+  /**
+   * Fail-closed default (true): a tool that creates/sends/modifies something
+   * in an external system queues for a human instead of running immediately.
+   * Set false to let this worker auto-execute writes without approval.
+   */
+  requireWriteApproval?: boolean;
 }
 
 export const LOAD_SKILL_TOOL_NAME = "load_skill";
@@ -405,6 +412,199 @@ export async function executeGmailSearch(
   return JSON.stringify(result);
 }
 
+// GMAIL_LIST_MESSAGES (above) returns only bare {id, threadId} pairs — no
+// sender, subject, or snippet. This fetches one message's real content by id.
+export const GMAIL_GET_MESSAGE_SLUG = "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID";
+export const GMAIL_GET_MESSAGE_TOOL_NAME = "get_email_details";
+
+export async function executeGmailGetMessage(
+  messageId: string,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const input = { messageId };
+  const run = () =>
+    executeTool(
+      GMAIL_GET_MESSAGE_SLUG,
+      { message_id: messageId },
+      { connectedAccountId, userId: organizationId, version: GMAIL_TOOLKIT_VERSION },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: GMAIL_GET_MESSAGE_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return EMAIL_LOOKUP_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: GMAIL_GET_MESSAGE_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
+export const GMAIL_SEND_EMAIL_SLUG = "GMAIL_SEND_EMAIL";
+export const GMAIL_REPLY_TO_THREAD_SLUG = "GMAIL_REPLY_TO_THREAD";
+export const GMAIL_SEND_EMAIL_TOOL_NAME = "send_email";
+export const GMAIL_REPLY_TO_THREAD_TOOL_NAME = "reply_to_email_thread";
+/** toolApprovals.toolId values for the two Gmail write actions. */
+export const GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID = "gmail_send_email";
+export const GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID = "gmail_reply_to_thread";
+export const EMAIL_WRITE_FAILURE_MESSAGE =
+  "Sending that email failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+
+export type GmailSendEmailInput = {
+  to: string;
+  subject?: string;
+  body: string;
+  cc?: string[];
+};
+
+export type GmailReplyToThreadInput = {
+  threadId: string;
+  to: string;
+  body: string;
+  cc?: string[];
+};
+
+/** Actually sends via Gmail. Called either directly (write approval off) or when a queued approval is granted. */
+export async function executeGmailSendEmail(
+  input: GmailSendEmailInput,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const run = () =>
+    executeTool(
+      GMAIL_SEND_EMAIL_SLUG,
+      { recipient_email: input.to, subject: input.subject ?? null, body: input.body, cc: input.cc ?? [] },
+      { connectedAccountId, userId: organizationId, version: GMAIL_TOOLKIT_VERSION },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: GMAIL_SEND_EMAIL_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return EMAIL_WRITE_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: GMAIL_SEND_EMAIL_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
+/** Actually sends via Gmail, within an existing thread. Same call pattern as executeGmailSendEmail. */
+export async function executeGmailReplyToThread(
+  input: GmailReplyToThreadInput,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<string> {
+  const run = () =>
+    executeTool(
+      GMAIL_REPLY_TO_THREAD_SLUG,
+      { thread_id: input.threadId, recipient_email: input.to, message_body: input.body, cc: input.cc ?? [] },
+      { connectedAccountId, userId: organizationId, version: GMAIL_TOOLKIT_VERSION },
+    );
+
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(EMAIL_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+      await logToolCall({
+        organizationId,
+        toolId: GMAIL_REPLY_TO_THREAD_TOOL_NAME,
+        input,
+        output: null,
+        status: "error",
+        errorMessage,
+      });
+      return EMAIL_WRITE_FAILURE_MESSAGE;
+    }
+  }
+
+  await logToolCall({
+    organizationId,
+    toolId: GMAIL_REPLY_TO_THREAD_TOOL_NAME,
+    input,
+    output: toLogOutput(result),
+    status: "success",
+  });
+  return JSON.stringify(result);
+}
+
+/**
+ * Applies a granted gmail_send_email / gmail_reply_to_thread approval for
+ * real. Called from the approvals API once a manager approves — never from
+ * inside the agent's own turn, since that queued rather than sent.
+ */
+export async function applyEmailWriteApproval(
+  toolId: string,
+  input: Record<string, unknown>,
+  organizationId: string,
+): Promise<{ ok: boolean; output: string }> {
+  const emailConnection = await getConnectionForOrg(organizationId, "email");
+  if (
+    !emailConnection ||
+    emailConnection.status !== "active" ||
+    !emailConnection.composioConnectedAccountId ||
+    emailConnection.system !== "gmail"
+  ) {
+    return { ok: false, output: "No active Gmail connection to send through anymore." };
+  }
+  const connectedAccountId = emailConnection.composioConnectedAccountId;
+
+  if (toolId === GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID) {
+    const output = await executeGmailSendEmail(input as unknown as GmailSendEmailInput, organizationId, connectedAccountId);
+    return { ok: output !== EMAIL_WRITE_FAILURE_MESSAGE, output };
+  }
+  if (toolId === GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID) {
+    const output = await executeGmailReplyToThread(input as unknown as GmailReplyToThreadInput, organizationId, connectedAccountId);
+    return { ok: output !== EMAIL_WRITE_FAILURE_MESSAGE, output };
+  }
+  return { ok: false, output: `Unknown email write approval tool id: ${toolId}` };
+}
+
 export const OUTLOOK_SEARCH_MESSAGES_SLUG = "OUTLOOK_SEARCH_MESSAGES";
 /** Toolkit version from composio.toolkits.get("outlook") (Version: 20260915_00). */
 export const OUTLOOK_TOOLKIT_VERSION = "20260915_00";
@@ -576,8 +776,12 @@ export async function executeJiraSearch(
 }
 
 export async function buildAgentTools(
-  profile: Pick<WorkerProfileLike, "toolsConfig" | "enabledSkills" | "integrationsConfig">,
+  profile: Pick<
+    WorkerProfileLike,
+    "toolsConfig" | "enabledSkills" | "integrationsConfig" | "requireWriteApproval"
+  >,
   organizationId: string,
+  conversationId?: string | null,
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
@@ -664,13 +868,81 @@ export async function buildAgentTools(
         tool({
           name: EMAIL_LOOKUP_TOOL_NAME,
           description:
-            "Search the connected email account by keyword, sender, or subject. Read-only; does not send, delete, or modify messages.",
+            "Search the connected email account by keyword, sender, or subject. Read-only; does not send, delete, or modify messages. Returns only message/thread ids — call get_email_details (Gmail only) for the actual sender, subject, and body.",
           parameters: z.object({
             query: z
               .string()
               .describe("Search query for the connected email account, e.g. unread, from:someone@example.com, subject:meeting"),
           }),
           execute: async ({ query }) => executeSearch(query, organizationId, connectedAccountId),
+        }),
+      );
+    }
+
+    if (emailConnection.system === "gmail") {
+      tools.push(
+        tool({
+          name: GMAIL_GET_MESSAGE_TOOL_NAME,
+          description:
+            "Fetch one Gmail message's real sender, subject, and body by its message id (from lookup_email's results). Read-only.",
+          parameters: z.object({ messageId: z.string().describe("A Gmail message id from lookup_email's results") }),
+          execute: async ({ messageId }) => executeGmailGetMessage(messageId, organizationId, connectedAccountId),
+        }),
+      );
+
+      const requireApproval = profile.requireWriteApproval !== false;
+
+      tools.push(
+        tool({
+          name: GMAIL_SEND_EMAIL_TOOL_NAME,
+          description: requireApproval
+            ? "Propose sending a new email through the connected Gmail account. Does not send anything — queues it for a human manager to approve first."
+            : "Send a new email through the connected Gmail account. This actually sends — use it deliberately.",
+          parameters: z.object({
+            to: z.string().describe("Recipient email address"),
+            subject: z.string().optional().describe("Subject line"),
+            body: z.string().describe("Plain-text email body"),
+            cc: z.array(z.string()).optional().describe("Additional CC recipient email addresses"),
+          }),
+          execute: async (input) => {
+            if (requireApproval) {
+              const approval = await createPendingApproval({
+                organizationId,
+                conversationId,
+                toolId: GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID,
+                input,
+              });
+              return `Queued for manager approval (id ${approval.id}): send an email to ${input.to}${input.subject ? ` — "${input.subject}"` : ""}. Nothing has been sent yet.`;
+            }
+            return executeGmailSendEmail(input, organizationId, connectedAccountId);
+          },
+        }),
+      );
+
+      tools.push(
+        tool({
+          name: GMAIL_REPLY_TO_THREAD_TOOL_NAME,
+          description: requireApproval
+            ? "Propose replying, in the same Gmail thread, to a message found via lookup_email. Does not send anything — queues it for a human manager to approve first."
+            : "Reply, in the same Gmail thread, to a message found via lookup_email. This actually sends — use it deliberately.",
+          parameters: z.object({
+            threadId: z.string().describe("The Gmail thread id to reply within (from lookup_email or get_email_details)"),
+            to: z.string().describe("Recipient email address"),
+            body: z.string().describe("Plain-text reply body"),
+            cc: z.array(z.string()).optional().describe("Additional CC recipient email addresses"),
+          }),
+          execute: async (input) => {
+            if (requireApproval) {
+              const approval = await createPendingApproval({
+                organizationId,
+                conversationId,
+                toolId: GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID,
+                input,
+              });
+              return `Queued for manager approval (id ${approval.id}): reply within thread ${input.threadId} to ${input.to}. Nothing has been sent yet.`;
+            }
+            return executeGmailReplyToThread(input, organizationId, connectedAccountId);
+          },
         }),
       );
     }
@@ -909,7 +1181,7 @@ export async function runAgent(
     instructions: await buildInstructions(profile, organizationName, knowledge, organizationId, channel),
     model: profile.model,
     // Tools are built from the worker's toolsConfig, per the Tools & Integrations registry.
-    tools: await buildAgentTools(profile, organizationId),
+    tools: await buildAgentTools(profile, organizationId, conversationId),
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
     inputGuardrails: [buildCustomerInputGuardrail()],
     outputGuardrails: [buildCustomerOutputGuardrail()],
