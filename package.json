@@ -18,6 +18,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1135.0",
     "@composio/core": "^0.18.1",
     "@openai/agents": "^0.17.0",
     "drizzle-orm": "^0.41.0",
