@@ -334,9 +334,9 @@ export function shouldTripInputGuardrail(
   return false;
 }
 
-/** Only `block` trips the SDK wire — intake and escalate are handled after the run. */
-export function shouldTripOutputGuardrail(classification: OutputClassification): boolean {
-  return classification.action === "block";
+/** Never trip the SDK wire — `block` is handled by a repair turn in runAgent. */
+export function shouldTripOutputGuardrail(_classification: OutputClassification): boolean {
+  return false;
 }
 
 export function replyPolicyFromRun(result: {
@@ -349,13 +349,34 @@ export function replyPolicyFromRun(result: {
   return parsed.success ? parsed.data : null;
 }
 
+/** Classifier outage — do not ask the worker to "repair"; fail closed to handoff. */
+export function isOutputClassifierFailure(policy: OutputClassification): boolean {
+  return policy.reason.startsWith("Output guardrail classifier");
+}
+
 /**
- * Apply the small-model reply policy to a draft that already passed the SDK
- * tripwire (i.e. was not blocked).
+ * Internal note appended when a draft was blocked. The worker must rewrite;
+ * the blocked draft must never reach the customer.
+ */
+export function buildBlockedReplyRepairMessage(args: {
+  rejectedDraft: string;
+  reason: string;
+}): string {
+  return (
+    "[Internal — previous draft blocked; do not mention this note or the rejected draft to the customer]\n" +
+    `Your previous draft was blocked and will not be shown. Reason: ${args.reason}\n` +
+    `Rejected draft:\n${args.rejectedDraft}\n\n` +
+    "Write a new customer-facing reply that fixes the issue. " +
+    "Use [[ESCALATE]], [[RESOLVE]], or [[FOLLOWUP]] as usual."
+  );
+}
+
+/**
+ * Apply the reply policy to a draft that was not blocked (or after a successful repair).
  *
  * - continue_intake: demote accidental [[ESCALATE]] so intake can finish
  * - escalate: ensure the escalate tag is present (caller may hand off if empty)
- * - block: should not reach here (tripwire already fired)
+ * - block: leave unchanged — caller repairs or hands off
  */
 export function applyReplyPolicy(raw: string, policy: OutputClassification | null): string {
   if (!policy || policy.action === "block") return raw;

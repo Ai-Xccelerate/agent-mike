@@ -11,6 +11,7 @@ import {
   CUSTOMER_INPUT_GUARDRAIL_NAME,
   CUSTOMER_OUTPUT_GUARDRAIL_NAME,
   applyReplyPolicy,
+  buildBlockedReplyRepairMessage,
   buildCustomerInputGuardrail,
   buildCustomerOutputGuardrail,
   classifyCustomerIntent,
@@ -162,14 +163,14 @@ describe("shouldTripInputGuardrail", () => {
 });
 
 describe("shouldTripOutputGuardrail", () => {
-  it("trips only on block — intake and escalate stay open", () => {
+  it("never trips the SDK wire — block is repaired in runAgent instead", () => {
     expect(
       shouldTripOutputGuardrail({
         action: "block",
         confidence: 0,
         reason: "leak",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldTripOutputGuardrail({
         action: "continue_intake",
@@ -184,6 +185,18 @@ describe("shouldTripOutputGuardrail", () => {
         reason: "handoff ready",
       }),
     ).toBe(false);
+  });
+});
+
+describe("buildBlockedReplyRepairMessage", () => {
+  it("includes the reason and rejected draft for the worker", () => {
+    const note = buildBlockedReplyRepairMessage({
+      rejectedDraft: "I processed your refund.",
+      reason: "claims to have processed a refund",
+    });
+    expect(note).toContain("claims to have processed a refund");
+    expect(note).toContain("I processed your refund.");
+    expect(note).toContain("do not mention this note");
   });
 });
 
@@ -329,7 +342,7 @@ describe("classifyCustomerOutput", () => {
       summary: null,
     });
     expect(result.action).toBe("block");
-    expect(shouldTripOutputGuardrail(result)).toBe(true);
+    expect(shouldTripOutputGuardrail(result)).toBe(false);
     expect(runMock).toHaveBeenCalledOnce();
   });
 
@@ -395,7 +408,7 @@ describe("SDK guardrail wrappers", () => {
     expect((result.outputInfo as { escalate: boolean }).escalate).toBe(true);
   });
 
-  it("output guardrail trips when the classifier blocks a refund promise", async () => {
+  it("output guardrail records block without tripping the SDK wire", async () => {
     runMock.mockResolvedValue({
       finalOutput: {
         action: "block",
@@ -416,7 +429,7 @@ describe("SDK guardrail wrappers", () => {
         summary: null,
       }),
     });
-    expect(result.tripwireTriggered).toBe(true);
+    expect(result.tripwireTriggered).toBe(false);
     expect((result.outputInfo as { action: string }).action).toBe("block");
   });
 

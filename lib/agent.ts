@@ -9,7 +9,9 @@ import {
   buildCustomerInputGuardrail,
   buildCustomerOutputGuardrail,
   applyReplyPolicy,
+  buildBlockedReplyRepairMessage,
   CUSTOMER_INPUT_GUARDRAIL_NAME,
+  isOutputClassifierFailure,
   replyPolicyFromRun,
   type CustomerGuardrailContext,
   type IntentClassification,
@@ -1179,41 +1181,88 @@ export async function runAgent(
     summary,
   };
 
+  const instructions = await buildInstructions(
+    profile,
+    organizationName,
+    knowledge,
+    organizationId,
+    channel,
+  );
+  const tools = await buildAgentTools(profile, organizationId, conversationId);
+  const maxTurns = Math.max(1, profile.maxAgentTurns || 3);
+
   const agent = new Agent({
     name: profile.displayName,
-    instructions: await buildInstructions(profile, organizationName, knowledge, organizationId, channel),
+    instructions,
     model: profile.model,
-    // Tools are built from the worker's toolsConfig, per the Tools & Integrations registry.
-    tools: await buildAgentTools(profile, organizationId, conversationId),
+    tools,
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
     inputGuardrails: [buildCustomerInputGuardrail()],
     outputGuardrails: [buildCustomerOutputGuardrail()],
   });
 
-  const input = buildInputWithHistory(history, message, currentSpeaker, summary);
+  // Repair turn: no input guardrail (already cleared); keep output policy.
+  const repairAgent = new Agent({
+    name: profile.displayName,
+    instructions,
+    model: profile.model,
+    tools,
+    modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
+    inputGuardrails: [],
+    outputGuardrails: [buildCustomerOutputGuardrail()],
+  });
+
+  const baseInput = buildInputWithHistory(history, message, currentSpeaker, summary);
+
   try {
-    const result = await runTracedAgent(
+    const first = await runTracedAgent(
       CUSTOMER_CHAT_WORKFLOW,
       { organizationId, conversationId },
       agent,
-      input,
-      { maxTurns: Math.max(1, profile.maxAgentTurns || 3), context: guardrailContext },
+      baseInput,
+      { maxTurns, context: guardrailContext },
     );
 
-    const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
-    const policy = replyPolicyFromRun(result);
+    let text = typeof first.finalOutput === "string" ? first.finalOutput : String(first.finalOutput ?? "");
+    let policy = replyPolicyFromRun(first);
+
+    if (policy?.action === "block") {
+      if (isOutputClassifierFailure(policy)) {
+        return handoffToManager(profile);
+      }
+      // Block the bad draft; give the worker the reason and one repair turn.
+      const repairInput =
+        `${baseInput}\n\n` +
+        buildBlockedReplyRepairMessage({ rejectedDraft: text, reason: policy.reason });
+      const repaired = await runTracedAgent(
+        CUSTOMER_CHAT_WORKFLOW,
+        { organizationId, conversationId },
+        repairAgent,
+        repairInput,
+        { maxTurns, context: guardrailContext },
+      );
+      text =
+        typeof repaired.finalOutput === "string"
+          ? repaired.finalOutput
+          : String(repaired.finalOutput ?? "");
+      policy = replyPolicyFromRun(repaired);
+      if (policy?.action === "block") {
+        return handoffToManager(profile);
+      }
+    }
+
     const adjusted = applyReplyPolicy(text, policy);
-    // Policy said escalate but the draft had nothing useful — use the canned handoff.
     if (
       policy?.action === "escalate" &&
       !adjusted.replace(/\[\[ESCALATE\]\]/gi, "").trim()
     ) {
       return handoffToManager(profile);
     }
-    return parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(result));
+    // Intent confidence came from the first turn's input guardrail.
+    return parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
   } catch (error) {
-    // SDK tripwires: input fail-closed / output `block` only. Intake continues
-    // and escalate-without-tag are handled above via applyReplyPolicy.
+    // Input tripwire fail-closed. Output no longer trips the SDK wire — block
+    // is a soft reject + repair above; unexpected output trips still hand off.
     if (
       error instanceof InputGuardrailTripwireTriggered ||
       error instanceof OutputGuardrailTripwireTriggered

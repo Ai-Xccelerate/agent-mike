@@ -88,6 +88,77 @@ describe("runAgent guardrail tripwires", () => {
     expect(result.answer).toContain("Charan");
   });
 
+  it("repairs a blocked draft using the classifier reason instead of handing off", async () => {
+    runTracedAgentMock
+      .mockResolvedValueOnce({
+        finalOutput: "Sure, I processed your refund already. [[RESOLVE]]",
+        inputGuardrailResults: [],
+        outputGuardrailResults: [
+          {
+            guardrail: { name: "Customer reply guardrail" },
+            output: {
+              tripwireTriggered: false,
+              outputInfo: {
+                action: "block",
+                confidence: 0.05,
+                reason: "claims to have processed a refund",
+              },
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        finalOutput: "I can't process refunds myself. What's the best email for billing to reach you? [[FOLLOWUP]]",
+        inputGuardrailResults: [],
+        outputGuardrailResults: [
+          {
+            guardrail: { name: "Customer reply guardrail" },
+            output: {
+              tripwireTriggered: false,
+              outputInfo: {
+                action: "continue_intake",
+                confidence: 0.9,
+                reason: "asking for email",
+              },
+            },
+          },
+        ],
+      });
+
+    const result = await runAgent(profile, "Acme", "I want a refund", [], "org-1");
+    expect(result.escalate).toBe(false);
+    expect(result.answer).toContain("email");
+    expect(result.answer).not.toContain("processed your refund");
+    expect(runTracedAgentMock).toHaveBeenCalledTimes(2);
+    const repairInput = runTracedAgentMock.mock.calls[1]?.[3] as string;
+    expect(repairInput).toContain("claims to have processed a refund");
+    expect(repairInput).toContain("Sure, I processed your refund already.");
+  });
+
+  it("hands off when a repair is blocked again", async () => {
+    runTracedAgentMock.mockResolvedValue({
+      finalOutput: "I issued your refund. [[RESOLVE]]",
+      inputGuardrailResults: [],
+      outputGuardrailResults: [
+        {
+          guardrail: { name: "Customer reply guardrail" },
+          output: {
+            tripwireTriggered: false,
+            outputInfo: {
+              action: "block",
+              confidence: 0,
+              reason: "still promising a refund",
+            },
+          },
+        },
+      ],
+    });
+
+    const result = await runAgent(profile, "Acme", "I want a refund", [], "org-1");
+    expect(result).toEqual(handoffToManager(profile));
+    expect(runTracedAgentMock).toHaveBeenCalledTimes(2);
+  });
+
   it("uses classifier confidence from a successful input guardrail result", async () => {
     runTracedAgentMock.mockResolvedValue({
       finalOutput: "Reset from Settings. [[RESOLVE]]",
