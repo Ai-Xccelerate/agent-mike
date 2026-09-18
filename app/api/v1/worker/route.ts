@@ -6,6 +6,7 @@ import { workerProfiles } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { fieldErrors, isUniqueViolation, workerPatchSchema } from "@/lib/worker-patch";
+import { publicWorkerIdentity } from "@/lib/public-worker-identity";
 import {
   listSkillsForOrg,
   VERIFY_CUSTOMER_SKILL_ID,
@@ -15,7 +16,18 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  const identity = getIdentityAdapter();
+  const siteToken = (req.headers.get("x-worker-site-token") || "").trim();
+  if (siteToken) {
+    const widgetTenant = await identity.resolveWidgetRequest(req);
+    if (!widgetTenant) {
+      return NextResponse.json({ error: "Invalid or missing site token" }, { status: 401 });
+    }
+    const profile = await getOrCreateProfile(widgetTenant.orgId);
+    return NextResponse.json(publicWorkerIdentity(profile));
+  }
+
+  const tenant = await identity.resolveManagerRequest(req);
   const [profile, organizationName] = await Promise.all([
     getOrCreateProfile(tenant.orgId),
     getOrganizationName(tenant.orgId),
