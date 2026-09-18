@@ -263,19 +263,27 @@ export async function classifyCustomerOutput(args: {
 export function shouldTripInputGuardrail(
   classification: IntentClassification,
   confidenceThreshold: number,
+  options?: { message?: string; escalationTerms?: string[] },
 ): boolean {
   // Jailbreaks / prompt injection: fail closed immediately — do not keep
   // chatting to collect intake.
   if (classification.injectionSuspected) return true;
 
-  // Clear escalation themes (refund, legal, …): do NOT trip. The agent runs
-  // with collect-before-escalate so it can gather required fields, then emit
-  // [[ESCALATE]] with a handoff summary.
-  if (classification.escalate) return false;
+  // Classifier outage / invalid output: fail closed (unlike retrieval degrade).
+  if (classification.reason.startsWith("Guardrail classifier")) return true;
+
+  const normalized = (options?.message || "").toLowerCase();
+  const themeFromTerms = (options?.escalationTerms || []).some(
+    (term) => term && normalized.includes(term.toLowerCase()),
+  );
+
+  // Clear escalation themes (classifier or configured terms): do NOT trip.
+  // The agent runs with collect-before-escalate to gather required fields,
+  // then emits [[ESCALATE]] with a handoff summary.
+  if (classification.escalate || themeFromTerms) return false;
 
   // Live confidenceThreshold: hand off when the classifier is not confident
-  // the message is safe to handle without a human (and it is not already a
-  // known escalation theme that needs intake first).
+  // the message is safe to handle without a human.
   if (classification.confidence < confidenceThreshold) return true;
   return false;
 }
@@ -304,7 +312,10 @@ export function buildCustomerInputGuardrail(): InputGuardrail {
       });
       const threshold = typeof ctx.confidenceThreshold === "number" ? ctx.confidenceThreshold : 0.72;
       return {
-        tripwireTriggered: shouldTripInputGuardrail(classification, threshold),
+        tripwireTriggered: shouldTripInputGuardrail(classification, threshold, {
+          message,
+          escalationTerms: ctx.escalationTerms ?? [],
+        }),
         outputInfo: classification,
       };
     },

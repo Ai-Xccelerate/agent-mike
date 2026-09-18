@@ -73,10 +73,16 @@ describe("evaluateMessage (deterministic tier)", () => {
 });
 
 describe("shouldTripInputGuardrail", () => {
-  it("trips on injection or low confidence, but not on clear escalation themes", () => {
+  it("trips on injection, classifier failure, or low confidence — not on clear themes", () => {
     expect(
       shouldTripInputGuardrail(
         { injectionSuspected: true, escalate: false, matchedThemes: [], confidence: 0.99, reason: "x" },
+        0.72,
+      ),
+    ).toBe(true);
+    expect(
+      shouldTripInputGuardrail(
+        failClosedIntent("Guardrail classifier failed: timeout"),
         0.72,
       ),
     ).toBe(true);
@@ -85,6 +91,14 @@ describe("shouldTripInputGuardrail", () => {
       shouldTripInputGuardrail(
         { injectionSuspected: false, escalate: true, matchedThemes: ["refund"], confidence: 0.9, reason: "x" },
         0.72,
+      ),
+    ).toBe(false);
+    // Configured terms still open the intake path even if the classifier missed.
+    expect(
+      shouldTripInputGuardrail(
+        { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.4, reason: "unsure" },
+        0.72,
+        { message: "I need a refund please", escalationTerms: ["refund"] },
       ),
     ).toBe(false);
     expect(
