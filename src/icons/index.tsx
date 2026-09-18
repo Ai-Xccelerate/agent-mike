@@ -54,7 +54,7 @@ import ChatIcon from "./chat.svg";
 import MoreDotIcon from "./more-dot.svg";
 import BellIcon from "./bell.svg";
 import MicrophoneIcon from "./microphone.svg";
-import ZohoIcon from "./zoho.svg";
+import ZohoIcon from "./zoho-logo-web.svg";
 import LinearLogoIcon from "./linear-logo.svg";
 import GmailIcon from "./gmail.svg";
 import OutlookIcon from "./outlook.svg";
