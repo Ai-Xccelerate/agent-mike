@@ -16,6 +16,13 @@ import {
   FilterLinesIcon,
   MoreDotIcon,
 } from "@/icons";
+import {
+  CONVERSATION_READ_EVENT,
+  isConversationUnread,
+  loadConversationReadMap,
+  markConversationRead,
+  type ConversationReadMap,
+} from "@/lib/conversation-read-state";
 import { apiFetch, Conversation, WorkerProfile } from "@/lib/worker-api";
 import { useEffect, useMemo, useState } from "react";
 
@@ -109,12 +116,21 @@ export default function WorkerInbox() {
   const [updating, setUpdating] = useState(false);
   const [reply, setReply] = useState("");
   const [notice, setNotice] = useState("");
+  const [readMap, setReadMap] = useState<ConversationReadMap>({});
 
   useEffect(() => {
+    setReadMap(loadConversationReadMap());
+    const syncRead = () => setReadMap(loadConversationReadMap());
+    window.addEventListener(CONVERSATION_READ_EVENT, syncRead);
+    window.addEventListener("storage", syncRead);
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
     apiFetch<Conversation[]>("/conversations")
       .then((data) => setConversations(data))
       .catch(() => undefined);
+    return () => {
+      window.removeEventListener(CONVERSATION_READ_EVENT, syncRead);
+      window.removeEventListener("storage", syncRead);
+    };
   }, []);
 
   const ticketRef = (conversation: Conversation) =>
@@ -151,6 +167,23 @@ export default function WorkerInbox() {
     if (selectedId && conversations.some((item) => item.id === selectedId)) return;
     setSelectedId(visible[0]?.id ?? "");
   }, [conversations, visible, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const conversation = conversations.find((item) => item.id === selectedId);
+    if (!conversation) return;
+
+    const mark = () => setReadMap((prev) => markConversationRead(conversation, prev));
+
+    // Mobile keeps the list up until the manager opens a thread.
+    if (mobileView === "thread") {
+      mark();
+      return;
+    }
+    if (typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches) {
+      mark();
+    }
+  }, [selectedId, conversations, mobileView]);
 
   function selectConversation(id: string) {
     setSelectedId(id);
@@ -317,10 +350,16 @@ export default function WorkerInbox() {
           )}
           {visible.map((conversation) => {
             const active = conversation.id === selected?.id;
+            const unread = isConversationUnread(conversation, readMap);
             return (
               <button
                 key={conversation.id}
                 onClick={() => selectConversation(conversation.id)}
+                aria-label={
+                  unread
+                    ? `${conversation.customerName}, unread`
+                    : conversation.customerName
+                }
                 className={`w-full border-b border-gray-100 px-4 py-3 text-left transition-colors dark:border-gray-800 ${
                   active ? "bg-brand-25 dark:bg-brand-500/10" : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
                 }`}
@@ -336,10 +375,42 @@ export default function WorkerInbox() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">{conversation.customerName}</p>
-                      <span className="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{relativeTime(conversation.updatedAt)}</span>
+                      <p
+                        className={`truncate text-sm ${
+                          unread
+                            ? "font-semibold text-gray-900 dark:text-white"
+                            : "font-medium text-gray-700 dark:text-white/80"
+                        }`}
+                      >
+                        {conversation.customerName}
+                      </p>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={`text-[11px] ${
+                            unread
+                              ? "font-medium text-gray-500 dark:text-gray-400"
+                              : "text-gray-400 dark:text-gray-500"
+                          }`}
+                        >
+                          {relativeTime(conversation.updatedAt)}
+                        </span>
+                        {unread && (
+                          <span
+                            className="size-2 rounded-full bg-brand-500"
+                            aria-hidden="true"
+                          />
+                        )}
+                      </span>
                     </div>
-                    <p className="mt-0.5 truncate text-sm text-gray-500 dark:text-gray-400">{lastMessagePreview(conversation)}</p>
+                    <p
+                      className={`mt-0.5 truncate text-sm ${
+                        unread
+                          ? "font-medium text-gray-700 dark:text-gray-300"
+                          : "text-gray-500 dark:text-gray-400"
+                      }`}
+                    >
+                      {lastMessagePreview(conversation)}
+                    </p>
                   </div>
                 </div>
               </button>

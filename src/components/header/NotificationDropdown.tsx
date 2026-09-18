@@ -1,11 +1,17 @@
 "use client";
 
 import { Dropdown } from "@/components/ui/dropdown/Dropdown";
+import {
+  CONVERSATION_READ_EVENT,
+  isConversationUnread,
+  loadConversationReadMap,
+  markConversationRead,
+  markConversationsRead,
+  type ConversationReadMap,
+} from "@/lib/conversation-read-state";
 import { apiFetch, type Conversation } from "@/lib/worker-api";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-const READ_STORAGE_KEY = "aix.worker.notificationReadIds";
 
 function relativeTime(iso: string) {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -65,59 +71,38 @@ function ChannelIcon({ channel }: { channel: Conversation["channel"] }) {
   );
 }
 
-function loadReadIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(READ_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? new Set(parsed.filter((id): id is string => typeof id === "string")) : new Set();
-  } catch {
-    return new Set();
-  }
-}
-
-function persistReadIds(ids: Set<string>) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(READ_STORAGE_KEY, JSON.stringify([...ids]));
-}
-
 export default function NotificationDropdown() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Conversation[]>([]);
-  const [readIds, setReadIds] = useState<Set<string>>(() => new Set());
+  const [readMap, setReadMap] = useState<ConversationReadMap>({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    setReadIds(loadReadIds());
+    setReadMap(loadConversationReadMap());
+    const syncRead = () => setReadMap(loadConversationReadMap());
+    window.addEventListener(CONVERSATION_READ_EVENT, syncRead);
+    window.addEventListener("storage", syncRead);
     apiFetch<Conversation[]>("/conversations")
       .then((data) => setItems(data.filter((c) => c.status === "needs_human")))
       .catch(() => undefined)
       .finally(() => setLoaded(true));
+    return () => {
+      window.removeEventListener(CONVERSATION_READ_EVENT, syncRead);
+      window.removeEventListener("storage", syncRead);
+    };
   }, []);
 
   const unreadCount = useMemo(
-    () => items.filter((item) => !readIds.has(item.id)).length,
-    [items, readIds],
+    () => items.filter((item) => isConversationUnread(item, readMap)).length,
+    [items, readMap],
   );
 
   const markAllRead = useCallback(() => {
-    setReadIds((prev) => {
-      const next = new Set(prev);
-      for (const item of items) next.add(item.id);
-      persistReadIds(next);
-      return next;
-    });
+    setReadMap((prev) => markConversationsRead(items, prev));
   }, [items]);
 
-  const markOneRead = useCallback((id: string) => {
-    setReadIds((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.add(id);
-      persistReadIds(next);
-      return next;
-    });
+  const markOneRead = useCallback((conversation: Conversation) => {
+    setReadMap((prev) => markConversationRead(conversation, prev));
   }, []);
 
   const badgeLabel = unreadCount > 9 ? "9+" : String(unreadCount);
@@ -184,13 +169,13 @@ export default function NotificationDropdown() {
             </p>
           )}
           {items.map((conversation, index) => {
-            const unread = !readIds.has(conversation.id);
+            const unread = isConversationUnread(conversation, readMap);
             return (
               <Link
                 key={conversation.id}
                 href="/inbox"
                 onClick={() => {
-                  markOneRead(conversation.id);
+                  markOneRead(conversation);
                   setOpen(false);
                 }}
                 className={`relative flex gap-3 px-4 py-3.5 transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04] ${
