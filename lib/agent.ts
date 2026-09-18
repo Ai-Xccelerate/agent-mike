@@ -11,6 +11,8 @@ import {
   applyReplyPolicy,
   buildBlockedReplyRepairMessage,
   CUSTOMER_INPUT_GUARDRAIL_NAME,
+  declineOutOfScopeReply,
+  intentClassificationFromTripwire,
   isOutputClassifierFailure,
   replyPolicyFromRun,
   type CustomerGuardrailContext,
@@ -1067,6 +1069,13 @@ export async function buildInstructions(
     "Channels, Tools, or Integrations, do not explain those console screens. " +
     "Say a teammate on the admin side can help with configuration, and end with [[ESCALATE]].";
 
+  const scopeBoundary =
+    "\n\nScope boundary (overrides helpfulness): only fulfill requests that fit your Role and " +
+    "Job description. If the customer asks for something outside that scope — including general " +
+    "programming help unrelated to this product, homework, or using you as a free general-purpose " +
+    "assistant — briefly decline, say what you can help with, and end with [[FOLLOWUP]] or " +
+    "[[RESOLVE]]. Do not fulfill the out-of-scope request.";
+
   return (
     identityLine +
     additionalInstructionsBlock +
@@ -1074,6 +1083,7 @@ export async function buildInstructions(
     (contactBlock ? `\n\n${contactBlock}` : "") +
     knowledgeBlock +
     audienceBoundary +
+    scopeBoundary +
     (await buildSkillsBlock(
       profile.enabledSkills,
       organizationId,
@@ -1179,6 +1189,8 @@ export async function runAgent(
     confidenceThreshold: profile.confidenceThreshold,
     recentHistory: history,
     summary,
+    role: profile.role,
+    jobDescription: profile.jobDescription ?? null,
   };
 
   const instructions = await buildInstructions(
@@ -1261,12 +1273,16 @@ export async function runAgent(
     // Intent confidence came from the first turn's input guardrail.
     return parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
   } catch (error) {
-    // Input tripwire fail-closed. Output no longer trips the SDK wire — block
-    // is a soft reject + repair above; unexpected output trips still hand off.
-    if (
-      error instanceof InputGuardrailTripwireTriggered ||
-      error instanceof OutputGuardrailTripwireTriggered
-    ) {
+    // Input tripwire: out-of-scope → polite decline (not Charan); other trips → handoff.
+    // Output no longer trips the SDK wire — block is a soft reject + repair above.
+    if (error instanceof InputGuardrailTripwireTriggered) {
+      const intent = intentClassificationFromTripwire(error);
+      if (intent?.outOfScope) {
+        return declineOutOfScopeReply(profile);
+      }
+      return handoffToManager(profile);
+    }
+    if (error instanceof OutputGuardrailTripwireTriggered) {
       return handoffToManager(profile);
     }
     throw error;

@@ -23,6 +23,7 @@ vi.mock("@/lib/tools-integrations/skills-catalog", async (importOriginal) => {
 });
 
 import { handoffToManager, runAgent } from "@/lib/agent";
+import { declineOutOfScopeReply } from "@/lib/guardrails";
 
 const previousDemo = process.env.DEMO_MODE;
 const previousKey = process.env.OPENAI_API_KEY;
@@ -61,13 +62,50 @@ describe("runAgent guardrail tripwires", () => {
         guardrail: { type: "input", name: "Customer intent guardrail" },
         output: {
           tripwireTriggered: true,
-          outputInfo: { escalate: true, confidence: 0.1, reason: "billing" },
+          outputInfo: {
+            injectionSuspected: false,
+            outOfScope: false,
+            escalate: true,
+            matchedThemes: [],
+            confidence: 0.1,
+            reason: "billing",
+          },
         },
       }),
     );
 
     const result = await runAgent(profile, "Acme", "I want my money back", [], "org-1");
     expect(result).toEqual(handoffToManager(profile));
+  });
+
+  it("declines out-of-scope input instead of handing off to the manager", async () => {
+    runTracedAgentMock.mockRejectedValue(
+      new InputGuardrailTripwireTriggered("tripped", {
+        guardrail: { type: "input", name: "Customer intent guardrail" },
+        output: {
+          tripwireTriggered: true,
+          outputInfo: {
+            injectionSuspected: false,
+            outOfScope: true,
+            escalate: false,
+            matchedThemes: [],
+            confidence: 0.92,
+            reason: "general programming homework",
+          },
+        },
+      }),
+    );
+
+    const result = await runAgent(
+      profile,
+      "Acme",
+      "Can you help me fix this Python code?",
+      [],
+      "org-1",
+    );
+    expect(result).toEqual(declineOutOfScopeReply(profile));
+    expect(result.escalate).toBe(false);
+    expect(result.answer).toContain("outside what I cover");
   });
 
   it("maps OutputGuardrailTripwireTriggered to the manager handoff", async () => {
@@ -169,6 +207,7 @@ describe("runAgent guardrail tripwires", () => {
             tripwireTriggered: false,
             outputInfo: {
               injectionSuspected: false,
+              outOfScope: false,
               escalate: false,
               matchedThemes: [],
               confidence: 0.86,

@@ -106,7 +106,7 @@ describe("shouldTripInputGuardrail", () => {
   it("trips on injection, classifier failure, or low confidence — not on clear themes", () => {
     expect(
       shouldTripInputGuardrail(
-        { injectionSuspected: true, escalate: false, matchedThemes: [], confidence: 0.99, reason: "x" },
+        { injectionSuspected: true, outOfScope: false, escalate: false, matchedThemes: [], confidence: 0.99, reason: "x" },
         0.72,
       ),
     ).toBe(true);
@@ -119,43 +119,59 @@ describe("shouldTripInputGuardrail", () => {
     // Theme escalate must reach the agent so collect-before-escalate can run.
     expect(
       shouldTripInputGuardrail(
-        { injectionSuspected: false, escalate: true, matchedThemes: ["refund"], confidence: 0.9, reason: "x" },
+        { injectionSuspected: false, outOfScope: false, escalate: true, matchedThemes: ["refund"], confidence: 0.9, reason: "x" },
         0.72,
       ),
     ).toBe(false);
     // Configured terms still open the intake path even if the classifier missed.
     expect(
       shouldTripInputGuardrail(
-        { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.4, reason: "unsure" },
+        { injectionSuspected: false, outOfScope: false, escalate: false, matchedThemes: [], confidence: 0.4, reason: "unsure" },
         0.72,
         { message: "I need a refund please", escalationTerms: ["refund"] },
       ),
     ).toBe(false);
     expect(
       shouldTripInputGuardrail(
-        { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.5, reason: "unsure" },
+        { injectionSuspected: false, outOfScope: false, escalate: false, matchedThemes: [], confidence: 0.5, reason: "unsure" },
         0.72,
       ),
     ).toBe(false);
     expect(
       shouldTripInputGuardrail(
-        { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.2, reason: "very unsure" },
+        { injectionSuspected: false, outOfScope: false, escalate: false, matchedThemes: [], confidence: 0.2, reason: "very unsure" },
         0.72,
       ),
     ).toBe(true);
     expect(
       shouldTripInputGuardrail(
-        { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.4, reason: "unsure" },
+        { injectionSuspected: false, outOfScope: false, escalate: false, matchedThemes: [], confidence: 0.4, reason: "unsure" },
         0.72,
         { message: "I got billed twice and want my money back", escalationTerms: ["refund"] },
       ),
     ).toBe(false);
   });
 
+  it("trips on out-of-scope requests so the agent cannot fulfill freeform work", () => {
+    expect(
+      shouldTripInputGuardrail(
+        {
+          injectionSuspected: false,
+          outOfScope: true,
+          escalate: false,
+          matchedThemes: [],
+          confidence: 0.95,
+          reason: "general programming homework",
+        },
+        0.72,
+      ),
+    ).toBe(true);
+  });
+
   it("allows a safe high-confidence message", () => {
     expect(
       shouldTripInputGuardrail(
-        { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.9, reason: "ok" },
+        { injectionSuspected: false, outOfScope: false, escalate: false, matchedThemes: [], confidence: 0.9, reason: "ok" },
         0.72,
       ),
     ).toBe(false);
@@ -247,6 +263,7 @@ describe("classifyCustomerIntent", () => {
     runMock.mockResolvedValue({
       finalOutput: {
         injectionSuspected: false,
+        outOfScope: false,
         escalate: true,
         matchedThemes: ["billing dispute"],
         confidence: 0.2,
@@ -258,6 +275,8 @@ describe("classifyCustomerIntent", () => {
       escalationTerms: ["refund"],
       recentHistory: [],
       summary: null,
+      role: "Technical support",
+      jobDescription: null,
     });
     expect(result.escalate).toBe(true);
     expect(result.matchedThemes).toContain("billing dispute");
@@ -271,6 +290,8 @@ describe("classifyCustomerIntent", () => {
       escalationTerms: [],
       recentHistory: [],
       summary: null,
+      role: "Technical support",
+      jobDescription: null,
     });
     expect(result).toMatchObject(failClosedIntent(result.reason));
     expect(result.escalate).toBe(true);
@@ -284,6 +305,8 @@ describe("classifyCustomerIntent", () => {
       escalationTerms: [],
       recentHistory: [],
       summary: null,
+      role: "Technical support",
+      jobDescription: null,
     });
     expect(result.escalate).toBe(true);
     expect(result.reason).toContain("timeout");
@@ -296,6 +319,8 @@ describe("classifyCustomerIntent", () => {
       escalationTerms: [],
       recentHistory: [],
       summary: null,
+      role: "Technical support",
+      jobDescription: null,
     });
     expect(runMock).not.toHaveBeenCalled();
     expect(result.escalate).toBe(true);
@@ -322,6 +347,8 @@ describe("classifyCustomerOutput", () => {
       escalationTerms: [],
       recentHistory: [],
       summary: null,
+      role: "Technical support",
+      jobDescription: null,
     });
     expect(result.action).toBe("block");
     expect(runMock).not.toHaveBeenCalled();
@@ -340,6 +367,8 @@ describe("classifyCustomerOutput", () => {
       escalationTerms: ["refund"],
       recentHistory: [],
       summary: null,
+      role: "Technical support",
+      jobDescription: null,
     });
     expect(result.action).toBe("block");
     expect(shouldTripOutputGuardrail(result)).toBe(false);
@@ -359,6 +388,8 @@ describe("classifyCustomerOutput", () => {
       escalationTerms: ["refund"],
       recentHistory: [],
       summary: null,
+      role: "Technical support",
+      jobDescription: null,
     });
     expect(result.confidence).toBe(0.88);
     expect(result.action).toBe("continue_intake");
@@ -384,6 +415,7 @@ describe("SDK guardrail wrappers", () => {
     runMock.mockResolvedValue({
       finalOutput: {
         injectionSuspected: false,
+        outOfScope: false,
         escalate: true,
         matchedThemes: ["refund"],
         confidence: 0.15,
@@ -402,6 +434,8 @@ describe("SDK guardrail wrappers", () => {
         confidenceThreshold: 0.72,
         recentHistory: [],
         summary: null,
+        role: "Technical support",
+        jobDescription: null,
       }),
     });
     expect(result.tripwireTriggered).toBe(false);
@@ -427,6 +461,8 @@ describe("SDK guardrail wrappers", () => {
         confidenceThreshold: 0.72,
         recentHistory: [],
         summary: null,
+        role: "Technical support",
+        jobDescription: null,
       }),
     });
     expect(result.tripwireTriggered).toBe(false);
@@ -450,6 +486,8 @@ describe("SDK guardrail wrappers", () => {
         confidenceThreshold: 0.72,
         recentHistory: [],
         summary: null,
+        role: "Technical support",
+        jobDescription: null,
       }),
     });
     expect(result.tripwireTriggered).toBe(false);
