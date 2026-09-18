@@ -2,7 +2,7 @@ import { Agent, run, tool, webSearchTool } from "@openai/agents";
 import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
-import { isDemoMode } from "@/lib/env";
+import { modelUnavailabilityReason } from "@/lib/env";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
@@ -760,6 +760,18 @@ export interface RunAgentResult {
   citations: string[];
 }
 
+/** Same customer-facing handoff as a guardrail escalation. */
+export function handoffToManager(
+  profile: Pick<WorkerProfileLike, "managerName" | "confidenceThreshold">,
+): RunAgentResult {
+  return {
+    answer: `I want to make sure this is handled correctly, so I'm bringing in ${profile.managerName}. They'll review the conversation and follow up here.`,
+    confidence: Math.min(0.4, profile.confidenceThreshold - 0.1),
+    escalate: true,
+    citations: [],
+  };
+}
+
 function parseAnswer(raw: string, threshold: number): RunAgentResult {
   const escalate = /\[\[ESCALATE\]\]/i.test(raw);
   const resolved = /\[\[RESOLVE\]\]/i.test(raw);
@@ -794,8 +806,12 @@ export async function runAgent(
   knowledge: KnowledgeMatch[],
   organizationId: string,
 ): Promise<RunAgentResult> {
-  if (isDemoMode() || !process.env.OPENAI_API_KEY) {
+  const unavailable = modelUnavailabilityReason();
+  if (unavailable === "demo_mode") {
     return demoAnswer(profile, knowledge);
+  }
+  if (unavailable === "missing_api_key") {
+    return handoffToManager(profile);
   }
 
   const agent = new Agent({

@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { conversations, messages, workerProfiles } from "@/db/schema";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { ingestOkf, wrapAsOkf } from "@/lib/knowledge";
-import { isDemoMode } from "@/lib/env";
+import { modelUnavailabilityReason, type ModelUnavailabilityReason } from "@/lib/env";
 import {
   createPendingApproval,
   decideApproval,
@@ -543,10 +543,11 @@ export interface AssistantAgentResult {
   answer: string;
 }
 
-function demoAssistantAnswer(): AssistantAgentResult {
+function unavailableAssistantAnswer(reason: ModelUnavailabilityReason): AssistantAgentResult {
+  const cause = reason === "demo_mode" ? "demo mode is on" : "no OPENAI_API_KEY configured";
   return {
     answer:
-      "I can't reach the model right now (no OPENAI_API_KEY configured), so I can't look anything up. " +
+      `I can't reach the model right now (${cause}), so I can't look anything up. ` +
       "Try again once the assistant is fully configured.",
   };
 }
@@ -668,8 +669,9 @@ export async function runAssistantAgent(
   history: AssistantHistoryTurn[],
   summary: string | null,
 ): Promise<AssistantAgentResult> {
-  if (isDemoMode() || !process.env.OPENAI_API_KEY) {
-    return demoAssistantAnswer();
+  const unavailable = modelUnavailabilityReason();
+  if (unavailable) {
+    return unavailableAssistantAnswer(unavailable);
   }
 
   const pending = await listPendingApprovals(organizationId, conversationId);
@@ -726,7 +728,7 @@ export async function runAssistantAgent(
  */
 export async function generateAssistantTitle(profile: Profile, message: string): Promise<string> {
   const fallback = message.slice(0, 120);
-  if (isDemoMode() || !process.env.OPENAI_API_KEY) return fallback;
+  if (modelUnavailabilityReason()) return fallback;
 
   const titler = new Agent({
     name: "Assistant conversation titler",
@@ -772,7 +774,7 @@ export async function maybeRefreshAssistantSummary(
 ): Promise<AssistantSummaryState> {
   const newBoundary = allMessages.length - REPLAY_MESSAGE_LIMIT;
   if (newBoundary <= current.summarizedMessageCount) return current;
-  if (isDemoMode() || !process.env.OPENAI_API_KEY) return current;
+  if (modelUnavailabilityReason()) return current;
 
   const batch = allMessages.slice(current.summarizedMessageCount, newBoundary);
   const batchText = batch
