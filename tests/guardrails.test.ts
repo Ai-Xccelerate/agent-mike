@@ -37,6 +37,34 @@ describe("evaluateMessage (deterministic tier)", () => {
     ).toEqual({ escalate: true, reason: "Potential prompt injection" });
   });
 
+  it("escalates manager-console Settings/Knowledge questions without calling the model", () => {
+    for (const message of [
+      "In one sentence, what is the Knowledge section in Settings for?",
+      "What does the Knowledge section of the AI Worker settings do?",
+      "How do I configure Guardrails in Settings?",
+    ]) {
+      const decision = evaluateMessage({
+        message,
+        escalationTerms: [],
+        allowedDomains: [],
+        requireUserVerification: false,
+      });
+      expect(decision.escalate).toBe(true);
+      expect(decision.reason).toMatch(/Manager console configuration/);
+    }
+  });
+
+  it("does not treat ordinary product how-tos as console-config questions", () => {
+    expect(
+      evaluateMessage({
+        message: "My sign-in code never arrived — what should I try next?",
+        escalationTerms: [],
+        allowedDomains: [],
+        requireUserVerification: false,
+      }),
+    ).toEqual({ escalate: false, reason: null });
+  });
+
   it("escalates on a configured escalation term substring", () => {
     expect(
       evaluateMessage({

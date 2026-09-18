@@ -83,6 +83,28 @@ function inputAsText(input: string | unknown): string {
 }
 
 /**
+ * Questions about how the manager console is organized (Settings → Knowledge,
+ * Guardrails, …). Those belong to the admin Assistant, not customer chat —
+ * even when Knowledge retrieval has an article that would answer them.
+ */
+export function isManagerConsoleConfigQuestion(message: string): boolean {
+  const normalized = message.toLowerCase();
+  const area =
+    "knowledge|guardrails|identity|channels|integrations|agent configuration|tools";
+
+  if (new RegExp(`settings[\\s>\\-–—:]{0,20}(${area})`).test(normalized)) return true;
+  if (new RegExp(`(${area})[\\s\\w]{0,24}(in|under|of|on)\\s+settings`).test(normalized)) {
+    return true;
+  }
+  if (/what (is|does)\s+(the\s+)?knowledge section/.test(normalized)) return true;
+  if (/knowledge section\s+(in|of|for|under)/.test(normalized)) return true;
+  if (/how (do i|to)\s+(configure|set up|change)\s+(the\s+)?(knowledge|guardrails|identity)/.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Deterministic fast-fail (domain allowlist + injection phrases). Kept as a
  * zero-cost first tier — exact matching is correct for domains, and the
  * phrase list catches the laziest jailbreaks before we pay for a classifier.
@@ -99,6 +121,10 @@ export function evaluateMessage(input: GuardrailInput): GuardrailDecision {
     if (normalized.includes(pattern)) {
       return { escalate: true, reason: "Potential prompt injection" };
     }
+  }
+
+  if (isManagerConsoleConfigQuestion(input.message)) {
+    return { escalate: true, reason: "Manager console configuration — admin assistant territory" };
   }
 
   if (input.allowedDomains.length > 0) {
