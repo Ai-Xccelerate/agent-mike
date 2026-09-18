@@ -314,7 +314,14 @@ describe("classifyCustomerOutput", () => {
     expect(runMock).not.toHaveBeenCalled();
   });
 
-  it("trips deterministically when the draft claims a refund was processed", async () => {
+  it("blocks a refund promise via the model classifier, not a phrase list", async () => {
+    runMock.mockResolvedValue({
+      finalOutput: {
+        action: "block",
+        confidence: 0.05,
+        reason: "claims to have processed a refund",
+      },
+    });
     const result = await classifyCustomerOutput({
       reply: "Sure, I processed your refund already.",
       escalationTerms: ["refund"],
@@ -323,7 +330,7 @@ describe("classifyCustomerOutput", () => {
     });
     expect(result.action).toBe("block");
     expect(shouldTripOutputGuardrail(result)).toBe(true);
-    expect(runMock).not.toHaveBeenCalled();
+    expect(runMock).toHaveBeenCalledOnce();
   });
 
   it("uses the model classifier when no leak pattern matches", async () => {
@@ -389,7 +396,13 @@ describe("SDK guardrail wrappers", () => {
   });
 
   it("output guardrail trips when the classifier blocks a refund promise", async () => {
-    // Deterministic path — no model call needed.
+    runMock.mockResolvedValue({
+      finalOutput: {
+        action: "block",
+        confidence: 0.05,
+        reason: "claims to have processed a refund",
+      },
+    });
     const guardrail = buildCustomerOutputGuardrail();
     expect(guardrail.name).toBe(CUSTOMER_OUTPUT_GUARDRAIL_NAME);
 

@@ -97,26 +97,11 @@ export async function buildSkillsBlock(
   if (active.length === 0) return repositoryBlock;
 
   const list = active.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
-  // Soft nudge alone left bare-refund replies as one-line improvisations that
-  // never called load_skill. Require the skill on the first billing-theme turn,
-  // and keep a short quality floor so intake still reads like a real handoff
-  // even if the model skimps on the tool call.
-  const intakeHint = active.some((skill) => skill.id === "collect-before-escalate")
-    ? "\n\nBilling / escalation intake (required when this skill is listed above):\n" +
-      "- On refund, duplicate charge, chargeback, cancel, legal, or similar themes, " +
-      "call load_skill(\"collect-before-escalate\") before you draft your reply — " +
-      "not only before [[ESCALATE]]. Follow that skill for this turn.\n" +
-      "- First intake reply quality floor: briefly explain you need a few details so " +
-      "a manager can act without another round of questions; ask for contact email " +
-      "and at most one other missing field; do not dump a long form; do not promise " +
-      "a refund, cancellation, or legal outcome; do not invent fields they did not give.\n" +
-      "- Only [[ESCALATE]] after the skill's required fields are covered (or they refuse email)."
-    : "";
   return (
     "\n\nSkills available to you (call load_skill with the skill id to read its full instructions " +
-    "before relying on it):\n" +
+    "before relying on it). If a listed skill's description matches this customer's request, " +
+    "load it and follow it before drafting — do not improvise a shortcut when a matching skill exists:\n" +
     list +
-    intakeHint +
     // Both early returns carry this; so must the one path where a worker has
     // skills switched on *and* the repository connected — which is the case
     // the search tool exists for.

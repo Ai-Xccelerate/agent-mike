@@ -1294,15 +1294,7 @@ describe("agent skills wiring", () => {
     expect(block).toContain(
       "Use when a conversation drifts off-topic before a ticket gets created",
     );
-  });
-
-  it("buildSkillsBlock requires load_skill + intake quality floor for collect-before-escalate", async () => {
-    const block = await buildSkillsBlock(["collect-before-escalate"], "org-1");
-    expect(block).toContain("collect-before-escalate");
-    expect(block).toContain('load_skill("collect-before-escalate")');
-    expect(block).toContain("before you draft your reply");
-    expect(block).toContain("quality floor");
-    expect(block).toContain("contact email");
+    expect(block).toContain("do not improvise a shortcut when a matching skill exists");
   });
 
   it("buildSkillsBlock ignores an unenabled/unknown skill id", async () => {

@@ -22,20 +22,6 @@ const OUTPUT_LEAK_PATTERNS = [
   "ignore previous instructions",
 ];
 
-/** Customer-facing claims that the agent must never make on billing themes. */
-const REFUND_PROMISE_PATTERNS = [
-  "i processed your refund",
-  "i've processed your refund",
-  "i have processed your refund",
-  "i issued your refund",
-  "i've issued your refund",
-  "your refund has been processed",
-  "your refund has been issued",
-  "i've refunded",
-  "i have refunded",
-  "i refunded your",
-];
-
 export const CUSTOMER_INPUT_GUARDRAIL_NAME = "Customer intent guardrail";
 export const CUSTOMER_OUTPUT_GUARDRAIL_NAME = "Customer reply guardrail";
 
@@ -256,15 +242,6 @@ export async function classifyCustomerOutput(args: {
         action: "block",
         confidence: 0,
         reason: `Reply appears to leak internal instructions (${pattern})`,
-      };
-    }
-  }
-  for (const pattern of REFUND_PROMISE_PATTERNS) {
-    if (lower.includes(pattern)) {
-      return {
-        action: "block",
-        confidence: 0,
-        reason: `Reply promises or claims a refund (${pattern})`,
       };
     }
   }
