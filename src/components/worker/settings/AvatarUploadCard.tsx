@@ -15,9 +15,8 @@ import type { WorkerProfile } from "@/lib/worker-api";
  * server's row back into the shared profile without discarding anything the
  * manager has typed elsewhere on the page and not yet saved.
  *
- * The external-URL field stays available underneath: uploads land on the API
- * service's own disk, which does not survive a redeploy on an ephemeral
- * filesystem, so pointing at a CDN is still the durable option.
+ * An image URL field sits underneath for managers who already host a photo
+ * elsewhere; uploads still fill that field with the stored path.
  */
 const ACCEPT = "image/png,image/jpeg,image/webp";
 const MAX_BYTES = 1024 * 1024;
@@ -197,7 +196,7 @@ export default function AvatarUploadCard({ profile, onUpdated }: Props) {
           </div>
 
           <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
-            Uploading saves straight away. The Save button above does not apply to it.
+            Uploads apply immediately — you do not need Save for a new photo.
           </p>
         </div>
       </div>
