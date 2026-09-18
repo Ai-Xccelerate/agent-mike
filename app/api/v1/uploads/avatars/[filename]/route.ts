@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { readFile } from "fs/promises";
-import path from "path";
-import { avatarsDir, contentTypeFor, safeFilename } from "@/lib/uploads";
+import { contentTypeFor, readAvatar, safeFilename } from "@/lib/uploads";
 
-// Reads from disk per request — never statically prerender or cache this route.
+// Reads from object storage or disk per request — never statically prerender.
 export const dynamic = "force-dynamic";
 
 /**
@@ -11,8 +9,9 @@ export const dynamic = "force-dynamic";
  *
  * A route handler rather than Next's static `public/` serving, because
  * `public/` is copied at build time: a file written at runtime works under
- * `next dev` and then 404s in a production build. Reading from disk per
- * request behaves identically in both.
+ * `next dev` and then 404s in a production build. Reading per request
+ * behaves identically in both, and the same path proxies Railway bucket
+ * objects when bucket credentials are configured.
  *
  * Public by design — it is the image a worker shows customers, and it is
  * requested by `<img>` tags that carry no auth. The filenames carry 8 random
@@ -25,7 +24,7 @@ export async function GET(
   const { filename } = await params;
 
   // The filename comes straight from the URL, so it is validated before it is
-  // ever joined onto a path — traversal must not reach the filesystem.
+  // ever joined onto a path or S3 key — traversal must not reach storage.
   const safe = safeFilename(filename);
   if (!safe) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -36,10 +35,8 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(path.join(avatarsDir(), safe));
-  } catch {
+  const bytes = await readAvatar(safe);
+  if (!bytes) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
