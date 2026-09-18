@@ -1,4 +1,6 @@
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
 
 /**
  * Generic, white-labelable avatar: initials on a stored accent colour, or an
@@ -43,17 +45,25 @@ export default function AgentAvatar({
   accentColor,
   avatarUrl,
 }: AgentAvatarProps) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const hue = hueFrom(initials || "AW");
   const background = accentColor || `hsl(${hue} 55% 45%)`;
+  const showImage = Boolean(avatarUrl) && failedUrl !== avatarUrl;
+
   return (
     <span className="relative inline-flex shrink-0">
       <span
         className={`relative flex items-center justify-center overflow-hidden rounded-full font-semibold text-white ring-1 ring-black/5 dark:ring-white/10 ${sizeClasses[size]}`}
         style={{ backgroundColor: background }}
       >
-        {avatarUrl ? (
+        {showImage ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={avatarUrl} alt="" className="size-full object-cover" />
+          <img
+            src={avatarUrl ?? ""}
+            alt=""
+            className="absolute inset-0 size-full object-cover"
+            onError={() => setFailedUrl(avatarUrl ?? "")}
+          />
         ) : (
           initials.slice(0, 2).toUpperCase()
         )}
