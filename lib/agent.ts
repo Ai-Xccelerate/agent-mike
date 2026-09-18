@@ -780,12 +780,23 @@ export async function buildInstructions(
     ? `\n\nJob description (additional detail on this role):\n${profile.jobDescription}`
     : "";
 
+  // Customer chat vs the manager Assistant: this agent answers people seeking
+  // help. It may use Knowledge content, but must not teach the manager console.
+  const audienceBoundary =
+    "\n\nAudience: you are the customer-facing worker, not the manager's admin assistant. " +
+    "Use the reference material above to answer support questions — never narrate how the " +
+    "manager console is organized (Settings areas such as Knowledge, Guardrails, Identity, " +
+    "Channels, Tools, or Integrations). " +
+    "If someone asks how to configure those areas, tell them a teammate on the admin side can " +
+    "help and end with [[ESCALATE]].";
+
   return (
     identityLine +
     additionalInstructionsBlock +
     jobDescriptionBlock +
     (contactBlock ? `\n\n${contactBlock}` : "") +
     knowledgeBlock +
+    audienceBoundary +
     (await buildSkillsBlock(
       profile.enabledSkills,
       organizationId,

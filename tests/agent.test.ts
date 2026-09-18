@@ -1278,3 +1278,26 @@ describe("agent instructions — email signature is channel-specific", () => {
     expect(instructions).toContain("Best,\nMike\nAI Xccelerate Technical Support");
   });
 });
+
+describe("agent instructions — customer vs admin audience", () => {
+  const baseProfile = {
+    displayName: "Mike",
+    role: "Technical support",
+    tone: "Warm.",
+    systemPromptTemplate: "Be helpful.",
+    model: "gpt-5.6-luna",
+    maxAgentTurns: 3,
+    confidenceThreshold: 0.72,
+    managerName: "Charan",
+    jobDescription:
+      "Handles: questions about setting up and configuring an AI Worker (Identity, Role, Knowledge, Guardrails).",
+  };
+
+  it("tells the customer agent not to teach Settings console topics", async () => {
+    const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
+    expect(instructions).toContain("customer-facing worker");
+    expect(instructions).toContain("not the manager's admin assistant");
+    expect(instructions).toContain("never narrate how the manager console is organized");
+    expect(instructions).toContain("Knowledge");
+  });
+});
