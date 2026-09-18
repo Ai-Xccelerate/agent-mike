@@ -1295,9 +1295,8 @@ describe("agent instructions — customer vs admin audience", () => {
 
   it("tells the customer agent not to teach Settings console topics", async () => {
     const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
-    expect(instructions).toContain("customer-facing worker");
-    expect(instructions).toContain("not the manager's admin assistant");
-    expect(instructions).toContain("never narrate how the manager console is organized");
-    expect(instructions).toContain("Knowledge");
+    expect(instructions).toContain("Audience boundary (overrides job description");
+    expect(instructions).toContain("do not explain those console screens");
+    expect(instructions).toContain("[[ESCALATE]]");
   });
 });
