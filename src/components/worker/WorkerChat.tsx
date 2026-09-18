@@ -220,16 +220,6 @@ export function ChatPanel({
     }
   }
 
-  async function startNewCompactChat() {
-    sessionStorage.removeItem(storageKey(true));
-    setCompactConversationId(undefined);
-    setMessages([{ ...welcomeMessage(profile), createdAt: new Date().toISOString() }]);
-    setEscalated(false);
-    setPreview(false);
-    setValue("");
-    inputRef.current?.focus();
-  }
-
   const displayName = profile?.displayName ?? "AI Worker";
   const avatarInitials = profile?.avatarInitials ?? "AW";
   const accentColor = profile?.accentColor;
@@ -279,18 +269,11 @@ export function ChatPanel({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {compact && (compactConversationId || messages.length > 1) && (
-            <button
-              type="button"
-              onClick={() => void startNewCompactChat()}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-white/5 dark:hover:text-gray-200"
-            >
-              New chat
-            </button>
+          {escalated && (
+            <Badge size="sm" color="warning">
+              Manager notified
+            </Badge>
           )}
-          <Badge size="sm" color={escalated ? "warning" : "success"}>
-            {escalated ? "Manager notified" : "Typically replies instantly"}
-          </Badge>
           {onClose && (
             <button
               type="button"
