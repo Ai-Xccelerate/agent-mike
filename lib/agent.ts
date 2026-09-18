@@ -1,11 +1,13 @@
-import { Agent, run, tool, webSearchTool } from "@openai/agents";
+import { Agent, tool, webSearchTool } from "@openai/agents";
 import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { modelUnavailabilityReason } from "@/lib/env";
+import { CUSTOMER_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
+import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
 import {
   getSkillForOrg,
   listActiveSkillsForOrg,
@@ -97,6 +99,7 @@ export async function buildSkillsBlock(
  * keeping the same progressive disclosure the local catalog uses.
  */
 function buildSearchSkillsTool(
+  organizationId: string,
   credentials: SkillsRepositoryCredentials,
   runtime: AgentSkillsRuntime,
 ): Tool {
@@ -111,29 +114,41 @@ function buildSearchSkillsTool(
         .string()
         .describe("A description of the task you are about to do, in your own words"),
     }),
-    execute: async ({ task }) => {
-      try {
-        const results = await searchSkills({
-          credentials,
-          query: task,
-          category: runtime.category,
-          limit: runtime.maxResults,
-        });
-        if (results.length === 0) {
-          return "No skill in the repository matches that task. Proceed on your own judgement.";
-        }
-        return results
-          .map(
-            (skill) =>
-              `- ${toRepositorySkillId(skill.slug)}: ${skill.name} — ${skill.description}`,
-          )
-          .join("\n");
-      } catch (error) {
-        return error instanceof SkillsRepositoryError
-          ? `Skill search failed: ${error.message}`
-          : "Skill search failed.";
-      }
-    },
+    execute: async ({ task }) =>
+      logAndRunTool(
+        {
+          organizationId,
+          toolId: SEARCH_SKILLS_TOOL_NAME,
+          calledBy: "customer",
+          input: { task },
+        },
+        async () => {
+          try {
+            const results = await searchSkills({
+              credentials,
+              query: task,
+              category: runtime.category,
+              limit: runtime.maxResults,
+            });
+            if (results.length === 0) {
+              return "No skill in the repository matches that task. Proceed on your own judgement.";
+            }
+            return results
+              .map(
+                (skill) =>
+                  `- ${toRepositorySkillId(skill.slug)}: ${skill.name} — ${skill.description}`,
+              )
+              .join("\n");
+          } catch (error) {
+            return error instanceof SkillsRepositoryError
+              ? `Skill search failed: ${error.message}`
+              : "Skill search failed.";
+          }
+        },
+        {
+          errorIf: (text) => (text.startsWith("Skill search failed") ? text : null),
+        },
+      ),
   });
 }
 
@@ -150,41 +165,54 @@ function buildLoadSkillTool(
     parameters: z.object({
       skillId: z.string().describe("The skill id, exactly as listed in your available skills"),
     }),
-    execute: async ({ skillId }) => {
-      // Repository skills are found by searching, not switched on in advance,
-      // so they are never in enabledSkills — the integration toggle is what
-      // authorises them.
-      if (isRepositorySkillId(skillId)) {
-        if (!repositoryCredentials) {
-          return `The skill repository is not enabled for this worker.`;
-        }
-        try {
-          const found = await getRepositorySkill(repositoryCredentials, repositorySlugFrom(skillId));
-          return found ? found.body : `Skill "${skillId}" was not found in the repository.`;
-        } catch (error) {
-          return error instanceof SkillsRepositoryError
-            ? `Could not load that skill: ${error.message}`
-            : "Could not load that skill from the repository.";
-        }
-      }
+    execute: async ({ skillId }) =>
+      logAndRunTool(
+        {
+          organizationId,
+          toolId: LOAD_SKILL_TOOL_NAME,
+          calledBy: "customer",
+          input: { skillId },
+        },
+        async () => {
+          // Repository skills are found by searching, not switched on in advance,
+          // so they are never in enabledSkills — the integration toggle is what
+          // authorises them.
+          if (isRepositorySkillId(skillId)) {
+            if (!repositoryCredentials) {
+              return `The skill repository is not enabled for this worker.`;
+            }
+            try {
+              const found = await getRepositorySkill(repositoryCredentials, repositorySlugFrom(skillId));
+              return found ? found.body : `Skill "${skillId}" was not found in the repository.`;
+            } catch (error) {
+              return error instanceof SkillsRepositoryError
+                ? `Could not load that skill: ${error.message}`
+                : "Could not load that skill from the repository.";
+            }
+          }
 
-      if (!enabledSkillIds || !enabledSkillIds.includes(skillId)) {
-        return `Skill "${skillId}" is not enabled for this worker.`;
-      }
-      const skill = await getSkillForOrg(organizationId, skillId);
-      if (!skill) {
-        return `Skill "${skillId}" is enabled but its content could not be found.`;
-      }
-      // Re-checked at call time, not build time, so a connection revoked
-      // mid-conversation takes effect on the very next load.
-      if (!(await skillRequirementsMet(organizationId, skill.requires))) {
-        return (
-          `Skill "${skillId}" needs ${skill.requires.join(" and ")} connected, and it is not, ` +
-          `so its instructions cannot be followed right now. Do not improvise them.`
-        );
-      }
-      return skill.body;
-    },
+          if (!enabledSkillIds || !enabledSkillIds.includes(skillId)) {
+            return `Skill "${skillId}" is not enabled for this worker.`;
+          }
+          const skill = await getSkillForOrg(organizationId, skillId);
+          if (!skill) {
+            return `Skill "${skillId}" is enabled but its content could not be found.`;
+          }
+          // Re-checked at call time, not build time, so a connection revoked
+          // mid-conversation takes effect on the very next load.
+          if (!(await skillRequirementsMet(organizationId, skill.requires))) {
+            return (
+              `Skill "${skillId}" needs ${skill.requires.join(" and ")} connected, and it is not, ` +
+              `so its instructions cannot be followed right now. Do not improvise them.`
+            );
+          }
+          return skill.body;
+        },
+        {
+          errorIf: (text) =>
+            text.startsWith("Could not load that skill") ? text : null,
+        },
+      ),
   });
 }
 
@@ -556,7 +584,7 @@ export async function buildAgentTools(
 
   if (repositoryCredentials) {
     tools.push(
-      buildSearchSkillsTool(repositoryCredentials, {
+      buildSearchSkillsTool(organizationId, repositoryCredentials, {
         category: skillsRepo.category,
         maxResults: skillsRepo.maxResults,
       }),
@@ -805,6 +833,7 @@ export async function runAgent(
   message: string,
   knowledge: KnowledgeMatch[],
   organizationId: string,
+  conversationId?: string,
 ): Promise<RunAgentResult> {
   const unavailable = modelUnavailabilityReason();
   if (unavailable === "demo_mode") {
@@ -823,9 +852,13 @@ export async function runAgent(
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
   });
 
-  const result = await run(agent, message, {
-    maxTurns: Math.max(1, profile.maxAgentTurns || 3),
-  });
+  const result = await runTracedAgent(
+    CUSTOMER_CHAT_WORKFLOW,
+    { organizationId, conversationId },
+    agent,
+    message,
+    { maxTurns: Math.max(1, profile.maxAgentTurns || 3) },
+  );
 
   const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
   return parseAnswer(text, profile.confidenceThreshold);

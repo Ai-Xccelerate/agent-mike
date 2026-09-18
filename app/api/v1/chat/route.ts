@@ -122,6 +122,7 @@ export async function POST(req: NextRequest) {
         message,
         knowledgeMatches,
         tenant.orgId,
+        conversation.id,
       );
     } catch {
       // A model/runtime failure (MaxTurnsExceededError, provider outage) must

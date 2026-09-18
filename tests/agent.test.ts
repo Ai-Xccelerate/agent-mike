@@ -1007,6 +1007,8 @@ describe("agent skills wiring", () => {
   beforeEach(() => {
     getConnectionForOrgMock.mockReset();
     getConnectionForOrgMock.mockResolvedValue(null);
+    logToolCallMock.mockReset();
+    logToolCallMock.mockResolvedValue(undefined);
   });
 
   it("buildSkillsBlock is empty with no enabled skills", async () => {
@@ -1080,6 +1082,15 @@ describe("agent skills wiring", () => {
     const body = await invokeLoadSkill(tools, "stay-on-topic");
     expect(body).toContain("Stay on topic");
     expect(body).toContain("Omit small talk");
+    expect(logToolCallMock).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      toolId: LOAD_SKILL_TOOL_NAME,
+      calledBy: "customer",
+      input: { skillId: "stay-on-topic" },
+      output: expect.objectContaining({ result: expect.stringContaining("Stay on topic") }),
+      status: "success",
+      errorMessage: null,
+    });
   });
 
   it("load_skill refuses a skill id that isn't enabled for this worker", async () => {

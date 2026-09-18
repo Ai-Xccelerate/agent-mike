@@ -7,6 +7,8 @@ import { conversations, messages, workerProfiles } from "@/db/schema";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { ingestOkf, wrapAsOkf } from "@/lib/knowledge";
 import { modelUnavailabilityReason, type ModelUnavailabilityReason } from "@/lib/env";
+import { ASSISTANT_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
+import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
 import {
   createPendingApproval,
   decideApproval,
@@ -24,6 +26,36 @@ import {
 export const INTERNAL_CONVERSATION_CHANNELS = ["chat", "assistant"] as const;
 
 type Profile = typeof workerProfiles.$inferSelect;
+
+export const PROPOSE_ROLE_CHANGE_TOOL_NAME = "propose_role_change";
+export const PROPOSE_TONE_CHANGE_TOOL_NAME = "propose_tone_change";
+export const PROPOSE_ESCALATION_TERMS_CHANGE_TOOL_NAME = "propose_escalation_terms_change";
+export const PROPOSE_CHANNEL_CHANGE_TOOL_NAME = "propose_channel_change";
+export const PROPOSE_SKILL_CHANGE_TOOL_NAME = "propose_skill_change";
+export const PROPOSE_ACTION_TOOL_NAME = "propose_action";
+export const PROPOSE_SEND_REPLY_TOOL_NAME = "propose_send_reply";
+export const PROPOSE_UPDATE_TICKET_STATUS_TOOL_NAME = "propose_update_ticket_status";
+export const PROPOSE_PUBLISH_KNOWLEDGE_ARTICLE_TOOL_NAME = "propose_publish_knowledge_article";
+export const CONFIRM_PENDING_CHANGE_TOOL_NAME = "confirm_pending_change";
+export const CANCEL_PENDING_CHANGE_TOOL_NAME = "cancel_pending_change";
+
+function assistantToolFailed(text: string): string | null {
+  if (text.startsWith("Could not complete that:") || text.startsWith("That failed:")) return text;
+  return null;
+}
+
+function loggedAssistantTool(
+  organizationId: string,
+  toolId: string,
+  input: Record<string, unknown>,
+  run: () => Promise<string>,
+): Promise<string> {
+  return logAndRunTool(
+    { organizationId, toolId, calledBy: "assistant", input },
+    run,
+    { errorIf: assistantToolFailed },
+  );
+}
 
 /**
  * Every Tier 3/4 write goes through the same two-step shape: a `propose_*`
@@ -169,72 +201,77 @@ async function applyPendingChange(
 function buildConfigureTools(organizationId: string, conversationId: string): Tool[] {
   return [
     tool({
-      name: "propose_role_change",
+      name: PROPOSE_ROLE_CHANGE_TOOL_NAME,
       description:
         "Propose changing this worker's Role text. Does not apply anything - creates a pending " +
         "change and describes it back to the manager. Only call this after reading the current role " +
         "with get_worker_configuration if you have not already seen it this conversation.",
       parameters: z.object({ newValue: z.string().describe("The full new role text"), reason: z.string() }),
-      execute: async ({ newValue, reason }) => {
-        const approval = await createPendingApproval({ organizationId, conversationId, toolId: TOOL_CONFIGURE_ROLE, input: { newValue, reason } });
-        return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_ROLE, { newValue })}. Waiting for confirmation.`;
-      },
+      execute: async ({ newValue, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_ROLE_CHANGE_TOOL_NAME, { newValue, reason }, async () => {
+          const approval = await createPendingApproval({ organizationId, conversationId, toolId: TOOL_CONFIGURE_ROLE, input: { newValue, reason } });
+          return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_ROLE, { newValue })}. Waiting for confirmation.`;
+        }),
     }),
     tool({
-      name: "propose_tone_change",
+      name: PROPOSE_TONE_CHANGE_TOOL_NAME,
       description: "Propose changing this worker's Tone text. Does not apply anything.",
       parameters: z.object({ newValue: z.string().describe("The full new tone text"), reason: z.string() }),
-      execute: async ({ newValue, reason }) => {
-        const approval = await createPendingApproval({ organizationId, conversationId, toolId: TOOL_CONFIGURE_TONE, input: { newValue, reason } });
-        return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_TONE, { newValue })}. Waiting for confirmation.`;
-      },
+      execute: async ({ newValue, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_TONE_CHANGE_TOOL_NAME, { newValue, reason }, async () => {
+          const approval = await createPendingApproval({ organizationId, conversationId, toolId: TOOL_CONFIGURE_TONE, input: { newValue, reason } });
+          return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_TONE, { newValue })}. Waiting for confirmation.`;
+        }),
     }),
     tool({
-      name: "propose_escalation_terms_change",
+      name: PROPOSE_ESCALATION_TERMS_CHANGE_TOOL_NAME,
       description:
         "Propose replacing the full list of escalation terms/phrases (the guardrail). Does not apply " +
         "anything. Read the current list first with get_worker_configuration so you propose a complete " +
         "replacement, not just the delta.",
       parameters: z.object({ newTerms: z.array(z.string()).describe("The complete new list of escalation terms"), reason: z.string() }),
-      execute: async ({ newTerms, reason }) => {
-        const approval = await createPendingApproval({
-          organizationId,
-          conversationId,
-          toolId: TOOL_CONFIGURE_ESCALATION_TERMS,
-          input: { newTerms, reason },
-        });
-        return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_ESCALATION_TERMS, { newTerms })}. Waiting for confirmation.`;
-      },
+      execute: async ({ newTerms, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_ESCALATION_TERMS_CHANGE_TOOL_NAME, { newTerms, reason }, async () => {
+          const approval = await createPendingApproval({
+            organizationId,
+            conversationId,
+            toolId: TOOL_CONFIGURE_ESCALATION_TERMS,
+            input: { newTerms, reason },
+          });
+          return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_ESCALATION_TERMS, { newTerms })}. Waiting for confirmation.`;
+        }),
     }),
     tool({
-      name: "propose_channel_change",
+      name: PROPOSE_CHANNEL_CHANGE_TOOL_NAME,
       description: "Propose turning one channel (chat, email, or voice) on or off. Does not apply anything.",
       parameters: z.object({ channel: z.enum(["chat", "email", "voice"]), enabled: z.boolean(), reason: z.string() }),
-      execute: async ({ channel, enabled, reason }) => {
-        const approval = await createPendingApproval({
-          organizationId,
-          conversationId,
-          toolId: TOOL_CONFIGURE_CHANNEL,
-          input: { channel, enabled, reason },
-        });
-        return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_CHANNEL, { channel, enabled })}. Waiting for confirmation.`;
-      },
+      execute: async ({ channel, enabled, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_CHANNEL_CHANGE_TOOL_NAME, { channel, enabled, reason }, async () => {
+          const approval = await createPendingApproval({
+            organizationId,
+            conversationId,
+            toolId: TOOL_CONFIGURE_CHANNEL,
+            input: { channel, enabled, reason },
+          });
+          return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_CHANNEL, { channel, enabled })}. Waiting for confirmation.`;
+        }),
     }),
     tool({
-      name: "propose_skill_change",
+      name: PROPOSE_SKILL_CHANGE_TOOL_NAME,
       description:
         "Propose enabling or disabling one skill by id (see get_worker_configuration for the list of " +
         "enabled skill ids). Does not apply anything.",
       parameters: z.object({ skillId: z.string(), enabled: z.boolean(), reason: z.string() }),
-      execute: async ({ skillId, enabled, reason }) => {
-        const approval = await createPendingApproval({
-          organizationId,
-          conversationId,
-          toolId: TOOL_CONFIGURE_SKILL,
-          input: { skillId, enabled, reason },
-        });
-        return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_SKILL, { skillId, enabled })}. Waiting for confirmation.`;
-      },
+      execute: async ({ skillId, enabled, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_SKILL_CHANGE_TOOL_NAME, { skillId, enabled, reason }, async () => {
+          const approval = await createPendingApproval({
+            organizationId,
+            conversationId,
+            toolId: TOOL_CONFIGURE_SKILL,
+            input: { skillId, enabled, reason },
+          });
+          return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_CONFIGURE_SKILL, { skillId, enabled })}. Waiting for confirmation.`;
+        }),
     }),
   ];
 }
@@ -246,20 +283,21 @@ function buildActionTools(profile: Profile, organizationId: string, conversation
       "Settings > Guardrails first, then try again.";
     return [
       tool({
-        name: "propose_action",
+        name: PROPOSE_ACTION_TOOL_NAME,
         description:
           "Attempt to send a reply, change a ticket's status, or publish a knowledge article. Actions " +
           "are currently disabled for this worker - calling this will explain that rather than doing " +
           "anything.",
         parameters: z.object({ actionType: z.string(), details: z.string() }),
-        execute: async () => disabledMessage,
+        execute: async ({ actionType, details }) =>
+          loggedAssistantTool(organizationId, PROPOSE_ACTION_TOOL_NAME, { actionType, details }, async () => disabledMessage),
       }),
     ];
   }
 
   return [
     tool({
-      name: "propose_send_reply",
+      name: PROPOSE_SEND_REPLY_TOOL_NAME,
       description:
         "Propose sending a reply directly to a real customer on a specific ticket. Does not send " +
         "anything yet - creates a pending action and describes it back to the manager.",
@@ -268,36 +306,38 @@ function buildActionTools(profile: Profile, organizationId: string, conversation
         replyText: z.string().describe("The exact reply text to send"),
         reason: z.string(),
       }),
-      execute: async ({ ticketNumber, replyText, reason }) => {
-        const approval = await createPendingApproval({
-          organizationId,
-          conversationId,
-          toolId: TOOL_ACTION_SEND_REPLY,
-          input: { ticketNumber, replyText, reason },
-        });
-        return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_ACTION_SEND_REPLY, { ticketNumber, replyText })}. Waiting for confirmation.`;
-      },
+      execute: async ({ ticketNumber, replyText, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_SEND_REPLY_TOOL_NAME, { ticketNumber, replyText, reason }, async () => {
+          const approval = await createPendingApproval({
+            organizationId,
+            conversationId,
+            toolId: TOOL_ACTION_SEND_REPLY,
+            input: { ticketNumber, replyText, reason },
+          });
+          return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_ACTION_SEND_REPLY, { ticketNumber, replyText })}. Waiting for confirmation.`;
+        }),
     }),
     tool({
-      name: "propose_update_ticket_status",
+      name: PROPOSE_UPDATE_TICKET_STATUS_TOOL_NAME,
       description: "Propose resolving, closing, reopening, or escalating a specific ticket. Does not apply anything yet.",
       parameters: z.object({
         ticketNumber: z.number(),
         newStatus: z.enum(["open", "needs_human", "resolved", "closed"]),
         reason: z.string(),
       }),
-      execute: async ({ ticketNumber, newStatus, reason }) => {
-        const approval = await createPendingApproval({
-          organizationId,
-          conversationId,
-          toolId: TOOL_ACTION_UPDATE_TICKET_STATUS,
-          input: { ticketNumber, newStatus, reason },
-        });
-        return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_ACTION_UPDATE_TICKET_STATUS, { ticketNumber, newStatus })}. Waiting for confirmation.`;
-      },
+      execute: async ({ ticketNumber, newStatus, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_UPDATE_TICKET_STATUS_TOOL_NAME, { ticketNumber, newStatus, reason }, async () => {
+          const approval = await createPendingApproval({
+            organizationId,
+            conversationId,
+            toolId: TOOL_ACTION_UPDATE_TICKET_STATUS,
+            input: { ticketNumber, newStatus, reason },
+          });
+          return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_ACTION_UPDATE_TICKET_STATUS, { ticketNumber, newStatus })}. Waiting for confirmation.`;
+        }),
     }),
     tool({
-      name: "propose_publish_knowledge_article",
+      name: PROPOSE_PUBLISH_KNOWLEDGE_ARTICLE_TOOL_NAME,
       description:
         "Propose creating and publishing a new knowledge base article. Does not publish anything yet.",
       parameters: z.object({
@@ -305,15 +345,16 @@ function buildActionTools(profile: Profile, organizationId: string, conversation
         body: z.string().describe("Full markdown body of the article"),
         reason: z.string(),
       }),
-      execute: async ({ title, body, reason }) => {
-        const approval = await createPendingApproval({
-          organizationId,
-          conversationId,
-          toolId: TOOL_ACTION_PUBLISH_KNOWLEDGE,
-          input: { title, body, reason },
-        });
-        return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_ACTION_PUBLISH_KNOWLEDGE, { title })}. Waiting for confirmation.`;
-      },
+      execute: async ({ title, body, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_PUBLISH_KNOWLEDGE_ARTICLE_TOOL_NAME, { title, body, reason }, async () => {
+          const approval = await createPendingApproval({
+            organizationId,
+            conversationId,
+            toolId: TOOL_ACTION_PUBLISH_KNOWLEDGE,
+            input: { title, body, reason },
+          });
+          return `Proposed (id ${approval.id}): ${describePendingChange(TOOL_ACTION_PUBLISH_KNOWLEDGE, { title })}. Waiting for confirmation.`;
+        }),
     }),
   ];
 }
@@ -321,46 +362,48 @@ function buildActionTools(profile: Profile, organizationId: string, conversation
 function buildConfirmationTools(organizationId: string, managerName: string, conversationId: string): Tool[] {
   return [
     tool({
-      name: "confirm_pending_change",
+      name: CONFIRM_PENDING_CHANGE_TOOL_NAME,
       description:
         "Apply the most recently proposed change or action for real. Call this ONLY when the " +
         "manager's current message is a clear, explicit affirmative (e.g. \"yes\", \"do it\", \"go " +
         "ahead\", \"confirmed\") replying to something YOU proposed in your immediately preceding " +
         "turn. Never call this in the same turn as a propose_* tool, and never call it speculatively.",
       parameters: z.object({}),
-      execute: async () => {
-        const pending = await listPendingApprovals(organizationId, conversationId);
-        const approval = pending[0];
-        if (!approval) return "There's nothing pending to confirm.";
-        if (!CONFIGURE_TOOL_IDS.has(approval.toolId) && !ACTION_TOOL_IDS.has(approval.toolId)) {
-          return "There's nothing pending to confirm.";
-        }
-        await decideApproval(approval.id, "approved", managerName);
-        try {
-          const result = await applyPendingChange(organizationId, approval.toolId, approval.input);
-          await recordApprovalResult(approval.id, result, null);
-          if (result.error) return `Could not complete that: ${result.error}`;
-          return `Done — ${describePendingChange(approval.toolId, approval.input)}.`;
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : "unknown error";
-          await recordApprovalResult(approval.id, null, errorMessage);
-          return `That failed: ${errorMessage}`;
-        }
-      },
+      execute: async () =>
+        loggedAssistantTool(organizationId, CONFIRM_PENDING_CHANGE_TOOL_NAME, {}, async () => {
+          const pending = await listPendingApprovals(organizationId, conversationId);
+          const approval = pending[0];
+          if (!approval) return "There's nothing pending to confirm.";
+          if (!CONFIGURE_TOOL_IDS.has(approval.toolId) && !ACTION_TOOL_IDS.has(approval.toolId)) {
+            return "There's nothing pending to confirm.";
+          }
+          await decideApproval(approval.id, "approved", managerName);
+          try {
+            const result = await applyPendingChange(organizationId, approval.toolId, approval.input);
+            await recordApprovalResult(approval.id, result, null);
+            if (result.error) return `Could not complete that: ${result.error}`;
+            return `Done — ${describePendingChange(approval.toolId, approval.input)}.`;
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "unknown error";
+            await recordApprovalResult(approval.id, null, errorMessage);
+            return `That failed: ${errorMessage}`;
+          }
+        }),
     }),
     tool({
-      name: "cancel_pending_change",
+      name: CANCEL_PENDING_CHANGE_TOOL_NAME,
       description:
         "Discard the most recently proposed change or action without applying it. Call this when the " +
         "manager declines, changes their mind, or asks for something different instead.",
       parameters: z.object({}),
-      execute: async () => {
-        const pending = await listPendingApprovals(organizationId, conversationId);
-        const approval = pending[0];
-        if (!approval) return "There's nothing pending to cancel.";
-        await decideApproval(approval.id, "rejected", managerName);
-        return "Cancelled — nothing was changed.";
-      },
+      execute: async () =>
+        loggedAssistantTool(organizationId, CANCEL_PENDING_CHANGE_TOOL_NAME, {}, async () => {
+          const pending = await listPendingApprovals(organizationId, conversationId);
+          const approval = pending[0];
+          if (!approval) return "There's nothing pending to cancel.";
+          await decideApproval(approval.id, "rejected", managerName);
+          return "Cancelled — nothing was changed.";
+        }),
     }),
   ];
 }
@@ -372,7 +415,7 @@ function buildConfirmationTools(organizationId: string, managerName: string, con
  * profile.assistantActionsEnabled) all share one tool list and one
  * confirm/cancel pair.
  */
-function buildAssistantTools(profile: Profile, organizationId: string, conversationId: string): Tool[] {
+export function buildAssistantTools(profile: Profile, organizationId: string, conversationId: string): Tool[] {
   return [
     tool({
       name: "query_conversations",
@@ -713,7 +756,13 @@ export async function runAssistantAgent(
   // propose-then-confirm turn alone is 2-3 steps before the final answer,
   // so the same low default trips MaxTurnsExceededError. Floor it higher
   // rather than inherit the tighter number.
-  const result = await run(agent, input, { maxTurns: Math.max(8, profile.maxAgentTurns || 3) });
+  const result = await runTracedAgent(
+    ASSISTANT_CHAT_WORKFLOW,
+    { organizationId, conversationId },
+    agent,
+    input,
+    { maxTurns: Math.max(8, profile.maxAgentTurns || 3) },
+  );
 
   const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
   return { answer: text.trim() };

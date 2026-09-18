@@ -80,6 +80,8 @@ describe("POST /api/v1/chat", () => {
 
     expect(status).toBe(200);
     expect(runAgentMock).toHaveBeenCalledOnce();
+    expect(runAgentMock.mock.calls[0]?.[4]).toBe(orgId);
+    expect(runAgentMock.mock.calls[0]?.[5]).toEqual(expect.any(String));
     expect(body.status).toBe("needs_human");
     expect(body.escalated).toBe(true);
     expect(body.confidence).toBe(0.4);
