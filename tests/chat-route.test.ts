@@ -10,6 +10,7 @@ import { handoffToManager } from "@/lib/agent";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 const retrieveKnowledgeMock = vi.hoisted(() => vi.fn());
+const maybeRefreshMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/agent", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/agent")>();
@@ -19,6 +20,11 @@ vi.mock("@/lib/agent", async (importOriginal) => {
 vi.mock("@/lib/retrieval", () => ({
   retrieveKnowledge: retrieveKnowledgeMock,
 }));
+
+vi.mock("@/lib/conversation-memory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/conversation-memory")>();
+  return { ...actual, maybeRefreshConversationSummary: maybeRefreshMock };
+});
 
 const previousAdapter = getIdentityAdapter();
 const previousDemo = process.env.DEMO_MODE;
@@ -61,6 +67,8 @@ describe("POST /api/v1/chat", () => {
     process.env.OPENAI_API_KEY = "sk-test";
     retrieveKnowledgeMock.mockResolvedValue({ matches: [], sources: [] });
     runAgentMock.mockReset();
+    maybeRefreshMock.mockReset();
+    maybeRefreshMock.mockImplementation(async (_profile, current) => current);
   });
 
   afterEach(async () => {
@@ -124,12 +132,50 @@ describe("POST /api/v1/chat", () => {
     expect(reply.body).toBe("Invite them from Settings > Team.");
     expect(reply.citations).toEqual(["Team invites"]);
 
+    expect(runAgentMock.mock.calls[0]?.[6]).toEqual([]);
+    expect(runAgentMock.mock.calls[0]?.[7]).toBeNull();
+    expect(runAgentMock.mock.calls[0]?.[8]).toBe("Manager");
+
     const [conversation] = await db
       .select()
       .from(conversations)
       .where(eq(conversations.id, body.conversation_id as string))
       .limit(1);
     expect(conversation.status).toBe("open");
+  });
+
+  it("replays prior turns into runAgent on the next message in the same conversation", async () => {
+    runAgentMock
+      .mockResolvedValueOnce({
+        answer: "Check spam, then tap Resend code.",
+        confidence: 0.75,
+        escalate: false,
+        citations: [],
+      })
+      .mockResolvedValueOnce({
+        answer: "Try the Resend button again from the sign-in screen.",
+        confidence: 0.75,
+        escalate: false,
+        citations: [],
+      });
+
+    const first = await readJson(await postChat(chatRequest({ message: "My sign-in code never arrived" })));
+    const conversationId = first.body.conversation_id as string;
+    expect(first.status).toBe(200);
+
+    const second = await readJson(
+      await postChat(chatRequest({ message: "Still nothing in spam", conversation_id: conversationId })),
+    );
+    expect(second.status).toBe(200);
+    expect(runAgentMock).toHaveBeenCalledTimes(2);
+
+    const history = runAgentMock.mock.calls[1]?.[6] as { speaker: string; body: string }[];
+    expect(history).toHaveLength(2);
+    expect(history[0]).toEqual({ speaker: "Manager", body: "My sign-in code never arrived" });
+    expect(history[1]?.body).toBe("Check spam, then tap Resend code.");
+    expect(history[1]?.speaker).toBeTruthy();
+    expect(runAgentMock.mock.calls[1]?.[8]).toBe("Manager");
+    expect(maybeRefreshMock).toHaveBeenCalled();
   });
 
   it("keeps guardrail escalation and does not call runAgent", async () => {

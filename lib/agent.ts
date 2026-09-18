@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { modelUnavailabilityReason } from "@/lib/env";
 import { CUSTOMER_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
+import { buildInputWithHistory, type HistoryTurn } from "@/lib/conversation-memory";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
@@ -834,6 +835,9 @@ export async function runAgent(
   knowledge: KnowledgeMatch[],
   organizationId: string,
   conversationId?: string,
+  history: HistoryTurn[] = [],
+  summary: string | null = null,
+  currentSpeaker = "Customer",
 ): Promise<RunAgentResult> {
   const unavailable = modelUnavailabilityReason();
   if (unavailable === "demo_mode") {
@@ -852,11 +856,12 @@ export async function runAgent(
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
   });
 
+  const input = buildInputWithHistory(history, message, currentSpeaker, summary);
   const result = await runTracedAgent(
     CUSTOMER_CHAT_WORKFLOW,
     { organizationId, conversationId },
     agent,
-    message,
+    input,
     { maxTurns: Math.max(1, profile.maxAgentTurns || 3) },
   );
 
