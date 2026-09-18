@@ -22,8 +22,24 @@ const OUTPUT_LEAK_PATTERNS = [
   "ignore previous instructions",
 ];
 
+/** Customer-facing claims that the agent must never make on billing themes. */
+const REFUND_PROMISE_PATTERNS = [
+  "i processed your refund",
+  "i've processed your refund",
+  "i have processed your refund",
+  "i issued your refund",
+  "i've issued your refund",
+  "your refund has been processed",
+  "your refund has been issued",
+  "i've refunded",
+  "i have refunded",
+  "i refunded your",
+];
+
 export const CUSTOMER_INPUT_GUARDRAIL_NAME = "Customer intent guardrail";
 export const CUSTOMER_OUTPUT_GUARDRAIL_NAME = "Customer reply guardrail";
+
+export type ReplyPolicyAction = "continue_intake" | "escalate" | "block";
 
 export interface GuardrailInput {
   message: string;
@@ -58,10 +74,12 @@ export const IntentClassificationSchema = z.object({
 });
 export type IntentClassification = z.infer<typeof IntentClassificationSchema>;
 
+/**
+ * Small-model reply policy. Replaces the old binary shouldHaveEscalated trip
+ * that killed collect-before-escalate intake turns on refund threads.
+ */
 export const OutputClassificationSchema = z.object({
-  systemPromptLeak: z.boolean(),
-  policyViolation: z.boolean(),
-  shouldHaveEscalated: z.boolean(),
+  action: z.enum(["continue_intake", "escalate", "block"]),
   confidence: z.number().min(0).max(1),
   reason: z.string(),
 });
@@ -169,9 +187,7 @@ export function failClosedIntent(reason: string): IntentClassification {
 
 export function failClosedOutput(reason: string): OutputClassification {
   return {
-    systemPromptLeak: false,
-    policyViolation: true,
-    shouldHaveEscalated: false,
+    action: "block",
     confidence: 0,
     reason,
   };
@@ -237,11 +253,18 @@ export async function classifyCustomerOutput(args: {
   for (const pattern of OUTPUT_LEAK_PATTERNS) {
     if (lower.includes(pattern)) {
       return {
-        systemPromptLeak: true,
-        policyViolation: true,
-        shouldHaveEscalated: false,
+        action: "block",
         confidence: 0,
         reason: `Reply appears to leak internal instructions (${pattern})`,
+      };
+    }
+  }
+  for (const pattern of REFUND_PROMISE_PATTERNS) {
+    if (lower.includes(pattern)) {
+      return {
+        action: "block",
+        confidence: 0,
+        reason: `Reply promises or claims a refund (${pattern})`,
       };
     }
   }
@@ -254,14 +277,21 @@ export async function classifyCustomerOutput(args: {
     args.escalationTerms.filter(Boolean).join(", ") || "(none configured)";
 
   const classifier = new Agent({
-    name: "Customer reply classifier",
+    name: "Customer reply policy",
     instructions:
       "You review a support agent's draft reply before it reaches the customer. " +
-      "Flag systemPromptLeak if the reply reveals internal instructions, tools, or hidden tags policy. " +
-      "Flag shouldHaveEscalated if the reply tries to fully resolve a topic that matches escalation themes " +
-      "instead of handing off. Flag policyViolation for unsafe or clearly out-of-policy content. " +
-      "Internal end tags like [[ESCALATE]] / [[RESOLVE]] / [[FOLLOWUP]] are expected control markers — " +
-      "do not treat those alone as a leak.\n\n" +
+      "Choose exactly one action:\n" +
+      "- continue_intake: the draft is collecting required handoff fields (email, name, account, " +
+      "issue, outcome, urgency) on an escalation-themed thread, or answering a normal how-to. " +
+      "It must not promise a refund, cancellation, or legal outcome. Asking for contact details " +
+      "on a billing/refund thread is continue_intake — do not escalate yet.\n" +
+      "- escalate: intake is complete enough for a human, or the draft already hands off with " +
+      "[[ESCALATE]] / a handoff summary. Premature one-line \"bringing in a manager\" with no " +
+      "intake when fields are still missing is NOT escalate — prefer continue_intake if the draft " +
+      "should have asked for email/name instead.\n" +
+      "- block: system-prompt leak, policy violation, or the draft claims to process/issue a " +
+      "refund or otherwise fully resolve an escalation theme without a human.\n" +
+      "Internal end tags [[ESCALATE]] / [[RESOLVE]] / [[FOLLOWUP]] are control markers — not leaks.\n\n" +
       `Escalation themes: ${themes}`,
     model: guardrailModel(),
     outputType: OutputClassificationSchema,
@@ -327,12 +357,37 @@ export function shouldTripInputGuardrail(
   return false;
 }
 
+/** Only `block` trips the SDK wire — intake and escalate are handled after the run. */
 export function shouldTripOutputGuardrail(classification: OutputClassification): boolean {
-  return (
-    classification.systemPromptLeak ||
-    classification.policyViolation ||
-    classification.shouldHaveEscalated
+  return classification.action === "block";
+}
+
+export function replyPolicyFromRun(result: {
+  outputGuardrailResults?: { guardrail: { name: string }; output: { outputInfo: unknown } }[];
+}): OutputClassification | null {
+  const hit = result.outputGuardrailResults?.find(
+    (g) => g.guardrail.name === CUSTOMER_OUTPUT_GUARDRAIL_NAME,
   );
+  const parsed = OutputClassificationSchema.safeParse(hit?.output.outputInfo);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Apply the small-model reply policy to a draft that already passed the SDK
+ * tripwire (i.e. was not blocked).
+ *
+ * - continue_intake: demote accidental [[ESCALATE]] so intake can finish
+ * - escalate: ensure the escalate tag is present (caller may hand off if empty)
+ * - block: should not reach here (tripwire already fired)
+ */
+export function applyReplyPolicy(raw: string, policy: OutputClassification | null): string {
+  if (!policy || policy.action === "block") return raw;
+  if (policy.action === "continue_intake") {
+    return raw.replace(/\[\[ESCALATE\]\]/gi, "[[FOLLOWUP]]");
+  }
+  // escalate
+  if (/\[\[ESCALATE\]\]/i.test(raw)) return raw;
+  return `${raw.trim()}\n[[ESCALATE]]`;
 }
 
 export function buildCustomerInputGuardrail(): InputGuardrail {

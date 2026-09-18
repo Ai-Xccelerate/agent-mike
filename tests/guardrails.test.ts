@@ -10,6 +10,7 @@ vi.mock("@openai/agents", async (importOriginal) => {
 import {
   CUSTOMER_INPUT_GUARDRAIL_NAME,
   CUSTOMER_OUTPUT_GUARDRAIL_NAME,
+  applyReplyPolicy,
   buildCustomerInputGuardrail,
   buildCustomerOutputGuardrail,
   classifyCustomerIntent,
@@ -161,25 +162,54 @@ describe("shouldTripInputGuardrail", () => {
 });
 
 describe("shouldTripOutputGuardrail", () => {
-  it("trips on leak, policy, or missed escalation", () => {
+  it("trips only on block — intake and escalate stay open", () => {
     expect(
       shouldTripOutputGuardrail({
-        systemPromptLeak: true,
-        policyViolation: false,
-        shouldHaveEscalated: false,
+        action: "block",
         confidence: 0,
         reason: "leak",
       }),
     ).toBe(true);
     expect(
       shouldTripOutputGuardrail({
-        systemPromptLeak: false,
-        policyViolation: false,
-        shouldHaveEscalated: false,
+        action: "continue_intake",
         confidence: 0.9,
-        reason: "ok",
+        reason: "asking for email on refund thread",
       }),
     ).toBe(false);
+    expect(
+      shouldTripOutputGuardrail({
+        action: "escalate",
+        confidence: 0.8,
+        reason: "handoff ready",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("applyReplyPolicy", () => {
+  it("demotes accidental [[ESCALATE]] during continue_intake", () => {
+    expect(
+      applyReplyPolicy("What's your email?\n[[ESCALATE]]", {
+        action: "continue_intake",
+        confidence: 0.9,
+        reason: "still collecting",
+      }),
+    ).toBe("What's your email?\n[[FOLLOWUP]]");
+  });
+
+  it("appends [[ESCALATE]] when policy says escalate and tag is missing", () => {
+    expect(
+      applyReplyPolicy("I've gathered everything — Charan will follow up.", {
+        action: "escalate",
+        confidence: 0.85,
+        reason: "intake complete",
+      }),
+    ).toBe("I've gathered everything — Charan will follow up.\n[[ESCALATE]]");
+  });
+
+  it("leaves the draft alone when policy is null", () => {
+    expect(applyReplyPolicy("Hello [[RESOLVE]]", null)).toBe("Hello [[RESOLVE]]");
   });
 });
 
@@ -280,16 +310,26 @@ describe("classifyCustomerOutput", () => {
       recentHistory: [],
       summary: null,
     });
-    expect(result.systemPromptLeak).toBe(true);
+    expect(result.action).toBe("block");
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it("trips deterministically when the draft claims a refund was processed", async () => {
+    const result = await classifyCustomerOutput({
+      reply: "Sure, I processed your refund already.",
+      escalationTerms: ["refund"],
+      recentHistory: [],
+      summary: null,
+    });
+    expect(result.action).toBe("block");
+    expect(shouldTripOutputGuardrail(result)).toBe(true);
     expect(runMock).not.toHaveBeenCalled();
   });
 
   it("uses the model classifier when no leak pattern matches", async () => {
     runMock.mockResolvedValue({
       finalOutput: {
-        systemPromptLeak: false,
-        policyViolation: false,
-        shouldHaveEscalated: false,
+        action: "continue_intake",
         confidence: 0.88,
         reason: "fine",
       },
@@ -301,6 +341,7 @@ describe("classifyCustomerOutput", () => {
       summary: null,
     });
     expect(result.confidence).toBe(0.88);
+    expect(result.action).toBe("continue_intake");
     expect(shouldTripOutputGuardrail(result)).toBe(false);
   });
 });
@@ -347,16 +388,8 @@ describe("SDK guardrail wrappers", () => {
     expect((result.outputInfo as { escalate: boolean }).escalate).toBe(true);
   });
 
-  it("output guardrail trips when the classifier says the reply should have escalated", async () => {
-    runMock.mockResolvedValue({
-      finalOutput: {
-        systemPromptLeak: false,
-        policyViolation: false,
-        shouldHaveEscalated: true,
-        confidence: 0.1,
-        reason: "handled a refund request",
-      },
-    });
+  it("output guardrail trips when the classifier blocks a refund promise", async () => {
+    // Deterministic path — no model call needed.
     const guardrail = buildCustomerOutputGuardrail();
     expect(guardrail.name).toBe(CUSTOMER_OUTPUT_GUARDRAIL_NAME);
 
@@ -371,5 +404,29 @@ describe("SDK guardrail wrappers", () => {
       }),
     });
     expect(result.tripwireTriggered).toBe(true);
+    expect((result.outputInfo as { action: string }).action).toBe("block");
+  });
+
+  it("output guardrail does not trip on continue_intake", async () => {
+    runMock.mockResolvedValue({
+      finalOutput: {
+        action: "continue_intake",
+        confidence: 0.9,
+        reason: "asking for email before handoff",
+      },
+    });
+    const guardrail = buildCustomerOutputGuardrail();
+    const result = await guardrail.execute({
+      agent: {} as never,
+      agentOutput: "I can help escalate this. What's the best email to reach you? [[FOLLOWUP]]",
+      context: new RunContext({
+        escalationTerms: ["refund"],
+        confidenceThreshold: 0.72,
+        recentHistory: [],
+        summary: null,
+      }),
+    });
+    expect(result.tripwireTriggered).toBe(false);
+    expect((result.outputInfo as { action: string }).action).toBe("continue_intake");
   });
 });

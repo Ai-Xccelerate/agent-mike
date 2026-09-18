@@ -78,7 +78,7 @@ describe("runAgent guardrail tripwires", () => {
         agentOutput: "leaked",
         output: {
           tripwireTriggered: true,
-          outputInfo: { systemPromptLeak: true, reason: "leak" },
+          outputInfo: { action: "block", confidence: 0, reason: "leak" },
         },
       }),
     );
@@ -112,6 +112,31 @@ describe("runAgent guardrail tripwires", () => {
     expect(result.escalate).toBe(false);
     expect(result.confidence).toBe(0.86);
     expect(result.answer).toContain("Reset from Settings");
+  });
+
+  it("demotes premature [[ESCALATE]] when reply policy is continue_intake", async () => {
+    runTracedAgentMock.mockResolvedValue({
+      finalOutput: "What's the best email to reach you?\n[[ESCALATE]]",
+      inputGuardrailResults: [],
+      outputGuardrailResults: [
+        {
+          guardrail: { name: "Customer reply guardrail" },
+          output: {
+            tripwireTriggered: false,
+            outputInfo: {
+              action: "continue_intake",
+              confidence: 0.9,
+              reason: "asking for email before handoff",
+            },
+          },
+        },
+      ],
+    });
+
+    const result = await runAgent(profile, "Acme", "I want a refund", [], "org-1");
+    expect(result.escalate).toBe(false);
+    expect(result.answer).toContain("email");
+    expect(result.answer).not.toMatch(/\[\[ESCALATE\]\]/i);
   });
 
   it("attaches input and output guardrails on the agent", async () => {

@@ -8,7 +8,9 @@ import { buildInputWithHistory, type HistoryTurn } from "@/lib/conversation-memo
 import {
   buildCustomerInputGuardrail,
   buildCustomerOutputGuardrail,
+  applyReplyPolicy,
   CUSTOMER_INPUT_GUARDRAIL_NAME,
+  replyPolicyFromRun,
   type CustomerGuardrailContext,
   type IntentClassification,
 } from "@/lib/guardrails";
@@ -95,10 +97,16 @@ export async function buildSkillsBlock(
   if (active.length === 0) return repositoryBlock;
 
   const list = active.map((skill) => `- ${skill.id}: ${skill.description}`).join("\n");
+  const intakeHint = active.some((skill) => skill.id === "collect-before-escalate")
+    ? "\nWhen the customer asks about a refund, duplicate charge, chargeback, cancel, or similar " +
+      "escalation theme, call load_skill(\"collect-before-escalate\") before you escalate, and " +
+      "collect the required fields first unless they already provided them."
+    : "";
   return (
     "\n\nSkills available to you (call load_skill with the skill id to read its full instructions " +
     "before relying on it):\n" +
     list +
+    intakeHint +
     // Both early returns carry this; so must the one path where a worker has
     // skills switched on *and* the repository connected — which is the case
     // the search tool exists for.
@@ -1198,9 +1206,19 @@ export async function runAgent(
     );
 
     const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
-    return parseAnswer(text, profile.confidenceThreshold, intentConfidenceFromRun(result));
+    const policy = replyPolicyFromRun(result);
+    const adjusted = applyReplyPolicy(text, policy);
+    // Policy said escalate but the draft had nothing useful — use the canned handoff.
+    if (
+      policy?.action === "escalate" &&
+      !adjusted.replace(/\[\[ESCALATE\]\]/gi, "").trim()
+    ) {
+      return handoffToManager(profile);
+    }
+    return parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(result));
   } catch (error) {
-    // SDK tripwires are the intended escalate path for semantic / output policy failures.
+    // SDK tripwires: input fail-closed / output `block` only. Intake continues
+    // and escalate-without-tag are handled above via applyReplyPolicy.
     if (
       error instanceof InputGuardrailTripwireTriggered ||
       error instanceof OutputGuardrailTripwireTriggered
