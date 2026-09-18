@@ -68,6 +68,7 @@ export function ChatPanel({
   const [escalated, setEscalated] = useState(false);
   const [preview, setPreview] = useState(false);
   const [restoring, setRestoring] = useState(compact);
+  const [identityReady, setIdentityReady] = useState(!compact);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
@@ -79,23 +80,41 @@ export function ChatPanel({
 
   const conversationId = compact ? compactConversationId : (externalConversationId ?? undefined);
 
-  // Profile isn't needed for widget embeds (org identity is generic there),
-  // only for the manager test bench where it drives the welcome message.
+  // Widget and Playground both show this worker's Identity. The widget
+  // resolves the org from the site token; the manager console uses the
+  // default tenant. A missing profile is what made embeds say "AI Worker".
   useEffect(() => {
-    if (compact) return;
-    apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
+    if (compact && !siteToken?.trim()) return;
+    let cancelled = false;
+    apiFetch<WorkerProfile>("/worker", compact ? { widgetSiteToken: siteToken } : undefined)
+      .then((next) => {
+        if (!cancelled) setProfile(next);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setIdentityReady(true);
+      });
+    if (compact) {
+      return () => {
+        cancelled = true;
+      };
+    }
     const update = (event: Event) => {
       const next = (event as CustomEvent<WorkerProfile>).detail;
       if (next) setProfile(next);
     };
     window.addEventListener(IDENTITY_UPDATED_EVENT, update);
-    return () => window.removeEventListener(IDENTITY_UPDATED_EVENT, update);
-  }, [compact]);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(IDENTITY_UPDATED_EVENT, update);
+    };
+  }, [compact, siteToken]);
 
-  // Compact (public widget): unchanged — a single ongoing conversation
-  // restored from sessionStorage, no rail to select from.
+  // Compact (public widget): a single ongoing conversation restored from
+  // sessionStorage, after Identity has loaded so the greeting uses the
+  // saved name instead of the "AI Worker" placeholder.
   useEffect(() => {
-    if (!compact) return;
+    if (!compact || !identityReady) return;
     let cancelled = false;
     async function restore() {
       try {
@@ -105,8 +124,11 @@ export function ChatPanel({
           return;
         }
         const stored = JSON.parse(raw) as StoredChat;
+        const onlyWelcome = stored.messages?.length === 1 && stored.messages[0]?.id === "welcome";
         setCompactConversationId(stored.conversationId);
-        setMessages(stored.messages?.length ? stored.messages : [welcomeMessage(profile)]);
+        setMessages(
+          onlyWelcome || !stored.messages?.length ? [welcomeMessage(profile)] : stored.messages,
+        );
         setEscalated(Boolean(stored.escalated));
       } catch {
         sessionStorage.removeItem(storageKey(true));
@@ -120,7 +142,7 @@ export function ChatPanel({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, profile === null]);
+  }, [compact, identityReady]);
 
   useEffect(() => {
     if (!compact || restoring) return;
@@ -225,6 +247,9 @@ export function ChatPanel({
   const accentColor = profile?.accentColor;
   const avatarUrl = profile?.avatarUrl;
   const isBlank = !compact && !externalConversationId && messages.length <= 1;
+  const visibleMessages = messages.map((message) =>
+    message.id === "welcome" ? welcomeMessage(profile) : message,
+  );
 
   if (compact && !siteToken?.trim()) {
     return (
@@ -296,7 +321,7 @@ export function ChatPanel({
             Preview response · API unreachable
           </div>
         )}
-        {messages.map((message) => {
+        {visibleMessages.map((message) => {
           const isAgent = message.senderType === "agent";
           return (
             <div key={message.id} className={`flex gap-2.5 ${isAgent ? "" : "flex-row-reverse"}`}>
