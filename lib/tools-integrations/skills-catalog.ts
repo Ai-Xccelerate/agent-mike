@@ -11,6 +11,9 @@ export type SkillSource = "catalog" | "custom";
  */
 export const VERIFY_CUSTOMER_SKILL_ID = "verify-customer";
 
+/** Collect intake fields before handing a case to the human manager. */
+export const COLLECT_BEFORE_ESCALATE_SKILL_ID = "collect-before-escalate";
+
 export type SkillCatalogItem = {
   id: string;
   name: string;

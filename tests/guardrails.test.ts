@@ -44,8 +44,8 @@ describe("evaluateMessage (deterministic tier)", () => {
         escalationTerms: ["refund", "lawyer"],
         allowedDomains: [],
         requireUserVerification: false,
-      }).reason,
-    ).toContain("refund");
+      }),
+    ).toEqual({ escalate: false, reason: null });
   });
 
   it("does not escalate a paraphrase that only the classifier would catch", () => {
@@ -73,19 +73,20 @@ describe("evaluateMessage (deterministic tier)", () => {
 });
 
 describe("shouldTripInputGuardrail", () => {
-  it("trips on injection, escalate, or low confidence", () => {
+  it("trips on injection or low confidence, but not on clear escalation themes", () => {
     expect(
       shouldTripInputGuardrail(
         { injectionSuspected: true, escalate: false, matchedThemes: [], confidence: 0.99, reason: "x" },
         0.72,
       ),
     ).toBe(true);
+    // Theme escalate must reach the agent so collect-before-escalate can run.
     expect(
       shouldTripInputGuardrail(
         { injectionSuspected: false, escalate: true, matchedThemes: ["refund"], confidence: 0.9, reason: "x" },
         0.72,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldTripInputGuardrail(
         { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.5, reason: "unsure" },
@@ -263,7 +264,7 @@ describe("SDK guardrail wrappers", () => {
     else process.env.OPENAI_API_KEY = previousKey;
   });
 
-  it("input guardrail trips on a semantic billing paraphrase", async () => {
+  it("input guardrail lets semantic billing through so intake can collect", async () => {
     runMock.mockResolvedValue({
       finalOutput: {
         injectionSuspected: false,
@@ -287,7 +288,8 @@ describe("SDK guardrail wrappers", () => {
         summary: null,
       }),
     });
-    expect(result.tripwireTriggered).toBe(true);
+    expect(result.tripwireTriggered).toBe(false);
+    expect((result.outputInfo as { escalate: boolean }).escalate).toBe(true);
   });
 
   it("output guardrail trips when the classifier says the reply should have escalated", async () => {
