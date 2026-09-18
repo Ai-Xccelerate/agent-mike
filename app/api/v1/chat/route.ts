@@ -8,7 +8,7 @@ import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { evaluateMessage } from "@/lib/guardrails";
 import { approvedDomains } from "@/lib/email-domains";
 import { retrieveKnowledge } from "@/lib/retrieval";
-import { runAgent } from "@/lib/agent";
+import { handoffToManager, runAgent } from "@/lib/agent";
 
 /** Roughly 2,500 words — a long email thread, not a pasted document. */
 const MAX_MESSAGE_LENGTH = 10000;
@@ -111,14 +111,28 @@ export async function POST(req: NextRequest) {
     message,
   );
 
-  const result = guardrail.escalate
-    ? {
-        answer: `I want to make sure this is handled correctly, so I'm bringing in ${profile.managerName}. They'll review the conversation and follow up here.`,
-        confidence: Math.min(0.4, profile.confidenceThreshold - 0.1),
-        escalate: true,
-        citations: [] as string[],
-      }
-    : await runAgent(profile, await getOrganizationName(tenant.orgId), message, knowledgeMatches, tenant.orgId);
+  let result;
+  if (guardrail.escalate) {
+    result = handoffToManager(profile);
+  } else {
+    try {
+      result = await runAgent(
+        profile,
+        await getOrganizationName(tenant.orgId),
+        message,
+        knowledgeMatches,
+        tenant.orgId,
+      );
+    } catch {
+      // A model/runtime failure (MaxTurnsExceededError, provider outage) must
+      // not 500 the public widget. The customer message is already persisted
+      // above; degrade to the same handoff as a guardrail escalation.
+      // Tool side effects from the failed run are left as-is — this product
+      // has no transaction around tool calls, and rolling them back is out of
+      // scope for this catch.
+      result = handoffToManager(profile);
+    }
+  }
 
   const [reply] = await db
     .insert(messages)
