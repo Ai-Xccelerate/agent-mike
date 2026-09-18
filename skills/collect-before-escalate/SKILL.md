@@ -1,6 +1,6 @@
 ---
 name: Collect before escalate
-description: Use whenever a case needs a human manager — gather the required intake fields from the customer first, then escalate with a structured handoff summary.
+description: Use whenever a case needs a human manager — gather the required intake fields from the customer first (explain why, ask for email + at most one other field per turn), then escalate with a structured handoff summary. Do not improvise a one-line “billing will help” shortcut.
 requires: []
 ---
 

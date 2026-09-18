@@ -1296,6 +1296,15 @@ describe("agent skills wiring", () => {
     );
   });
 
+  it("buildSkillsBlock requires load_skill + intake quality floor for collect-before-escalate", async () => {
+    const block = await buildSkillsBlock(["collect-before-escalate"], "org-1");
+    expect(block).toContain("collect-before-escalate");
+    expect(block).toContain('load_skill("collect-before-escalate")');
+    expect(block).toContain("before you draft your reply");
+    expect(block).toContain("quality floor");
+    expect(block).toContain("contact email");
+  });
+
   it("buildSkillsBlock ignores an unenabled/unknown skill id", async () => {
     expect(await buildSkillsBlock(["not-a-real-skill"], "org-1")).toBe("");
   });
