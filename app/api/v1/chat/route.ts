@@ -9,12 +9,26 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { approvedDomains } from "@/lib/email-domains";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent } from "@/lib/agent";
+import {
+  maybeRefreshConversationSummary,
+  REPLAY_MESSAGE_LIMIT,
+  type HistoryTurn,
+} from "@/lib/conversation-memory";
 
 /** Roughly 2,500 words — a long email thread, not a pasted document. */
 const MAX_MESSAGE_LENGTH = 10000;
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
+
+function toHistoryTurns(
+  rows: { senderType: string; senderName: string; body: string }[],
+): HistoryTurn[] {
+  return rows.map((row) => ({
+    speaker: row.senderName,
+    body: row.body,
+  }));
+}
 
 export async function POST(req: NextRequest) {
   const identity = getIdentityAdapter();
@@ -56,6 +70,17 @@ export async function POST(req: NextRequest) {
   if (conversationId) {
     [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
   }
+
+  // Load prior turns before inserting the current message so the latest user
+  // line is not replayed twice (once in history, once as the current message).
+  const priorMessages = conversation
+    ? await db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversation.id))
+        .orderBy(messages.createdAt)
+    : [];
+
   if (!conversation) {
     const ticketResult = await db.execute<{ next_ticket: number }>(
       sql`select coalesce(max(ticket_number), 1000) + 1 as next_ticket from conversations where organization_id = ${tenant.orgId}`,
@@ -73,12 +98,16 @@ export async function POST(req: NextRequest) {
       .returning();
   }
 
-  await db.insert(messages).values({
-    conversationId: conversation.id,
-    senderType: tenant.source === "widget" ? "customer" : "manager",
-    senderName: tenant.source === "widget" ? conversation.customerName : "Manager",
-    body: message,
-  });
+  const speakerName = tenant.source === "widget" ? conversation.customerName : "Manager";
+  const [userMessage] = await db
+    .insert(messages)
+    .values({
+      conversationId: conversation.id,
+      senderType: tenant.source === "widget" ? "customer" : "manager",
+      senderName: speakerName,
+      body: message,
+    })
+    .returning();
 
   // A manager has taken over — the agent stays quiet until it's handed back.
   if (conversation.humanControlled) {
@@ -111,6 +140,8 @@ export async function POST(req: NextRequest) {
     message,
   );
 
+  const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
+
   let result;
   if (guardrail.escalate) {
     result = handoffToManager(profile);
@@ -123,6 +154,9 @@ export async function POST(req: NextRequest) {
         knowledgeMatches,
         tenant.orgId,
         conversation.id,
+        recentHistory,
+        conversation.summary,
+        speakerName,
       );
     } catch {
       // A model/runtime failure (MaxTurnsExceededError, provider outage) must
@@ -147,12 +181,25 @@ export async function POST(req: NextRequest) {
     .returning();
 
   const status = result.escalate ? "needs_human" : "open";
+
+  // Fold anything that just fell out of the replay window into the rolling
+  // summary. Runs after the turn so it never delays the customer's answer.
+  const allTurns = toHistoryTurns([...priorMessages, userMessage, reply]);
+  const summaryState = await maybeRefreshConversationSummary(
+    profile,
+    { summary: conversation.summary, summarizedMessageCount: conversation.summarizedMessageCount },
+    allTurns,
+    "customer",
+  );
+
   await db
     .update(conversations)
     .set({
       status,
       confidence: result.confidence,
       assignedTo: result.escalate ? profile.managerName : conversation.assignedTo,
+      summary: summaryState.summary,
+      summarizedMessageCount: summaryState.summarizedMessageCount,
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversation.id));
