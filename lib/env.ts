@@ -26,6 +26,14 @@ export function modelUnavailabilityReason(): ModelUnavailabilityReason | null {
 }
 
 /**
+ * Cheaper/faster model for input/output guardrail classifiers. Falls back to
+ * the same default as worker profiles until a real model registry (Gap 8).
+ */
+export function guardrailModel(): string {
+  return (process.env.GUARDRAIL_MODEL || "").trim() || "gpt-5.6-luna";
+}
+
+/**
  * The frontend and this API commonly live on different hosts (split deploy,
  * e.g. behind Railway's proxy) — `req.nextUrl.origin` is this API's own
  * request origin, which can be an internal bind address the browser can

@@ -1,10 +1,17 @@
-import { Agent, tool, webSearchTool } from "@openai/agents";
+import { Agent, tool, webSearchTool, InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered } from "@openai/agents";
 import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { modelUnavailabilityReason } from "@/lib/env";
 import { CUSTOMER_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
 import { buildInputWithHistory, type HistoryTurn } from "@/lib/conversation-memory";
+import {
+  buildCustomerInputGuardrail,
+  buildCustomerOutputGuardrail,
+  CUSTOMER_INPUT_GUARDRAIL_NAME,
+  type CustomerGuardrailContext,
+  type IntentClassification,
+} from "@/lib/guardrails";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
@@ -36,6 +43,7 @@ export interface WorkerProfileLike {
   maxAgentTurns: number;
   confidenceThreshold: number;
   managerName: string;
+  escalationTerms?: string[];
   timezone?: string;
   emailSignature?: string;
   jobDescription?: string | null;
@@ -809,12 +817,34 @@ export function handoffToManager(
   };
 }
 
-function parseAnswer(raw: string, threshold: number): RunAgentResult {
+function parseAnswer(raw: string, threshold: number, classifiedConfidence?: number | null): RunAgentResult {
   const escalate = /\[\[ESCALATE\]\]/i.test(raw);
   const resolved = /\[\[RESOLVE\]\]/i.test(raw);
   const answer = raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP)\]\]/gi, "").trim();
-  const confidence = escalate ? Math.min(0.4, threshold - 0.1) : resolved ? 0.9 : 0.75;
-  return { answer, confidence, escalate, citations: [] };
+  if (escalate) {
+    return {
+      answer,
+      confidence: Math.min(0.4, threshold - 0.1),
+      escalate: true,
+      citations: [],
+    };
+  }
+  // Prefer the input guardrail's continuous confidence when present.
+  const confidence =
+    typeof classifiedConfidence === "number"
+      ? classifiedConfidence
+      : resolved
+        ? 0.9
+        : 0.75;
+  return { answer, confidence, escalate: false, citations: [] };
+}
+
+function intentConfidenceFromRun(result: {
+  inputGuardrailResults?: { guardrail: { name: string }; output: { outputInfo: unknown } }[];
+}): number | null {
+  const hit = result.inputGuardrailResults?.find((g) => g.guardrail.name === CUSTOMER_INPUT_GUARDRAIL_NAME);
+  const info = hit?.output.outputInfo as IntentClassification | undefined;
+  return typeof info?.confidence === "number" ? info.confidence : null;
 }
 
 function demoAnswer(profile: WorkerProfileLike, knowledge: KnowledgeMatch[]): RunAgentResult {
@@ -856,6 +886,13 @@ export async function runAgent(
     return handoffToManager(profile);
   }
 
+  const guardrailContext: CustomerGuardrailContext = {
+    escalationTerms: profile.escalationTerms ?? [],
+    confidenceThreshold: profile.confidenceThreshold,
+    recentHistory: history,
+    summary,
+  };
+
   const agent = new Agent({
     name: profile.displayName,
     instructions: await buildInstructions(profile, organizationName, knowledge, organizationId, channel),
@@ -863,17 +900,30 @@ export async function runAgent(
     // Tools are built from the worker's toolsConfig, per the Tools & Integrations registry.
     tools: await buildAgentTools(profile, organizationId),
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
+    inputGuardrails: [buildCustomerInputGuardrail()],
+    outputGuardrails: [buildCustomerOutputGuardrail()],
   });
 
   const input = buildInputWithHistory(history, message, currentSpeaker, summary);
-  const result = await runTracedAgent(
-    CUSTOMER_CHAT_WORKFLOW,
-    { organizationId, conversationId },
-    agent,
-    input,
-    { maxTurns: Math.max(1, profile.maxAgentTurns || 3) },
-  );
+  try {
+    const result = await runTracedAgent(
+      CUSTOMER_CHAT_WORKFLOW,
+      { organizationId, conversationId },
+      agent,
+      input,
+      { maxTurns: Math.max(1, profile.maxAgentTurns || 3), context: guardrailContext },
+    );
 
-  const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
-  return parseAnswer(text, profile.confidenceThreshold);
+    const text = typeof result.finalOutput === "string" ? result.finalOutput : String(result.finalOutput ?? "");
+    return parseAnswer(text, profile.confidenceThreshold, intentConfidenceFromRun(result));
+  } catch (error) {
+    // SDK tripwires are the intended escalate path for semantic / output policy failures.
+    if (
+      error instanceof InputGuardrailTripwireTriggered ||
+      error instanceof OutputGuardrailTripwireTriggered
+    ) {
+      return handoffToManager(profile);
+    }
+    throw error;
+  }
 }

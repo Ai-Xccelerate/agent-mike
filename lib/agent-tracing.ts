@@ -31,11 +31,14 @@ export async function runTracedAgent(
   ctx: AgentTraceContext,
   agent: Agent,
   input: string,
-  options: { maxTurns: number },
+  options: { maxTurns: number; context?: unknown },
 ) {
   const runner = new Runner(agentTraceRunConfig(workflowName, ctx));
   try {
-    return await runner.run(agent, input, { maxTurns: options.maxTurns });
+    return await runner.run(agent, input, {
+      maxTurns: options.maxTurns,
+      ...(options.context !== undefined ? { context: options.context } : {}),
+    });
   } finally {
     await getGlobalTraceProvider()
       .forceFlush()

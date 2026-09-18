@@ -143,6 +143,9 @@ export async function POST(req: NextRequest) {
   const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
 
   let result;
+  // Deterministic fast-fail (domain / literal phrases) stays here so we skip
+  // retrieval+model when already escalating. Semantic intent + reply policy
+  // run as SDK input/output guardrails inside runAgent.
   if (guardrail.escalate) {
     result = handoffToManager(profile);
   } else {

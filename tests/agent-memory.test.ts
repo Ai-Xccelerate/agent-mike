@@ -75,5 +75,14 @@ describe("runAgent conversation memory", () => {
     expect(input).toContain("Customer: My sign-in code never arrived");
     expect(input).toContain("Mike: Check spam, then tap Resend.");
     expect(input).toContain("Customer: Still nothing");
+    const options = runTracedAgentMock.mock.calls[0]?.[4] as {
+      context: {
+        escalationTerms: string[];
+        confidenceThreshold: number;
+        recentHistory: { speaker: string; body: string }[];
+      };
+    };
+    expect(options.context.confidenceThreshold).toBe(0.72);
+    expect(options.context.recentHistory).toHaveLength(2);
   });
 });
