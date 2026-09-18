@@ -738,6 +738,8 @@ export async function buildInstructions(
   organizationName: string,
   knowledge: KnowledgeMatch[],
   organizationId: string,
+  /** Conversation channel — email signature is only for email replies. */
+  channel: string = "chat",
 ): Promise<string> {
   const identityLine = buildIdentityBlock(profile.displayName, organizationName, profile.role, profile.tone);
 
@@ -753,9 +755,15 @@ export async function buildInstructions(
         knowledge.map((k) => `### ${k.title}${k.heading ? ` — ${k.heading}` : ""}\n${k.content}`).join("\n\n")
       : "\n\nNo matching reference material was found for this question.";
 
+  // Chat/widget must not get the email sign-off — that made Mike append
+  // "Best, Mike…" to every website reply. Email channel still gets it in
+  // the prompt; outbound also appends it deterministically on send.
+  const includeEmailSignature = channel === "email";
   const contactBlock = [
     profile.timezone ? `Timezone: ${profile.timezone}.` : "",
-    profile.emailSignature ? `Email sign-off:\n${profile.emailSignature}` : "",
+    includeEmailSignature && profile.emailSignature
+      ? `Email sign-off:\n${profile.emailSignature}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -838,6 +846,7 @@ export async function runAgent(
   history: HistoryTurn[] = [],
   summary: string | null = null,
   currentSpeaker = "Customer",
+  channel: string = "chat",
 ): Promise<RunAgentResult> {
   const unavailable = modelUnavailabilityReason();
   if (unavailable === "demo_mode") {
@@ -849,7 +858,7 @@ export async function runAgent(
 
   const agent = new Agent({
     name: profile.displayName,
-    instructions: await buildInstructions(profile, organizationName, knowledge, organizationId),
+    instructions: await buildInstructions(profile, organizationName, knowledge, organizationId, channel),
     model: profile.model,
     // Tools are built from the worker's toolsConfig, per the Tools & Integrations registry.
     tools: await buildAgentTools(profile, organizationId),

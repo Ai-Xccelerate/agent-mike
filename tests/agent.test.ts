@@ -1248,3 +1248,33 @@ describe("agent instructions — identity/role/tone are deterministic, not templ
     expect(instructions).toContain("Never mention {{organizationName}} by name.");
   });
 });
+
+describe("agent instructions — email signature is channel-specific", () => {
+  const baseProfile = {
+    displayName: "Mike",
+    role: "Support",
+    tone: "Warm.",
+    systemPromptTemplate: "Be helpful.",
+    model: "gpt-5.6-luna",
+    maxAgentTurns: 3,
+    confidenceThreshold: 0.72,
+    managerName: "Manager",
+    emailSignature: "Best,\nMike\nAI Xccelerate Technical Support",
+    timezone: "UTC",
+  };
+
+  it("omits the email sign-off from chat and widget instructions", async () => {
+    for (const channel of ["chat", "widget"]) {
+      const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1", channel);
+      expect(instructions).not.toContain("Email sign-off:");
+      expect(instructions).not.toContain("Best,\nMike");
+      expect(instructions).toContain("Timezone: UTC.");
+    }
+  });
+
+  it("includes the email sign-off only for the email channel", async () => {
+    const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1", "email");
+    expect(instructions).toContain("Email sign-off:");
+    expect(instructions).toContain("Best,\nMike\nAI Xccelerate Technical Support");
+  });
+});

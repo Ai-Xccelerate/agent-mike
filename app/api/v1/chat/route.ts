@@ -157,6 +157,7 @@ export async function POST(req: NextRequest) {
         recentHistory,
         conversation.summary,
         speakerName,
+        conversation.channel,
       );
     } catch {
       // A model/runtime failure (MaxTurnsExceededError, provider outage) must

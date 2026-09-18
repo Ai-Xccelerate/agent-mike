@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { emailDomains } from "@/db/schema";
 import { isRecipientAllowed, normalizeDomain } from "@/lib/email-domains";
 import { isDemoMode } from "@/lib/env";
+import { getOrCreateProfile } from "@/lib/bootstrap";
 import {
   NylasError,
   resolveNylasCredentials,
@@ -80,6 +81,20 @@ export interface SendOptions {
 }
 
 /**
+ * Append the worker's email signature to an outbound body when one is set.
+ * Skips when the body already ends with the same text so a draft that
+ * included it is not doubled.
+ */
+export function applyEmailSignature(body: string, signature: string | null | undefined): string {
+  const sig = (signature || "").trim();
+  if (!sig) return body;
+  const trimmed = body.replace(/\s+$/, "");
+  if (!trimmed) return sig;
+  if (trimmed.endsWith(sig)) return trimmed;
+  return `${trimmed}\n\n${sig}`;
+}
+
+/**
  * Sends as the worker, or refuses and says which domain stopped it.
  *
  * Order matters: the allow-list is checked before the mailbox is touched, so a
@@ -113,10 +128,15 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
     );
   }
 
+  // Signature belongs on email only — applied here so every outbound send
+  // gets it, independent of whether the body was drafted by the agent or a manager.
+  const profile = await getOrCreateProfile(options.orgId);
+  const body = applyEmailSignature(options.body, profile.emailSignature);
+
   const input: SendMessageInput = {
     to: recipients,
     subject: options.subject,
-    body: options.body,
+    body,
     replyToMessageId: options.replyToMessageId ?? null,
   };
 

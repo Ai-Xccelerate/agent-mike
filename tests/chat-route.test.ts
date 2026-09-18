@@ -135,6 +135,7 @@ describe("POST /api/v1/chat", () => {
     expect(runAgentMock.mock.calls[0]?.[6]).toEqual([]);
     expect(runAgentMock.mock.calls[0]?.[7]).toBeNull();
     expect(runAgentMock.mock.calls[0]?.[8]).toBe("Manager");
+    expect(runAgentMock.mock.calls[0]?.[9]).toBe("chat");
 
     const [conversation] = await db
       .select()
