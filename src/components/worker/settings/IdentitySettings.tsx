@@ -259,6 +259,9 @@ export default function IdentitySettings() {
               onChange={(e) => update("emailSignature", e.target.value)}
               className={`${textareaClass} mt-2`}
             />
+            <span className="mt-1.5 block text-xs font-normal text-gray-500">
+              Added to outbound email only — not to chat or the website widget.
+            </span>
             <span className={counterClass}>{profile.emailSignature.length}/{SIGNATURE_MAX_LENGTH}</span>
             <FieldError message={fieldErrors.emailSignature} />
           </label>
