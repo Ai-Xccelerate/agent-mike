@@ -276,15 +276,28 @@ export function shouldTripInputGuardrail(
   const themeFromTerms = (options?.escalationTerms || []).some(
     (term) => term && normalized.includes(term.toLowerCase()),
   );
+  // Paraphrases the configured term list often misses ("money back", etc.).
+  const billingHints = [
+    "money back",
+    "billed twice",
+    "charged twice",
+    "double charged",
+    "duplicate charge",
+    "want a refund",
+    "need a refund",
+  ].some((hint) => normalized.includes(hint));
 
-  // Clear escalation themes (classifier or configured terms): do NOT trip.
-  // The agent runs with collect-before-escalate to gather required fields,
+  // Clear escalation themes: do NOT trip. The agent runs with
+  // collect-before-escalate / reuse-known-details to gather or reuse fields,
   // then emits [[ESCALATE]] with a handoff summary.
-  if (classification.escalate || themeFromTerms) return false;
+  if (classification.escalate || themeFromTerms || billingHints) return false;
 
-  // Live confidenceThreshold: hand off when the classifier is not confident
-  // the message is safe to handle without a human.
-  if (classification.confidence < confidenceThreshold) return true;
+  // Low classifier confidence alone must not hard-trip ordinary how-to / bug
+  // questions — that blocked password-reset and known-issue skills in E2E.
+  // Only trip when confidence is far below the configured threshold (clearly
+  // unsafe / incoherent). The agent can still [[ESCALATE]] via skills.
+  const hardFloor = Math.min(0.35, confidenceThreshold * 0.45);
+  if (classification.confidence < hardFloor) return true;
   return false;
 }
 

@@ -106,7 +106,20 @@ describe("shouldTripInputGuardrail", () => {
         { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.5, reason: "unsure" },
         0.72,
       ),
+    ).toBe(false);
+    expect(
+      shouldTripInputGuardrail(
+        { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.2, reason: "very unsure" },
+        0.72,
+      ),
     ).toBe(true);
+    expect(
+      shouldTripInputGuardrail(
+        { injectionSuspected: false, escalate: false, matchedThemes: [], confidence: 0.4, reason: "unsure" },
+        0.72,
+        { message: "I got billed twice and want my money back", escalationTerms: ["refund"] },
+      ),
+    ).toBe(false);
   });
 
   it("allows a safe high-confidence message", () => {
