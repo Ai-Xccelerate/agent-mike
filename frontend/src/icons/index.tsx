@@ -56,6 +56,7 @@ import BellIcon from "./bell.svg";
 import MicrophoneIcon from "./microphone.svg";
 import ZohoIcon from "./zoho-logo-web.svg";
 import LinearLogoIcon from "./linear-logo.svg";
+import JiraIcon from "./jira-logo.svg";
 import GmailIcon from "./gmail.svg";
 import OutlookIcon from "./outlook.svg";
 import GoogleCalendarIcon from "./google-calendar.svg";
@@ -121,6 +122,7 @@ export {
   MicrophoneIcon,
   ZohoIcon,
   LinearLogoIcon,
+  JiraIcon,
   GmailIcon,
   OutlookIcon,
   GoogleCalendarIcon,

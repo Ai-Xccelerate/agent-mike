@@ -1,6 +1,6 @@
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import IntegrationCategorySection from "@/components/worker/settings/IntegrationCategorySection";
-import { GmailIcon, GoogleCalendarIcon, LinearLogoIcon, OutlookIcon, PlugInIcon, ZohoIcon } from "@/icons";
+import { GmailIcon, GoogleCalendarIcon, JiraIcon, LinearLogoIcon, OutlookIcon, ZohoIcon } from "@/icons";
 import type { Metadata } from "next";
 
 // Never let this page get stuck as stale prerendered/cached HTML across deploys.
@@ -26,7 +26,7 @@ export default function IntegrationsSettingsPage() {
       />
       <IntegrationCategorySection
         integrationType="helpdesk"
-        vendors={[{ system: "jira", label: "Jira", icon: <PlugInIcon className={iconClass} /> }]}
+        vendors={[{ system: "jira", label: "Jira", icon: <JiraIcon className={iconClass} /> }]}
         title="Helpdesk"
         description="Search connected helpdesk issues."
       />
