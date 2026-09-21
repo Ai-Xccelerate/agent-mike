@@ -12,13 +12,14 @@ Secrets stay in Railway variables and must never be committed.
 `mike-api`:
 
 - Postgres: `DATABASE_URL`
-- OpenAI: `OPENAI_API_KEY` and optional model/transcription settings
+- OpenAI: `OPENAI_API_KEY`
 - Clerk verification: `CLERK_JWKS_URL`, `CLERK_ISSUER`,
   `CLERK_AUTHORIZED_PARTIES`
 - Core entitlement: `AIX_CORE_API_URL`, `AIX_CORE_AGENT_SLUG=mike`
 - Composio: `COMPOSIO_API_KEY` and each
   `COMPOSIO_*_AUTH_CONFIG_ID`
-- Nylas: client/API/callback/webhook/state variables
+- Nylas: client/API/callback/state variables (`NYLAS_WEBHOOK_SECRET` is
+  reserved for future Foundation webhook support)
 - provider encryption: `ENCRYPTION_KEY`
 - optional Foundation integration credentials
 
@@ -59,4 +60,4 @@ After preview domains exist:
 2. Set frontend `NEXT_PUBLIC_API_URL` to the API domain.
 3. Add the frontend origin to Clerk redirect origins.
 4. Register Mike's frontend/API URLs and catalog slug `mike` in AIX Core.
-5. Register Nylas callback and webhook URLs against the API domain.
+5. Register the Nylas callback URL against the API domain.

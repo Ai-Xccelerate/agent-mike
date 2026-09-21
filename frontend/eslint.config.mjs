@@ -7,10 +7,11 @@ const eslintConfig = defineConfig([
   ...nextTs,
   {
     rules: {
-      // The imported Foundation UI intentionally hydrates localStorage and
-      // resets view state in effects. Reworking those flows is separate from
-      // Mike's repository/auth migration; keep the rest of core-web-vitals on.
+      // Keep Foundation product source byte-for-byte aligned while its current
+      // staging branch still relies on these established UI patterns.
       "react-hooks/set-state-in-effect": "off",
+      "react-hooks/immutability": "off",
+      "react/no-unescaped-entities": "off",
     },
   },
   // Override default ignores of eslint-config-next.

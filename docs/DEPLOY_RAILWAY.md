@@ -45,7 +45,5 @@ npx drizzle-kit migrate && npm run start -- -H 0.0.0.0 -p $PORT
 ## Nylas URLs
 
 - callback: `https://YOUR-API-DOMAIN/api/v1/mailbox/callback`
-- webhook: `https://YOUR-API-DOMAIN/api/v1/webhooks/nylas`
-- subscribe webhook to `message.created`
 
 Never set `MIKE_ALLOW_LOCAL_UNAUTH` on Railway.

@@ -1,14 +1,11 @@
-import { createHmac } from "crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { platformAuthRequired } from "@/lib/clerk-core-auth";
 import { ClerkCoreIdentityAdapter } from "@/lib/identity";
-import { verifyNylasWebhook } from "@/lib/nylas-inbound";
 
 const saved = {
   railway: process.env.RAILWAY_ENVIRONMENT,
   app: process.env.APP_ENV,
   explicit: process.env.MIKE_PLATFORM_AUTH,
-  webhook: process.env.NYLAS_WEBHOOK_SECRET,
 };
 
 afterEach(() => {
@@ -18,9 +15,7 @@ afterEach(() => {
         ? "RAILWAY_ENVIRONMENT"
         : key === "app"
           ? "APP_ENV"
-          : key === "explicit"
-            ? "MIKE_PLATFORM_AUTH"
-            : "NYLAS_WEBHOOK_SECRET";
+          : "MIKE_PLATFORM_AUTH";
     if (value === undefined) delete process.env[envName];
     else process.env[envName] = value;
   }
@@ -69,19 +64,5 @@ describe("Mike platform identity", () => {
     delete process.env.MIKE_PLATFORM_AUTH;
     process.env.RAILWAY_ENVIRONMENT = "staging";
     expect(platformAuthRequired()).toBe(true);
-  });
-});
-
-describe("Nylas webhook contract", () => {
-  it("accepts the matching HMAC and rejects a different signature", () => {
-    process.env.NYLAS_WEBHOOK_SECRET = "test-webhook-secret";
-    const payload = Buffer.from('{"type":"message.created"}');
-    const valid = createHmac("sha256", process.env.NYLAS_WEBHOOK_SECRET)
-      .update(payload)
-      .digest("hex");
-    expect(verifyNylasWebhook(payload, new Headers({ "x-nylas-signature": valid }))).toBe(true);
-    expect(
-      verifyNylasWebhook(payload, new Headers({ "x-nylas-signature": "0".repeat(64) })),
-    ).toBe(false);
   });
 });

@@ -1071,7 +1071,7 @@ export async function buildInstructions(
 
   const scopeBoundary =
     "\n\nScope boundary (overrides helpfulness): only fulfill requests that fit your Role and " +
-    "configured responsibilities. If the customer asks for something outside that scope — including general " +
+    "Job description. If the customer asks for something outside that scope — including general " +
     "programming help unrelated to this product, homework, or using you as a free general-purpose " +
     "assistant — briefly decline, say what you can help with, and end with [[FOLLOWUP]] or " +
     "[[RESOLVE]]. Do not fulfill the out-of-scope request.";

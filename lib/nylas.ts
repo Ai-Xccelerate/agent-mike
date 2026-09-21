@@ -62,21 +62,6 @@ export interface NylasMessageSummary {
   unread: boolean;
 }
 
-export type NylasEmailAddress = { email?: string; name?: string };
-
-export interface NylasMessage {
-  id?: string;
-  grant_id?: string;
-  thread_id?: string;
-  subject?: string;
-  snippet?: string;
-  body?: string;
-  folders?: string[];
-  from?: NylasEmailAddress[];
-  to?: NylasEmailAddress[];
-  cc?: NylasEmailAddress[];
-}
-
 export interface NylasEventSummary {
   id: string;
   title: string;
@@ -484,20 +469,6 @@ export async function listMessages(
   });
 }
 
-/** Fetch one complete message for an inbound webhook event. */
-export async function getMessage(
-  credentials: NylasCredentials,
-  grantId: string,
-  messageId: string,
-  timeoutMs?: number,
-): Promise<NylasMessage> {
-  return (await nylasFetch(
-    credentials,
-    `/v3/grants/${encodeURIComponent(grantId)}/messages/${encodeURIComponent(messageId)}`,
-    { timeoutMs },
-  )) as NylasMessage;
-}
-
 /** Upcoming events — proof the calendar scope actually landed. */
 export async function listEvents(
   credentials: NylasCredentials,
@@ -532,7 +503,6 @@ export async function listEvents(
 
 export interface SendMessageInput {
   to: Array<{ email: string; name?: string }>;
-  cc?: Array<{ email: string; name?: string }>;
   subject: string;
   body: string;
   replyToMessageId?: string | null;
@@ -555,9 +525,6 @@ export async function sendMessage(
     method: "POST",
     body: {
       to: input.to.map((r) => ({ email: r.email, ...(r.name ? { name: r.name } : {}) })),
-      ...(input.cc?.length
-        ? { cc: input.cc.map((r) => ({ email: r.email, ...(r.name ? { name: r.name } : {}) })) }
-        : {}),
       subject: input.subject,
       body: input.body,
       ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),

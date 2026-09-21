@@ -65,7 +65,7 @@ export default function IntegrationCategorySection({
     try {
       const { redirectUrl } = await connectIntegration(integrationType, vendor.system);
       if (redirectUrl) {
-        window.location.assign(redirectUrl);
+        window.location.href = redirectUrl;
         return;
       }
       // Composio already had an active account for this vendor (e.g. one made

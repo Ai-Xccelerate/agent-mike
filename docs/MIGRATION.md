@@ -2,11 +2,18 @@
 
 ## Repository and deployment boundary
 
-This repository keeps Mike's Git history and Railway project. The Foundation
-backend and frontend histories are merged as parents of the migration branch,
-then their current trees are adopted here. The source Foundation repositories,
-their `staging` branches, and the Railway project `AIX worker` are not modified
-or redeployed by this migration.
+This repository keeps Mike's Git history and Railway project, but the current
+AI Worker Foundation backend and frontend trees are the product baseline. Their
+Git histories are merged as parents of the migration branch. Mike-specific code
+is then layered on only for Clerk/Core authentication and authorization,
+organization tenancy, deployment wiring, product identity, and compatible
+identity headers. The source Foundation repositories, their `staging` branches,
+and the Railway project `AIX worker` are not modified or redeployed.
+
+Foundation product behavior is not forked here. Routes, agent behavior,
+guardrails, Inbox, knowledge, settings, integrations, tools, skills, and UI
+structure must remain equivalent to current Foundation staging unless a
+documented platform adapter requires a narrow difference.
 
 Mike remains a two-service deployment:
 
@@ -28,14 +35,28 @@ Mike remains a two-service deployment:
 4. **Widget:** new embeds send `x-worker-site-token`; legacy Mike embeds using
    `x-mike-site-token` continue to work. Tokens remain org-scoped in
    `widget_sites`.
-5. **Nylas:** grant-to-org mapping remains in `nylas_mailboxes`. Inbound
-   `message.created` events go to `/api/v1/webhooks/nylas` and require
-   `NYLAS_WEBHOOK_SECRET`.
+5. **Nylas:** use Foundation's hosted mailbox OAuth flow and org-scoped
+   `nylas_mailboxes` behavior. Mike does not retain its former custom grant
+   binding or inbound auto-reply API.
 6. **Composio:** `COMPOSIO_API_KEY` and all `COMPOSIO_*_AUTH_CONFIG_ID`
    variables belong on `mike-api`, never the browser. Connected accounts are
    keyed by Clerk organization id.
 7. **Ticket identity:** new Mike profiles default to `Agent Mike`, slug `mike`,
    mailbox `agent.mike@wkr.email`, and ticket prefix `AIX`.
+
+## Foundation synchronization policy
+
+When Foundation `staging` changes, compare both source trees against this
+repository. Port all product changes. The expected Mike-only code surface is:
+
+- backend Clerk/Core verifier and middleware integration;
+- Clerk-backed `IdentityAdapter` tenancy;
+- frontend Clerk provider, access gate, and bearer-token bridge;
+- Mike Railway/env/domain wiring and health/product identity;
+- the in-place legacy-to-Foundation database migration.
+
+Any other product-code difference requires explicit documentation and review;
+Mike's former endpoints are not a compatibility target.
 
 ## Database strategy
 
@@ -59,17 +80,6 @@ This repository retains Mike's deployed `0000_mike_init`,
 Railway's backend start command runs `drizzle-kit migrate` before starting.
 Take a Postgres snapshot immediately before the first preview/cutover deploy.
 
-## Compatibility API
-
-The Foundation API is canonical. During migration, these Mike contracts remain:
-
-- `/api/v1/agent` aliases `/api/v1/worker`;
-- `/api/v1/mailboxes` supports Mike's env-grant binding;
-- `/api/v1/dashboard`, `/api/v1/knowledge/graph`, and
-  `/api/v1/transcribe` remain available;
-- `/api/v1/conversations/:id/status` remains available;
-- `/api/v1/webhooks/nylas` keeps inbound email threading and auto-replies.
-
 ## Cutover gate
 
 Deploy only to an isolated Mike Railway preview first. Verify:
@@ -77,9 +87,9 @@ Deploy only to an isolated Mike Railway preview first. Verify:
 - Core login, denied-access and allowed-access behavior;
 - migrated row counts and representative records;
 - manager chat, public widget, Inbox takeover/status, Knowledge, Settings;
-- Nylas mailbox status plus a signed inbound webhook;
+- Foundation's Nylas mailbox connect/status/test/disconnect flow;
 - each configured Composio toolkit connect/test/disconnect path;
-- Mike compatibility endpoints and health payloads.
+- Foundation API/UI parity plus Mike health and platform-auth contracts.
 
 Merging to Mike `staging` and deploying against the live Mike database requires
 explicit cutover approval after those checks pass.

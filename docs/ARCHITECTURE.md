@@ -1,8 +1,11 @@
 # Architecture
 
-Agent Mike is the AI Worker Foundation runtime adapted to Mike's existing AIX
-product contracts. The API is Next.js + OpenAI Agents SDK + Drizzle/Postgres;
-the manager UI is a separate Next.js service under `frontend/`.
+Agent Mike is the current AI Worker Foundation product with Mike's AIX platform
+adapters layered on top. Foundation owns the application behavior and UI;
+Mike-specific code owns Clerk/Core access, organization tenancy, deployment
+wiring, and product identity. The API is Next.js + OpenAI Agents SDK +
+Drizzle/Postgres; the manager UI is a separate Next.js service under
+`frontend/`.
 
 ## Identity and tenancy
 
@@ -30,14 +33,14 @@ Every product table is organization-scoped using the Clerk organization id.
 5. Replies, citations, tool calls, confidence, summaries, and handoff state are
    persisted for Inbox.
 
-Inbound Nylas email follows the same path through
-`/api/v1/webhooks/nylas`, keyed by grant and external thread id.
-
 ## Configuration
 
 One `worker_profiles` row per organization controls identity, prompts, model,
 guardrails, channels, skills, tools, and integrations. New profiles are Agent
 Mike (`slug=mike`, `ticket_prefix=AIX`); migrated profile values are preserved.
+
+The Foundation route and component trees remain canonical. Platform adapters
+must not introduce Mike-only product endpoints or alternate UI flows.
 
 See [MIGRATION.md](./MIGRATION.md) for compatibility contracts and
 [DEPLOY_RAILWAY.md](./DEPLOY_RAILWAY.md) for deployment.

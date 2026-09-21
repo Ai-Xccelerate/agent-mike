@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { widgetSites } from "@/db/schema";
 import { DEFAULT_ORG_ID } from "@/lib/env";
@@ -58,7 +58,7 @@ export class StandaloneIdentityAdapter implements IdentityAdapter {
     const [site] = await db
       .select()
       .from(widgetSites)
-      .where(and(eq(widgetSites.siteToken, token), eq(widgetSites.active, true)))
+      .where(eq(widgetSites.siteToken, token))
       .limit(1);
 
     if (!site) return null;
