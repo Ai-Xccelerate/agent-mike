@@ -35,17 +35,17 @@ export const workerProfiles = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
 
     // Identity (R14 / settings > Identity)
-    name: text("name").notNull().default("Worker"),
-    displayName: text("display_name").notNull().default("AI Worker"),
-    avatarInitials: text("avatar_initials").notNull().default("AW"),
-    slug: text("slug").notNull().default("worker"),
+    name: text("name").notNull().default("Mike"),
+    displayName: text("display_name").notNull().default("Agent Mike"),
+    avatarInitials: text("avatar_initials").notNull().default("AM"),
+    slug: text("slug").notNull().default("mike"),
     status: text("status").notNull().default("active"), // active | paused
     avatarUrl: text("avatar_url"),
     accentColor: text("accent_color").notNull().default("#4F46E5"),
     bio: text("bio").notNull().default(""),
     timezone: text("timezone").notNull().default("UTC"),
     locale: text("locale").notNull().default("en-US"),
-    email: text("email"),
+    email: text("email").default("agent.mike@wkr.email"),
     emailSignature: text("email_signature").notNull().default(""),
     tone: text("tone").notNull().default("Warm, concise, and honest about uncertainty."),
 
@@ -125,7 +125,7 @@ export const workerProfiles = pgTable(
       .notNull()
       .default(sql`'{"email":false,"chat":true,"voice":false}'::jsonb`),
 
-    ticketPrefix: text("ticket_prefix").notNull().default("TCK"),
+    ticketPrefix: text("ticket_prefix").notNull().default("AIX"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -168,6 +168,9 @@ export const conversations = pgTable(
     // Soft-delete: archived conversations are hidden by default and
     // restorable, instead of the row being gone for good.
     archived: boolean("archived").notNull().default(false),
+    // External provider thread id (Nylas today). Keeps every inbound reply in
+    // the same conversation while remaining provider-neutral at the schema.
+    externalThreadId: text("external_thread_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -176,6 +179,10 @@ export const conversations = pgTable(
     orgTicketUnique: uniqueIndex("conversations_org_ticket_unique").on(
       table.organizationId,
       table.ticketNumber,
+    ),
+    orgExternalThreadUnique: uniqueIndex("conversations_org_external_thread_unique").on(
+      table.organizationId,
+      table.externalThreadId,
     ),
   }),
 );
@@ -191,6 +198,10 @@ export const messages = pgTable(
     senderName: text("sender_name").notNull(),
     body: text("body").notNull(),
     citations: jsonb("citations").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -246,7 +257,9 @@ export const widgetSites = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     siteToken: text("site_token").notNull(),
+    active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     orgUnique: uniqueIndex("widget_sites_org_unique").on(table.organizationId),
@@ -452,6 +465,7 @@ export const nylasMailboxes = pgTable(
   },
   (table) => ({
     orgUnique: uniqueIndex("nylas_mailboxes_org_unique").on(table.organizationId),
+    grantUnique: uniqueIndex("nylas_mailboxes_grant_unique").on(table.grantId),
   }),
 );
 

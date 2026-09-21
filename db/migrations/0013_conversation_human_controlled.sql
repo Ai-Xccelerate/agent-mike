@@ -1,1 +1,0 @@
-ALTER TABLE "conversations" ADD COLUMN "human_controlled" boolean DEFAULT false NOT NULL;

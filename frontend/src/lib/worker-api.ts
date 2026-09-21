@@ -1,3 +1,5 @@
+import { getManagerToken } from "@/lib/manager-auth";
+
 export type Message = {
   id: string;
   conversationId: string;
@@ -326,11 +328,7 @@ export class WorkerApiError extends Error {
   }
 }
 
-/**
- * No auth header, no login redirect — the backend's default identity adapter
- * resolves every manager request to one org with no session required. A
- * widget request instead carries the org-scoped site token.
- */
+/** Manager requests use Clerk; public widget requests use only their site token. */
 export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
@@ -338,6 +336,13 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
   }
   if (init?.widgetSiteToken) {
     headers.set("x-worker-site-token", init.widgetSiteToken);
+    headers.delete("Authorization");
+  } else {
+    const token = await getManagerToken();
+    if (!token) {
+      throw new WorkerApiError("No authenticated Clerk session", 401);
+    }
+    headers.set("Authorization", `Bearer ${token}`);
   }
   if (init?.body instanceof FormData) {
     headers.delete("Content-Type");

@@ -1,16 +1,25 @@
-import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { organizations, workerProfiles } from "@/db/schema";
 import { DEFAULT_ORG_ID, DEFAULT_ORG_NAME } from "@/lib/env";
 import { isUniqueViolation } from "@/lib/worker-patch";
-import { slugSchema } from "@/lib/identity-fields";
 
 export async function ensureOrganization(orgId: string, name = orgId) {
   const [existing] = await db.select().from(organizations).where(eq(organizations.id, orgId)).limit(1);
   if (existing) return existing;
-  const [created] = await db.insert(organizations).values({ id: orgId, name }).returning();
-  return created;
+  const [created] = await db
+    .insert(organizations)
+    .values({ id: orgId, name })
+    .onConflictDoNothing({ target: organizations.id })
+    .returning();
+  if (created) return created;
+  const [wonByAnotherRequest] = await db
+    .select()
+    .from(organizations)
+    .where(eq(organizations.id, orgId))
+    .limit(1);
+  if (!wonByAnotherRequest) throw new Error(`Organization ${orgId} could not be initialized`);
+  return wonByAnotherRequest;
 }
 
 /**
@@ -48,38 +57,28 @@ export async function getOrCreateProfile(orgId: string) {
     .limit(1);
   if (existing) return existing;
 
-  const seededSlug = slugSchema.safeParse(orgId).success ? orgId : undefined;
-
   try {
     const [created] = await db
       .insert(workerProfiles)
       .values({
         organizationId: orgId,
-        ...(orgId === DEFAULT_ORG_ID
-          ? {}
-          : { ...(seededSlug ? { slug: seededSlug } : {}), displayName: titleCase(orgId) }),
+        name: "Mike",
+        displayName: "Agent Mike",
+        avatarInitials: "AM",
+        slug: "mike",
+        email: "agent.mike@wkr.email",
+        ticketPrefix: "AIX",
       })
       .returning();
     return created;
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
-    const [created] = await db
-      .insert(workerProfiles)
-      .values({
-        organizationId: orgId,
-        slug: `worker-${randomUUID()}`,
-        ...(orgId === DEFAULT_ORG_ID ? {} : { displayName: titleCase(orgId) }),
-      })
-      .returning();
-    return created;
+    const [createdByRace] = await db
+      .select()
+      .from(workerProfiles)
+      .where(eq(workerProfiles.organizationId, orgId))
+      .limit(1);
+    if (createdByRace) return createdByRace;
+    throw error;
   }
-}
-
-/** "agent-george" -> "Agent George". Only used to seed a new agent's name. */
-function titleCase(slug: string): string {
-  return slug
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }

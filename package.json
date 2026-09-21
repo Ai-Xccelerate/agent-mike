@@ -1,8 +1,8 @@
 {
-  "name": "ai-worker-backend",
+  "name": "agent-mike",
   "version": "0.1.0",
   "private": true,
-  "description": "AI Worker Foundation — API (harness, knowledge, guardrails, settings surface)",
+  "description": "Agent Mike — AI Worker Foundation API for AIX Core",
   "engines": {
     "node": ">=20"
   },
@@ -23,6 +23,7 @@
     "@openai/agents": "^0.17.0",
     "drizzle-orm": "^0.41.0",
     "gray-matter": "^4.0.3",
+    "jose": "^5.10.0",
     "next": "^14.2.35",
     "pdf-parse": "^1.1.1",
     "pg": "^8.22.0",

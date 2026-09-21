@@ -17,7 +17,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const identity = getIdentityAdapter();
-  const siteToken = (req.headers.get("x-worker-site-token") || "").trim();
+  const siteToken = (
+    req.headers.get("x-worker-site-token") ||
+    req.headers.get("x-mike-site-token") ||
+    ""
+  ).trim();
   if (siteToken) {
     const widgetTenant = await identity.resolveWidgetRequest(req);
     if (!widgetTenant) {

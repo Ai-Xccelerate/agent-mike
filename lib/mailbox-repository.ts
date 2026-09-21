@@ -14,6 +14,18 @@ export async function getMailbox(orgId: string): Promise<Mailbox | null> {
   return row ?? null;
 }
 
+/** Resolve an inbound Nylas event to its owning tenant. */
+export async function getMailboxByGrantId(grantId: string): Promise<Mailbox | null> {
+  const normalized = grantId.trim();
+  if (!normalized) return null;
+  const [row] = await db
+    .select()
+    .from(nylasMailboxes)
+    .where(eq(nylasMailboxes.grantId, normalized))
+    .limit(1);
+  return row ?? null;
+}
+
 /**
  * Records a freshly authorised grant.
  *

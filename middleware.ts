@@ -1,12 +1,20 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { envList } from "@/lib/env";
+import {
+  assertLocalBypassSafe,
+  authenticateManagerRequest,
+  platformAuthRequired,
+  platformAuthErrorResponse,
+} from "@/lib/clerk-core-auth";
 
 /**
- * CORS only. No auth here — identity resolution happens per-route via
- * lib/identity.ts, which is what stays swappable. Baking an auth vendor into
- * middleware (as agent-mike's staging build did with clerkMiddleware) makes
- * every route depend on that vendor just to boot; this doesn't.
+ * Mike is an AIX Core product deployment, so its manager API is protected by
+ * the shared Clerk app and Core's `agents/mike/access` entitlement. The
+ * verified tenant is forwarded to lib/identity.ts through headers that are
+ * always deleted from the inbound request and written here after verification.
+ *
+ * Widget chat remains public and resolves its tenant from a per-org site token.
  */
 function corsHeaders(origin: string | null): Record<string, string> {
   const allowed = envList(process.env.CORS_ALLOWED_ORIGINS);
@@ -14,12 +22,40 @@ function corsHeaders(origin: string | null): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, x-worker-site-token",
+    "Access-Control-Allow-Headers":
+      "Authorization, Content-Type, x-worker-site-token, x-mike-site-token",
     Vary: "Origin",
   };
 }
 
-export function middleware(req: NextRequest) {
+function withCors(response: NextResponse, headers: Record<string, string>): NextResponse {
+  for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
+  return response;
+}
+
+function hasWidgetToken(req: NextRequest): boolean {
+  return Boolean(
+    req.headers.get("x-worker-site-token")?.trim() ||
+      req.headers.get("x-mike-site-token")?.trim(),
+  );
+}
+
+function publicRequest(req: NextRequest): boolean {
+  const path = req.nextUrl.pathname;
+  if (path === "/api/health") return true;
+  if (path.startsWith("/api/v1/uploads/avatars/")) return true;
+  if (path === "/api/v1/mailbox/callback") return true;
+  if (path === "/api/v1/webhooks/nylas") return true;
+  if (
+    hasWidgetToken(req) &&
+    (path === "/api/v1/chat" || path === "/api/v1/worker" || path === "/api/v1/transcribe")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export async function middleware(req: NextRequest) {
   const origin = req.headers.get("origin");
   const headers = corsHeaders(origin);
 
@@ -27,11 +63,24 @@ export function middleware(req: NextRequest) {
     return new NextResponse(null, { status: 204, headers });
   }
 
-  const res = NextResponse.next();
-  for (const [key, value] of Object.entries(headers)) {
-    res.headers.set(key, value);
+  assertLocalBypassSafe();
+  if (publicRequest(req) || !platformAuthRequired()) {
+    return withCors(NextResponse.next(), headers);
   }
-  return res;
+
+  try {
+    const tenant = await authenticateManagerRequest(req);
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.delete("x-aix-verified-org-id");
+    requestHeaders.delete("x-aix-verified-user-id");
+    requestHeaders.delete("x-aix-verified-role");
+    requestHeaders.set("x-aix-verified-org-id", tenant.orgId);
+    requestHeaders.set("x-aix-verified-user-id", tenant.userId);
+    requestHeaders.set("x-aix-verified-role", tenant.role);
+    return withCors(NextResponse.next({ request: { headers: requestHeaders } }), headers);
+  } catch (error) {
+    return withCors(platformAuthErrorResponse(error), headers);
+  }
 }
 
 export const config = {

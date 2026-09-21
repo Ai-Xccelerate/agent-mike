@@ -1,70 +1,43 @@
 # Architecture
 
-## Why this exists
+Agent Mike is the AI Worker Foundation runtime adapted to Mike's existing AIX
+product contracts. The API is Next.js + OpenAI Agents SDK + Drizzle/Postgres;
+the manager UI is a separate Next.js service under `frontend/`.
 
-This is the AI Worker Foundation's API — a from-scratch rebuild, not a copy of
-any deployed agent. `agent-mike` (both its `main` and `staging` branches) was
-used as reference for patterns that are genuinely generic (the OKF-markdown +
-Postgres full-text-search knowledge approach, the guardrails shape), but
-nothing was inherited wholesale, because both branches are one product's
-implementation history, not a template:
+## Identity and tenancy
 
-- `main`: FastAPI + Python + `claude-agent-sdk` — wrong SDK (R1 requires
-  OpenAI Agents SDK), no multi-tenancy at all.
-- `staging`: the real, correct SDK choice (`@openai/agents`), but with Clerk
-  and an external "AIX Core" catalog service hard-wired into the middleware
-  itself — every route depended on a specific auth vendor and a specific,
-  externally-owned catalog registration just to boot.
+All domain routes still resolve tenancy through `lib/identity.ts`.
 
-## The identity seam
+- On Mike Railway, middleware verifies the Clerk JWT, validates `azp`, and
+  checks AIX Core's `agents/mike/access` entitlement.
+- Middleware discards any inbound `x-aix-verified-*` headers, then writes its
+  verified org/user/role context for `ClerkCoreIdentityAdapter`.
+- Public widget traffic resolves its org from an active `widget_sites` token.
+- Local development can use the standalone adapter. Railway cannot fall back
+  to standalone or `MIKE_ALLOW_LOCAL_UNAUTH`.
 
-R6 already requires business-system integrations (CRM, ticketing) to be
-decoupled, external, and never baked into the worker. This codebase applies
-the same rule to identity/access: see `lib/identity.ts`.
-
-Every route resolves "who is this, which org" through an `IdentityAdapter`
-interface, not through a specific auth vendor. The default implementation,
-`StandaloneIdentityAdapter`, resolves every manager request to one fixed org
-with no login required — one deployment is one tenant, configured directly,
-matching Rahul's own framing in the planning meeting: a repo that "can be
-taken and deployed left, right, and center" doesn't need SaaS login
-infrastructure to be useful. A platform-specific adapter (Clerk + AIX Core,
-or anything else) plugs in later, at the point a worker actually joins a
-real multi-tenant platform, without this codebase ever needing to know that
-vendor exists.
-
-The schema is still fully multi-tenant-shaped (`organization_id` on every
-table) per R16 — the adapter, not the schema, is what's swapped.
+Every product table is organization-scoped using the Clerk organization id.
 
 ## Request lifecycle
 
-1. A message arrives at `/api/v1/chat`, either from the manager test bench
-   (no site token) or the public widget (`x-worker-site-token` header).
-2. The identity adapter resolves an org. Widget requests with no matching
-   token are rejected; manager requests always resolve (standalone mode).
-3. The message is persisted, guardrails run deterministically first
-   (injection phrases, escalation terms, domain allowlist), then relevant
-   knowledge is retrieved via Postgres full-text search.
-4. If guardrails didn't already force escalation, a single `@openai/agents`
-   turn runs with the org's system-prompt template, tone, and role filled in,
-   and the retrieved knowledge attached as untrusted reference material.
-   `DEMO_MODE=true` (or a missing `OPENAI_API_KEY`) skips the live call and
-   returns a canned response instead.
-5. The reply and any citations are persisted; low-confidence or
-   guardrail-triggered turns are marked `needs_human`.
+1. Manager requests arrive with a Clerk bearer token. Widget requests carry
+   `x-worker-site-token` (or legacy `x-mike-site-token`).
+2. The identity adapter resolves the Clerk org or widget site's org.
+3. The message is persisted; deterministic and model guardrails run; local and
+   enabled external knowledge sources are retrieved.
+4. The OpenAI Agents SDK runs with Mike's profile, memory, skills, connected
+   Composio tools, and approval policy.
+5. Replies, citations, tool calls, confidence, summaries, and handoff state are
+   persisted for Inbox.
 
-## Configuration surface (R14 / R15)
+Inbound Nylas email follows the same path through
+`/api/v1/webhooks/nylas`, keyed by grant and external thread id.
 
-Every field a manager can change lives on one `worker_profiles` row per org,
-exposed via `GET`/`PATCH /api/v1/worker` — including the system prompt
-template itself (R15: "your system prompt... must be exposed... to configure
-it"), not just the identity/tone fields around it.
+## Configuration
 
-## Deliberately not built yet
+One `worker_profiles` row per organization controls identity, prompts, model,
+guardrails, channels, skills, tools, and integrations. New profiles are Agent
+Mike (`slug=mike`, `ticket_prefix=AIX`); migrated profile values are preserved.
 
-- A generalized business-system (CRM/ticketing) tool-call pattern (R6) — the
-  agent runs with zero tools today.
-- Domain/user verification as a callable pattern (R11) — the allowlist check
-  exists; the "confirm this is a real customer" lookup does not.
-- A skills library (R9) — format still unspecified (PRD OQ5).
-- Voice channel (R12) — deferred, matches the plan.
+See [MIGRATION.md](./MIGRATION.md) for compatibility contracts and
+[DEPLOY_RAILWAY.md](./DEPLOY_RAILWAY.md) for deployment.
