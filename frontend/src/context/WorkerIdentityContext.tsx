@@ -9,12 +9,18 @@ type WorkerIdentityContextValue = {
 };
 
 const WorkerIdentityContext = createContext<WorkerIdentityContextValue>({ profile: null });
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 function avatarMimeType(url: string): string {
   const pathname = url.split(/[?#]/, 1)[0].toLowerCase();
   if (pathname.endsWith(".png")) return "image/png";
   if (pathname.endsWith(".webp")) return "image/webp";
   return "image/jpeg";
+}
+
+function absoluteAvatarUrl(url: string): string {
+  if (url.startsWith("/api/v1/") && API_BASE) return `${API_BASE}${url}`;
+  return new URL(url, window.location.origin).href;
 }
 
 export function WorkerIdentityProvider({ children }: { children: React.ReactNode }) {
@@ -65,7 +71,7 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
 
     const usingAvatar = Boolean(profile.avatarUrl);
     const href = usingAvatar
-      ? new URL(profile.avatarUrl ?? "", window.location.origin).href
+      ? absoluteAvatarUrl(profile.avatarUrl ?? "")
       : defaultFaviconRef.current.href;
     const type = usingAvatar ? avatarMimeType(href) : defaultFaviconRef.current.type;
 
