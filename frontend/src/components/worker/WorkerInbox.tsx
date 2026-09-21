@@ -543,12 +543,15 @@ export default function WorkerInbox() {
                         {isAgent ? <Markdown>{message.body}</Markdown> : <p className="whitespace-pre-wrap">{message.body}</p>}
                         {message.citations.length > 0 && (
                           <div className="mt-3 border-t border-current/10 pt-2">
-                            {message.citations.map((citation) => (
-                              <span key={citation} className="mr-2 inline-flex items-center gap-1 text-xs font-medium text-blue-light-700 dark:text-blue-light-300">
+                            {message.citations.map((citation, index) => {
+                              const label = typeof citation === "string" ? citation : (citation as { title?: string })?.title ?? "Source";
+                              return (
+                              <span key={`${message.id}-${index}-${label}`} className="mr-2 inline-flex items-center gap-1 text-xs font-medium text-blue-light-700 dark:text-blue-light-300">
                                 <DocsIcon className="size-3.5" />
-                                {citation}
+                                {label}
                               </span>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>

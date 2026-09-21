@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
+import { withNormalizedCitations } from "@/lib/citations";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!conversation) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const msgs = await db.select().from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(messages.createdAt);
-  return NextResponse.json({ ...conversation, messages: msgs });
+  return NextResponse.json({ ...conversation, messages: msgs.map(withNormalizedCitations) });
 }
 
 const VALID_STATUSES = ["open", "needs_human", "resolved", "closed"] as const;
@@ -69,7 +70,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     .returning();
 
   const msgs = await db.select().from(messages).where(eq(messages.conversationId, updated.id)).orderBy(messages.createdAt);
-  return NextResponse.json({ ...updated, messages: msgs });
+  return NextResponse.json({ ...updated, messages: msgs.map(withNormalizedCitations) });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
+import { withNormalizedCitations } from "@/lib/citations";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -44,7 +45,10 @@ export async function GET(req: NextRequest) {
         .from(messages)
         .where(and(eq(messages.conversationId, conversation.id)))
         .orderBy(messages.createdAt);
-      return { ...conversation, messages: msgs };
+      return {
+        ...conversation,
+        messages: msgs.map(withNormalizedCitations),
+      };
     }),
   );
 

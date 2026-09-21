@@ -344,15 +344,18 @@ export function ChatPanel({
                 </div>
                 {message.citations.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {message.citations.map((citation) => (
+                    {message.citations.map((citation, index) => {
+                      const label = typeof citation === "string" ? citation : (citation as { title?: string })?.title ?? "Source";
+                      return (
                       <span
-                        key={`${message.id}-${citation}`}
+                        key={`${message.id}-${index}-${label}`}
                         className="inline-flex items-center gap-1 rounded-lg bg-blue-light-50 px-2 py-1 text-[11px] font-medium text-blue-light-700 dark:bg-blue-light-500/10 dark:text-blue-light-300"
                       >
                         <DocsIcon className="size-3" />
-                        {citation}
+                        {label}
                       </span>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
