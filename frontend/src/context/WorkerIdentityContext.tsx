@@ -10,6 +10,13 @@ type WorkerIdentityContextValue = {
 
 const WorkerIdentityContext = createContext<WorkerIdentityContextValue>({ profile: null });
 
+function avatarMimeType(url: string): string {
+  const pathname = url.split(/[?#]/, 1)[0].toLowerCase();
+  if (pathname.endsWith(".png")) return "image/png";
+  if (pathname.endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
+}
+
 export function WorkerIdentityProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
 
@@ -41,28 +48,60 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
   // it throws "Cannot read properties of null (reading 'removeChild')" -
   // this crashed on every client-side route change for the rest of the tab's
   // session once this effect had run a single time.
-  const defaultFaviconHrefRef = useRef<string | null>(null);
+  const defaultFaviconRef = useRef<{ href: string; type: string } | null>(null);
   const ownLinkRef = useRef<HTMLLinkElement | null>(null);
   useEffect(() => {
     if (!profile) return;
-    if (defaultFaviconHrefRef.current === null) {
-      defaultFaviconHrefRef.current =
-        document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href ?? "";
+    const frameworkLinks = Array.from(
+      document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]:not([data-worker-avatar-favicon])'),
+    );
+    if (defaultFaviconRef.current === null) {
+      const defaultLink = frameworkLinks[0];
+      defaultFaviconRef.current = {
+        href: defaultLink?.href ?? "",
+        type: defaultLink?.type ?? "",
+      };
     }
-    const href = profile.avatarUrl || defaultFaviconHrefRef.current;
+
+    const usingAvatar = Boolean(profile.avatarUrl);
+    const href = usingAvatar
+      ? new URL(profile.avatarUrl ?? "", window.location.origin).href
+      : defaultFaviconRef.current.href;
+    const type = usingAvatar ? avatarMimeType(href) : defaultFaviconRef.current.type;
+
+    // Chrome can prefer Next's typed SVG icon over a later untyped link.
+    // Point the framework-managed icon at the avatar too, but never remove it:
+    // removal desynchronizes React's hoisted-head bookkeeping.
+    for (const frameworkLink of frameworkLinks) {
+      frameworkLink.href = href;
+      if (type) frameworkLink.type = type;
+      else frameworkLink.removeAttribute("type");
+    }
+
     ownLinkRef.current?.remove();
     if (!href) {
       ownLinkRef.current = null;
       return;
     }
-    // Browsers prefer the most recently inserted <link rel="icon">, so
-    // appending ours after Next's default is enough to win without needing
-    // to remove Next's own tag at all.
+
     const link = document.createElement("link");
     link.rel = "icon";
     link.href = href;
+    link.type = type;
+    link.dataset.workerAvatarFavicon = "true";
     document.head.appendChild(link);
     ownLinkRef.current = link;
+
+    return () => {
+      link.remove();
+      if (ownLinkRef.current === link) ownLinkRef.current = null;
+      for (const frameworkLink of frameworkLinks) {
+        frameworkLink.href = defaultFaviconRef.current?.href ?? "";
+        const defaultType = defaultFaviconRef.current?.type;
+        if (defaultType) frameworkLink.type = defaultType;
+        else frameworkLink.removeAttribute("type");
+      }
+    };
   }, [profile]);
 
   return <WorkerIdentityContext.Provider value={{ profile }}>{children}</WorkerIdentityContext.Provider>;
