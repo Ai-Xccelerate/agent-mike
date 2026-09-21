@@ -1,91 +1,49 @@
-# Deploy to Railway
+# Deploy Agent Mike on Railway
 
-One GitHub repo (`Ai-Xccelerate/agent-mike`) → two Railway services.
+Railway project: `agent-mike` (`f9925ea4-a14d-4d6e-9310-bcc6907c2ff4`).
 
-Do **not** merge or deploy this work from `main` until staging is proven. Ship from the `staging` branch.
+- `mike-api` uses repository root and `railway.toml`.
+- `mike-frontend` uses root directory `frontend` and
+  `frontend/railway.toml`.
+- Postgres remains Mike's existing Railway database.
 
-## Services
+Do not point either service at the Foundation repositories or the `AIX worker`
+Railway project.
 
-Project: `agent-mike` (`f9925ea4-a14d-4d6e-9310-bcc6907c2ff4`)
+## Preview before cutover
 
-| Service | Root directory | Start | Health |
-| --- | --- | --- | --- |
-| `mike-api` | repository root | `npx drizzle-kit migrate && npm run start -- -p $PORT` (`railway.toml`) | `/api/health` |
-| `mike-frontend` | `frontend` | Docker / `npm run start` (`frontend/Dockerfile`, `frontend/railway.toml`) | `/api/health` |
-| Postgres | Railway plugin | — | — |
+1. Push the migration branch to `agent-mike`.
+2. Create isolated preview API, frontend, and Postgres services. Do not attach
+   the live Mike Postgres volume.
+3. Apply [the staging variable templates](./RAILWAY_STAGING_VARS.md).
+4. Register preview frontend origins with Clerk and AIX Core.
+5. Snapshot/restore representative Mike data into preview.
+6. Let `mike-api` run `npx drizzle-kit migrate` on preview startup.
+7. Complete the checks in [MIGRATION.md](./MIGRATION.md).
 
-The legacy FastAPI app under `apps/api` is not the Railway API root anymore.
+## Live cutover
 
-## Staging environment
+Only after explicit approval:
 
-1. Point both services at the `staging` git branch.
-2. API root `/`, frontend root `/frontend`.
-3. Domains: `mike-staging.aiworkforce.md`, `mike-api-staging.aiworkforce.md` (or Railway URLs).
-4. Copy Clerk + Core values from the Core kit — do not invent secrets.
-5. `CLERK_AUTHORIZED_PARTIES` on Mike API must include Core **and** the Mike frontend origin.
-6. Ask Core owners to add Mike URLs to Core CORS and to register catalog slug `mike` when ready.
+1. Take a restorable snapshot of live Mike Postgres.
+2. Confirm both services still target Mike's `staging` branch and correct root
+   directories.
+3. Merge the migration branch into Mike `staging`.
+4. Watch the API migration/deploy first, then frontend.
+5. Verify:
+   - `/api/health` returns `{"status":"ok","service":"mike-api"}`;
+   - Clerk login and Core access;
+   - dashboard, chat, widget, Inbox, Knowledge, Settings;
+   - Nylas and Composio integrations.
 
-## API variables
-
-```text
-APP_ENV=staging
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-5.6-luna
-OPENAI_TRANSCRIBE_MODEL=gpt-transcribe
-OPENAI_TRANSCRIBE_LANGUAGE=en
-DEMO_MODE=false
-CLERK_JWKS_URL=...
-CLERK_ISSUER=...
-CLERK_AUTHORIZED_PARTIES=https://app-staging.aiworkforce.md,https://mike-staging.aiworkforce.md
-AIX_CORE_API_URL=https://api-staging.aiworkforce.md
-CORS_ALLOWED_ORIGINS=https://mike-staging.aiworkforce.md,https://app-staging.aiworkforce.md
-NYLAS_API_KEY=...
-NYLAS_API_URI=https://api.us.nylas.com
-NYLAS_WEBHOOK_SECRET=...
-NYLAS_GRANT_ID=...
-NYLAS_MAILBOX_EMAIL=agent.mike@wkr.email
-# Optional legacy widget fallback only — prefer Chat → Copy embed (widget_sites):
-# MIKE_WIDGET_SITE_TOKEN=...
-# MIKE_WIDGET_ORG_ID=org_...
-```
-
-Never set `MIKE_ALLOW_LOCAL_UNAUTH` here. Do not set `NYLAS_ORG_ID`.
-
-Nylas inbound webhook:
+The backend start command migrates before serving:
 
 ```text
-https://YOUR-API-DOMAIN/api/v1/webhooks/nylas
+npx drizzle-kit migrate && npm run start -- -H 0.0.0.0 -p $PORT
 ```
 
-Subscribe at least to `message.created`. Store `webhook_secret` as `NYLAS_WEBHOOK_SECRET`.
+## Nylas URLs
 
-Grant↔org: [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md).  
-Widget↔org: [WIDGET.md](./WIDGET.md).
+- callback: `https://YOUR-API-DOMAIN/api/v1/mailbox/callback`
 
-## Web variables
-
-```text
-NEXT_PUBLIC_API_URL=https://YOUR-API-DOMAIN
-NEXT_PUBLIC_WIDGET_ORIGIN=https://YOUR-WEB-DOMAIN
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
-CLERK_SECRET_KEY=...
-CLERK_ENCRYPTION_KEY=...
-CLERK_SIGN_IN_URL=https://app-staging.aiworkforce.md/login
-CLERK_SIGN_UP_URL=https://app-staging.aiworkforce.md/signup
-CLERK_ALLOWED_REDIRECT_ORIGINS=https://mike-staging.aiworkforce.md
-CLERK_AUTHORIZED_PARTIES=https://app-staging.aiworkforce.md,https://mike-staging.aiworkforce.md
-NEXT_PUBLIC_CORE_API_URL=https://api-staging.aiworkforce.md
-NEXT_PUBLIC_CORE_APP_URL=https://app-staging.aiworkforce.md
-# NEXT_PUBLIC_MIKE_WIDGET_SITE_TOKEN is unused for multi-tenant embeds (?site= in URL).
-```
-
-Bake `NEXT_PUBLIC_CLERK_*` into the frontend Docker build args (see `frontend/Dockerfile`).
-
-## Verify
-
-- `https://YOUR-API-DOMAIN/api/health` → `{ "status": "ok", "service": "mike-api" }`
-- Manager UI: Core login → Overview / Inbox / Chat / Knowledge / Settings
-- Chat → Copy embed → iframe includes `?site=`; widget launcher opens and answers
-- Widget thread appears in Inbox for the copying org
-- Settings → Integrations: save mailbox email (grant from `NYLAS_GRANT_ID`)
+Never set `MIKE_ALLOW_LOCAL_UNAUTH` on Railway.

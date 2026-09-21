@@ -22,6 +22,13 @@
       "when": 1788518400000,
       "tag": "0002_widget_sites",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789992213578,
+      "tag": "0003_migrate_to_foundation",
+      "breakpoints": true
     }
   ]
 }

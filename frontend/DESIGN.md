@@ -93,4 +93,5 @@ Mobile-first: KPI rows 1 → 2 → 4; two-pane app layouts stack below `lg`; wid
 tables/boards scroll inside their own `overflow-x-auto` — the page body never
 scrolls horizontally. Site-wide density (Default / Comfortable / Compact) scales
 the root `--spacing` token via `data-density` on `<html>`. Air between blocks
-`gap-4 md:gap-6`; card padding `p-5 md:p-6`.
+`gap-4 md:gap-6`; card padding `p-5 md:p-6`. Nav and sidebar **column** widths
+are px-locked (`w-[240px]`, `lg:w-[224px]`) so Compact cannot truncate labels.

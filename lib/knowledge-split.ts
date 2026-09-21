@@ -1,33 +1,51 @@
-export function splitMarkdown(body: string, maxChars = 1800): Array<[string | null, string]> {
-  const sections: Array<[string | null, string]> = [];
-  let heading: string | null = null;
-  let buffer: string[] = [];
+export interface KnowledgeChunkInput {
+  heading: string | null;
+  content: string;
+}
 
-  const flush = () => {
-    let raw = buffer.join("\n").trim();
-    buffer = [];
-    while (raw) {
-      if (raw.length <= maxChars) {
-        sections.push([heading, raw]);
-        break;
-      }
-      let cut = raw.lastIndexOf("\n\n", maxChars);
-      if (cut < maxChars / 2) cut = raw.lastIndexOf(". ", maxChars);
-      if (cut < maxChars / 2) cut = maxChars;
-      sections.push([heading, raw.slice(0, cut).trim()]);
-      raw = raw.slice(cut).trim();
-    }
-  };
+const MAX_CHARS = 1800;
 
-  for (const line of body.split("\n")) {
-    const match = line.match(/^#{1,4}\s+(.+)$/);
-    if (match) {
-      flush();
-      heading = match[1].trim();
+/**
+ * Splits an OKF document body into heading-scoped chunks, breaking long
+ * sections further so no chunk exceeds MAX_CHARS. Headings are preserved as
+ * chunk metadata rather than duplicated into every chunk's content.
+ */
+export function splitMarkdown(body: string): KnowledgeChunkInput[] {
+  const lines = body.split(/\r?\n/);
+  const sections: { heading: string | null; lines: string[] }[] = [{ heading: null, lines: [] }];
+
+  for (const line of lines) {
+    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (headingMatch) {
+      sections.push({ heading: headingMatch[2].trim(), lines: [] });
     } else {
-      buffer.push(line);
+      sections[sections.length - 1].lines.push(line);
     }
   }
-  flush();
-  return sections.length ? sections : [[null, body.trim()]];
+
+  const chunks: KnowledgeChunkInput[] = [];
+  for (const section of sections) {
+    const text = section.lines.join("\n").trim();
+    if (!text) continue;
+
+    if (text.length <= MAX_CHARS) {
+      chunks.push({ heading: section.heading, content: text });
+      continue;
+    }
+
+    // Long section: break on paragraph boundaries, accumulating up to MAX_CHARS.
+    const paragraphs = text.split(/\n{2,}/);
+    let buffer = "";
+    for (const para of paragraphs) {
+      if ((buffer + "\n\n" + para).length > MAX_CHARS && buffer) {
+        chunks.push({ heading: section.heading, content: buffer.trim() });
+        buffer = para;
+      } else {
+        buffer = buffer ? `${buffer}\n\n${para}` : para;
+      }
+    }
+    if (buffer.trim()) chunks.push({ heading: section.heading, content: buffer.trim() });
+  }
+
+  return chunks;
 }

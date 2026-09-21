@@ -1,13 +1,11 @@
-# mike-api — Railway service config (repo root = this directory)
-# Create a second service from the same repo for the manager UI; set its
-# root directory to frontend/.
+# Agent Mike API
 
 [build]
 builder = "nixpacks"
 buildCommand = "npm run build"
 
 [deploy]
-startCommand = "npx drizzle-kit migrate && npm run start -- -p $PORT"
+startCommand = "npx drizzle-kit migrate && npm run start -- -H 0.0.0.0 -p $PORT"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 120
 restartPolicyType = "on_failure"

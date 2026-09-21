@@ -1,0 +1,20 @@
+const AUTH_CONFIG_ENV: Record<string, string> = {
+  zoho: "COMPOSIO_ZOHO_AUTH_CONFIG_ID",
+  linear: "COMPOSIO_LINEAR_AUTH_CONFIG_ID",
+  gmail: "COMPOSIO_GMAIL_AUTH_CONFIG_ID",
+  outlook: "COMPOSIO_OUTLOOK_AUTH_CONFIG_ID",
+  googlecalendar: "COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID",
+  jira: "COMPOSIO_JIRA_AUTH_CONFIG_ID",
+};
+
+export function getAuthConfigId(system: string): string {
+  const envName = AUTH_CONFIG_ENV[system];
+  if (!envName) {
+    throw new Error(`No Composio auth config mapping for system "${system}"`);
+  }
+  const value = (process.env[envName] || "").trim();
+  if (!value) {
+    throw new Error(`${envName} is not set`);
+  }
+  return value;
+}

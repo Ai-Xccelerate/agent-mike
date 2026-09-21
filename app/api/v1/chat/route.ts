@@ -1,153 +1,221 @@
-import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
-import { NextRequest } from "next/server";
-import { conversations, messages } from "@/db/schema";
-import { runAgent } from "@/lib/agent";
-import { sendEmail } from "@/lib/nylas-mail";
-import { nextTicketNumber } from "@/lib/conversations";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { json, withTenant } from "@/lib/http";
-import { getProfile } from "@/lib/profile";
-import { applyOutcome, serializeMessage, ticketRef } from "@/lib/serialize";
+import { conversations, emailDomains, messages } from "@/db/schema";
+import { getIdentityAdapter } from "@/lib/identity";
+import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
+import { evaluateMessage } from "@/lib/guardrails";
+import { approvedDomains } from "@/lib/email-domains";
+import { retrieveKnowledge } from "@/lib/retrieval";
+import { handoffToManager, runAgent } from "@/lib/agent";
+import {
+  maybeRefreshConversationSummary,
+  REPLAY_MESSAGE_LIMIT,
+  type HistoryTurn,
+} from "@/lib/conversation-memory";
 
-export const runtime = "nodejs";
+/** Roughly 2,500 words — a long email thread, not a pasted document. */
+const MAX_MESSAGE_LENGTH = 10000;
+
+// Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
 
+function toHistoryTurns(
+  rows: { senderType: string; senderName: string; body: string }[],
+): HistoryTurn[] {
+  return rows.map((row) => ({
+    speaker: row.senderName,
+    body: row.body,
+  }));
+}
+
 export async function POST(req: NextRequest) {
-  return withTenant(
-    req,
-    async (tenant) => {
-      const payload = (await req.json()) as {
-        message?: string;
-        conversation_id?: string;
-        customer_name?: string;
-        customer_email?: string | null;
-      };
-      const text = (payload.message || "").trim();
-      if (!text) return json({ error: "message is required" }, 422);
-
-      const profile = await getProfile(tenant.orgId);
-      const customerName = payload.customer_name || "Website visitor";
-      let conversation = payload.conversation_id
-        ? (
-            await db
-              .select()
-              .from(conversations)
-              .where(
-                and(
-                  eq(conversations.id, payload.conversation_id),
-                  eq(conversations.organizationId, tenant.orgId),
-                ),
-              )
-              .limit(1)
-          )[0]
-        : undefined;
-
-      const history = conversation
-        ? await db.select().from(messages).where(eq(messages.conversationId, conversation.id))
-        : [];
-
-      if (!conversation) {
-        const [created] = await db
-          .insert(conversations)
-          .values({
-            id: randomUUID(),
-            organizationId: tenant.orgId,
-            channel: "chat",
-            customerName,
-            customerEmail: payload.customer_email || null,
-            subject: text.slice(0, 90),
-            ticketNumber: await nextTicketNumber(tenant.orgId),
-          })
-          .returning();
-        conversation = created;
-      }
-
-      await db.insert(messages).values({
-        id: randomUUID(),
-        conversationId: conversation.id,
-        senderType: "customer",
-        senderName: customerName,
-        body: text,
-      });
-
-      const answer = await runAgent(
-        tenant.orgId,
-        profile,
-        text,
-        history.map((item) => ({ senderType: item.senderType, body: item.body })),
-      );
-
-      const [mikeMessage] = await db
-        .insert(messages)
-        .values({
-          id: randomUUID(),
-          conversationId: conversation.id,
-          senderType: "agent",
-          senderName: profile.displayName,
-          body: answer.text,
-          citations: answer.citations,
-          metadata: { confidence: answer.confidence, reason: answer.reason },
-        })
-        .returning();
-
-      const outcome = applyOutcome(conversation, profile, answer);
-      await db
-        .update(conversations)
-        .set({
-          ...outcome,
-          confidence: answer.confidence,
-          summary: text.slice(0, 240),
-          updatedAt: new Date(),
-        })
-        .where(eq(conversations.id, conversation.id));
-
-      if (answer.escalated && profile.managerEmail) {
-        try {
-          const [fresh] = await db
-            .select()
-            .from(conversations)
-            .where(eq(conversations.id, conversation.id))
-            .limit(1);
-          const ref = ticketRef(fresh);
-          const who = fresh.customerEmail
-            ? `${fresh.customerName} <${fresh.customerEmail}>`
-            : fresh.customerName;
-          await sendEmail(
-            tenant.orgId,
-            profile.managerEmail,
-            `[Escalation ${ref}] ${fresh.subject.slice(0, 60)}`,
-            [
-              "Agent Mike escalated a support conversation and needs a human to respond.",
-              "",
-              `**Ticket:** ${ref}`,
-              `**Reference ID:** ${fresh.id}`,
-              `**Channel:** ${fresh.channel}`,
-              `**Customer:** ${who}`,
-              `**Reason:** ${answer.reason || "Escalation"}`,
-              "",
-              "**Customer's message:**",
-              text,
-              "",
-              "**Mike's reply to the customer:**",
-              answer.text,
-              "",
-              `Please review and respond on ticket ${ref}.`,
-            ].join("\n"),
-          );
-        } catch (err) {
-          console.warn("[chat] manager notification failed", err);
-        }
-      }
-
-      return json({
-        conversation_id: conversation.id,
-        message: serializeMessage(mikeMessage),
-        status: outcome.status,
-        confidence: answer.confidence,
-        escalated: answer.escalated,
-      });
-    },
-    "widget",
+  const identity = getIdentityAdapter();
+  const isWidget = Boolean(
+    req.headers.get("x-worker-site-token") || req.headers.get("x-mike-site-token"),
   );
+  const tenant = isWidget
+    ? await identity.resolveWidgetRequest(req)
+    : await identity.resolveManagerRequest(req);
+
+  if (!tenant) {
+    return NextResponse.json({ error: "Invalid or missing site token" }, { status: 401 });
+  }
+
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const message = body?.message as string | undefined;
+  const conversationId = body?.conversation_id as string | undefined;
+  if (!message || typeof message !== "string") {
+    return NextResponse.json({ error: "message is required" }, { status: 400 });
+  }
+
+  // Bounded because the far end is a paid model with a context limit. Without
+  // a cap, one request can burn an unbounded amount of money and a widget is
+  // public by design — the limit belongs here, not in the client that anyone
+  // can bypass. Generous enough for a pasted email thread.
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    return NextResponse.json(
+      {
+        error: "Message is too long",
+        errors: {
+          message: `Keep messages under ${MAX_MESSAGE_LENGTH.toLocaleString()} characters — this one is ${message.length.toLocaleString()}.`,
+        },
+      },
+      { status: 422 },
+    );
+  }
+
+  const profile = await getOrCreateProfile(tenant.orgId);
+
+  let conversation;
+  if (conversationId) {
+    [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+  }
+
+  // Load prior turns before inserting the current message so the latest user
+  // line is not replayed twice (once in history, once as the current message).
+  const priorMessages = conversation
+    ? await db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversation.id))
+        .orderBy(messages.createdAt)
+    : [];
+
+  if (!conversation) {
+    const ticketResult = await db.execute<{ next_ticket: number }>(
+      sql`select coalesce(max(ticket_number), 1000) + 1 as next_ticket from conversations where organization_id = ${tenant.orgId}`,
+    );
+    const nextTicket = Number(ticketResult.rows[0]?.next_ticket ?? 1001);
+
+    [conversation] = await db
+      .insert(conversations)
+      .values({
+        organizationId: tenant.orgId,
+        ticketNumber: nextTicket,
+        channel: tenant.source === "widget" ? "widget" : "chat",
+        subject: message.slice(0, 120),
+      })
+      .returning();
+  }
+
+  const speakerName = tenant.source === "widget" ? conversation.customerName : "Manager";
+  const [userMessage] = await db
+    .insert(messages)
+    .values({
+      conversationId: conversation.id,
+      senderType: tenant.source === "widget" ? "customer" : "manager",
+      senderName: speakerName,
+      body: message,
+    })
+    .returning();
+
+  // A manager has taken over — the agent stays quiet until it's handed back.
+  if (conversation.humanControlled) {
+    return NextResponse.json({
+      conversation_id: conversation.id,
+      message: null,
+      status: conversation.status,
+      confidence: conversation.confidence,
+      escalated: false,
+      knowledge_sources: [],
+    });
+  }
+
+  const domainRows = await db
+    .select({ status: emailDomains.status, domain: emailDomains.domain })
+    .from(emailDomains)
+    .where(eq(emailDomains.organizationId, tenant.orgId));
+
+  const guardrail = evaluateMessage({
+    message,
+    senderEmail: conversation.customerEmail,
+    escalationTerms: profile.escalationTerms,
+    allowedDomains: approvedDomains(domainRows),
+    requireUserVerification: profile.requireUserVerification,
+  });
+
+  // Local knowledge plus any enabled knowledge integration (e.g. Parchment).
+  const { matches: knowledgeMatches, sources: knowledgeSources } = await retrieveKnowledge(
+    profile,
+    message,
+  );
+
+  const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
+
+  let result;
+  // Deterministic fast-fail (domain / literal phrases) stays here so we skip
+  // retrieval+model when already escalating. Semantic intent + reply policy
+  // run as SDK input/output guardrails inside runAgent.
+  if (guardrail.escalate) {
+    result = handoffToManager(profile);
+  } else {
+    try {
+      result = await runAgent(
+        profile,
+        await getOrganizationName(tenant.orgId),
+        message,
+        knowledgeMatches,
+        tenant.orgId,
+        conversation.id,
+        recentHistory,
+        conversation.summary,
+        speakerName,
+        conversation.channel,
+      );
+    } catch {
+      // A model/runtime failure (MaxTurnsExceededError, provider outage) must
+      // not 500 the public widget. The customer message is already persisted
+      // above; degrade to the same handoff as a guardrail escalation.
+      // Tool side effects from the failed run are left as-is — this product
+      // has no transaction around tool calls, and rolling them back is out of
+      // scope for this catch.
+      result = handoffToManager(profile);
+    }
+  }
+
+  const [reply] = await db
+    .insert(messages)
+    .values({
+      conversationId: conversation.id,
+      senderType: "agent",
+      senderName: profile.displayName,
+      body: result.answer,
+      citations: result.citations,
+    })
+    .returning();
+
+  const status = result.escalate ? "needs_human" : "open";
+
+  // Fold anything that just fell out of the replay window into the rolling
+  // summary. Runs after the turn so it never delays the customer's answer.
+  const allTurns = toHistoryTurns([...priorMessages, userMessage, reply]);
+  const summaryState = await maybeRefreshConversationSummary(
+    profile,
+    { summary: conversation.summary, summarizedMessageCount: conversation.summarizedMessageCount },
+    allTurns,
+    "customer",
+  );
+
+  await db
+    .update(conversations)
+    .set({
+      status,
+      confidence: result.confidence,
+      assignedTo: result.escalate ? profile.managerName : conversation.assignedTo,
+      summary: summaryState.summary,
+      summarizedMessageCount: summaryState.summarizedMessageCount,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversation.id));
+
+  return NextResponse.json({
+    conversation_id: conversation.id,
+    message: reply,
+    status,
+    confidence: result.confidence,
+    escalated: result.escalate,
+    knowledge_sources: knowledgeSources,
+  });
 }

@@ -5,43 +5,21 @@ import LiquidBackdrop from "@/components/common/LiquidBackdrop";
 import { DensityProvider } from "@/context/DensityContext";
 import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeProvider } from "@/context/ThemeContext";
-import { LocalModeProvider } from "@/lib/local-mode-context";
-import { assertLocalBypassSafe, isLocalUnauthEnabled } from "@/lib/local-mode";
-import AuthDiagnostics from "@/components/AuthDiagnostics";
-import { authDebug, authEnvSnapshot } from "@/lib/auth-debug";
-import { MikeAuthBridge } from "@/lib/mike-auth";
+import { ManagerAuthBridge } from "@/lib/manager-auth";
 
 export const metadata = {
-  title: "Agent Mike | Support operations",
-  description: "Manage Agent Mike, your Level 1 AI support specialist.",
+  title: "Agent Mike | Manager console",
+  description: "Configure and operate Agent Mike.",
 };
 
 const noFlashTheme = `(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');}}catch(e){}})();`;
 
-function parseList(raw: string | undefined): string[] | undefined {
-  if (!raw) return undefined;
-  const list = raw.split(",").map((s) => s.trim()).filter(Boolean);
-  return list.length > 0 ? list : undefined;
-}
-
-function AppProviders({
-  children,
-  bypass,
-}: {
-  children: React.ReactNode;
-  bypass: boolean;
-}) {
-  return (
-    <LocalModeProvider bypass={bypass}>
-      <MikeAuthBridge>
-        <ThemeProvider>
-          <DensityProvider>
-            <SidebarProvider>{children}</SidebarProvider>
-          </DensityProvider>
-        </ThemeProvider>
-      </MikeAuthBridge>
-    </LocalModeProvider>
-  );
+function parseList(value: string | undefined): string[] | undefined {
+  const values = value
+    ?.split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return values?.length ? values : undefined;
 }
 
 export default function RootLayout({
@@ -49,26 +27,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  assertLocalBypassSafe();
-  const bypass = isLocalUnauthEnabled();
   const signInUrl = process.env.CLERK_SIGN_IN_URL;
   const signUpUrl = process.env.CLERK_SIGN_UP_URL;
-  const coreApp = process.env.NEXT_PUBLIC_CORE_APP_URL?.replace(/\/$/, "");
+  const coreAppUrl = process.env.NEXT_PUBLIC_CORE_APP_URL?.replace(/\/$/, "");
   const allowedRedirectOrigins = parseList(process.env.CLERK_ALLOWED_REDIRECT_ORIGINS);
-
-  authDebug("server.layout", {
-    bypass,
-    ...authEnvSnapshot(),
-    signUpUrlPresent: Boolean(signUpUrl),
-    allowedRedirectOriginsCount: allowedRedirectOrigins?.length ?? 0,
-  });
-
-  const tree = (
-    <AppProviders bypass={bypass}>
-      {!bypass ? <AuthDiagnostics /> : null}
-      {children}
-    </AppProviders>
-  );
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -77,18 +39,20 @@ export default function RootLayout({
       </head>
       <body className="font-outfit">
         <LiquidBackdrop />
-        {bypass ? (
-          tree
-        ) : (
-          <ClerkProvider
-            signInUrl={signInUrl}
-            signUpUrl={signUpUrl}
-            afterSignOutUrl={coreApp ? `${coreApp}/login` : signInUrl}
-            allowedRedirectOrigins={allowedRedirectOrigins}
-          >
-            {tree}
-          </ClerkProvider>
-        )}
+        <ClerkProvider
+          signInUrl={signInUrl}
+          signUpUrl={signUpUrl}
+          afterSignOutUrl={coreAppUrl ? `${coreAppUrl}/login` : signInUrl}
+          allowedRedirectOrigins={allowedRedirectOrigins}
+        >
+          <ManagerAuthBridge>
+            <ThemeProvider>
+              <DensityProvider>
+                <SidebarProvider>{children}</SidebarProvider>
+              </DensityProvider>
+            </ThemeProvider>
+          </ManagerAuthBridge>
+        </ClerkProvider>
       </body>
     </html>
   );

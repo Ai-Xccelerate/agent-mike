@@ -1,14 +1,21 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { assertLocalBypassSafe, isLocalUnauthEnabled } from "@/lib/local-mode";
 
-assertLocalBypassSafe();
-
-const isPublicRoute = createRouteMatcher(["/api/(.*)", "/widget(.*)"]);
+const isPublicRoute = createRouteMatcher([
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/widget(.*)",
+  "/api/health",
+]);
 
 export default clerkMiddleware(
-  async (auth, req) => {
-    if (isLocalUnauthEnabled()) return;
-    if (!isPublicRoute(req)) {
+  async (auth, request) => {
+    // Widget API calls remain public at Clerk and authenticate with their
+    // organization-scoped site token in the worker backend.
+    const isWidgetRequest = Boolean(
+      request.headers.get("x-worker-site-token") ||
+        request.headers.get("x-mike-site-token"),
+    );
+    if (!isPublicRoute(request) && !isWidgetRequest) {
       await auth.protect();
     }
   },

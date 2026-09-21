@@ -2,16 +2,24 @@
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
-import { ChatIcon, DocsIcon, GridIcon, MailIcon, UserCircleIcon } from "@/icons";
+import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
+import { GearIcon, GridIcon, MailIcon, SparklesIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
 
+// Knowledge lives under Settings (R14 lists it as one of the ten dedicated
+// capability pages), not as a top-level operational section like the three
+// below — those are the day-to-day surfaces, not configuration.
+//
+// Assistant is the manager's own conversational admin assistant, not the
+// worker's customer-facing behavior — that's Playground, which tests the
+// worker's configured agent from under Settings > Channels instead of a
+// permanent nav slot.
 const primaryNav: { name: string; path: string; icon: React.FC }[] = [
   { name: "Overview", path: "/", icon: GridIcon },
+  { name: "Assistant", path: "/assistant", icon: SparklesIcon },
   { name: "Inbox", path: "/inbox", icon: MailIcon },
-  { name: "Chat", path: "/chat", icon: ChatIcon },
-  { name: "Knowledge", path: "/knowledge", icon: DocsIcon },
 ];
 
 export default function AppSidebar() {
@@ -19,6 +27,9 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const showLabels = isExpanded || isHovered || isMobileOpen;
   const settingsActive = pathname.startsWith("/settings");
+  const identity = useWorkerIdentity();
+  const displayName = identity?.displayName ?? "AI Worker";
+  const initials = identity?.avatarInitials ?? "AW";
 
   return (
     <aside
@@ -31,14 +42,21 @@ export default function AppSidebar() {
     >
       <Link
         href="/"
-        title={!showLabels ? "Agent Mike" : undefined}
+        title={!showLabels ? displayName : undefined}
         className={`flex h-20 items-center gap-3 px-2 ${showLabels ? "justify-start" : "justify-center"}`}
       >
-        <AgentAvatar name="Mike" size="md" />
+        <AgentAvatar
+          initials={initials}
+          size="md"
+          accentColor={identity?.accentColor}
+          avatarUrl={identity?.avatarUrl}
+          status={identity?.status}
+          showStatus
+        />
         {showLabels && (
           <span className="min-w-0">
-            <span className="block font-display text-base font-semibold tracking-tight text-gray-900 dark:text-white">
-              Agent Mike
+            <span className="block truncate font-display text-base font-semibold tracking-tight text-gray-900 dark:text-white">
+              {displayName}
             </span>
             <span className="block text-xs text-gray-500 dark:text-gray-400">AI Xccelerate</span>
           </span>
@@ -86,7 +104,7 @@ export default function AppSidebar() {
                 settingsActive ? "menu-item-icon-active" : "menu-item-icon-inactive"
               }`}
             >
-              <UserCircleIcon />
+              <GearIcon />
             </span>
             {showLabels && <span className="menu-item-text">Settings</span>}
           </Link>

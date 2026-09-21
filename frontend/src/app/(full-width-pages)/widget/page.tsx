@@ -1,16 +1,19 @@
-import WidgetShell from "@/components/mike/WidgetShell";
+import WorkerWidget from "@/components/worker/WorkerWidget";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 
+// Never let this page get stuck as stale prerendered/cached HTML across deploys.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
-  title: "Chat with Mike",
-  description: "Website support chat powered by Agent Mike.",
+  title: "Chat",
+  description: "Website support chat.",
 };
 
 export default function WidgetPage() {
   return (
     <Suspense fallback={null}>
-      <WidgetShell />
+      <WorkerWidget />
     </Suspense>
   );
 }

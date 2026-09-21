@@ -699,17 +699,20 @@
     },
     {
       "id": "AIX-105",
-      "title": "Chat",
-      "route": "/chat",
+      "title": "Playground",
+      "route": "/playground",
       "area": "apps",
-      "file": "src/app/(admin)/(apps)/chat/page.tsx",
+      "file": "src/app/(admin)/(apps)/playground/page.tsx",
       "blocks": [
         {
           "id": "AIX-105.1",
-          "description": "Chat app (conversation list + message pane)"
+          "description": "Manager sandbox: test the worker's configured agent (conversation list + message pane)"
         }
       ],
       "keywords": [
+        "playground",
+        "test",
+        "sandbox",
         "chat",
         "messages",
         "conversation",
@@ -990,6 +993,35 @@
         "model",
         "configuration",
         "brand voice"
+      ]
+    },
+    {
+      "id": "AIX-160",
+      "title": "Worker Identity",
+      "route": "/settings/identity",
+      "area": "ai-tools",
+      "file": "src/app/(admin)/settings/identity/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-160.1",
+          "description": "Identity basics: names, slug, status, initials, accent colour, avatar URL"
+        },
+        {
+          "id": "AIX-160.2",
+          "description": "Voice: tone and short bio"
+        },
+        {
+          "id": "AIX-160.3",
+          "description": "Sign-off: timezone, locale, email, email signature"
+        }
+      ],
+      "keywords": [
+        "identity",
+        "settings",
+        "worker",
+        "avatar",
+        "slug",
+        "white-label"
       ]
     },
     {

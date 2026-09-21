@@ -103,8 +103,12 @@ success `#12B76A` · error `#F04438` · warning `#F79009` · info `#0BA5EC`
 - **Density:** three site-wide levels — Default (1×), Comfortable (0.875×),
   Compact (0.75×) — picked from the header density dropdown, persisted in
   localStorage, applied as `data-density` on `<html>`. They scale Tailwind's
-  root `--spacing` token in `globals.css`, so every spacing utility follows;
-  never build per-page density switches.
+  root `--spacing` token in `globals.css`, so every spacing utility follows
+  (`p-*`, `gap-*`, `h-*`, `w-56`, `px-3`, …). **Never size a chrome column
+  with those utilities.** Compact is 0.75×: `w-56` becomes ~168px and labels
+  truncate. Lock nav/sidebar widths in px, the way the app sidebar already
+  does (`w-[240px]`, settings nav `lg:w-[224px]`). Row padding and icon size
+  should still tighten. Never build per-page density switches.
 - **Borders:** hairlines only (1px). Subtle for cards/dividers, default for
   inputs/interactive. Borders never carry color.
 - **Shadows:** only on the primary CTA (`--shadow-cta`, orange-tinted). Cards

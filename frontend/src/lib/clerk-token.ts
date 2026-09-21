@@ -1,15 +1,15 @@
-type ClerkGetToken = (opts?: { organizationId?: string }) => Promise<string | null>;
+type ClerkGetToken = (options?: { organizationId?: string }) => Promise<string | null>;
 
-/** Retry Clerk getToken — session JWT can lag briefly after redirect from Core. */
+/** Clerk's session JWT can briefly lag after redirecting from AIX Core. */
 export async function getTokenWithRetry(
   getToken: ClerkGetToken,
   organizationId?: string | null,
   attempts = 6,
 ): Promise<string | null> {
-  for (let i = 0; i < attempts; i++) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const token = organizationId ? await getToken({ organizationId }) : await getToken();
     if (token) return token;
-    await new Promise((r) => setTimeout(r, 250 * (i + 1)));
+    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
   }
   return null;
 }

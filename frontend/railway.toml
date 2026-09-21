@@ -1,4 +1,4 @@
-# mike-frontend — set Railway root directory to: frontend
+# Agent Mike frontend
 
 [build]
 builder = "nixpacks"

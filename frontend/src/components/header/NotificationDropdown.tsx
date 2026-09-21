@@ -1,60 +1,224 @@
 "use client";
 
-import Badge from "@/components/ui/badge/Badge";
 import { Dropdown } from "@/components/ui/dropdown/Dropdown";
-import { apiFetch, Conversation } from "@/lib/mike-api";
+import {
+  CONVERSATION_READ_EVENT,
+  isConversationUnread,
+  loadConversationReadMap,
+  markConversationRead,
+  markConversationsRead,
+  type ConversationReadMap,
+} from "@/lib/conversation-read-state";
+import { apiFetch, type Conversation } from "@/lib/worker-api";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-
-function initials(name: string) {
-  return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-}
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 function relativeTime(iso: string) {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function channelLabel(channel: Conversation["channel"]) {
+  if (channel === "email") return "Email";
+  if (channel === "widget") return "Website";
+  if (channel === "assistant") return "Assistant";
+  return "Chat";
+}
+
+function titleFor(conversation: Conversation) {
+  const name = conversation.customerName?.trim();
+  if (name && name.toLowerCase() !== "website visitor") {
+    return `${name} needs review`;
+  }
+  return "Escalation needs review";
+}
+
+function previewFor(conversation: Conversation) {
+  const raw = conversation.subject?.trim() || conversation.summary?.trim();
+  if (!raw) return "A conversation was handed off and is waiting in the inbox.";
+  return raw.replace(/\s+/g, " ").replace(/\.+$/, ".");
+}
+
+function ChannelIcon({ channel }: { channel: Conversation["channel"] }) {
+  if (channel === "email") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M4 6.5h16v11H4v-11Zm0 0 8 6 8-6"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M5 18.5v-9A3.5 3.5 0 0 1 8.5 6h7A3.5 3.5 0 0 1 19 9.5v5A3.5 3.5 0 0 1 15.5 18H9l-4 2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 export default function NotificationDropdown() {
   const [open, setOpen] = useState(false);
-  const [seen, setSeen] = useState(false);
   const [items, setItems] = useState<Conversation[]>([]);
+  const [readMap, setReadMap] = useState<ConversationReadMap>({});
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    apiFetch<Conversation[]>("/conversations?conversation_status=needs_human")
-      .then(setItems)
-      .catch(() => undefined);
+    setReadMap(loadConversationReadMap());
+    const syncRead = () => setReadMap(loadConversationReadMap());
+    window.addEventListener(CONVERSATION_READ_EVENT, syncRead);
+    window.addEventListener("storage", syncRead);
+    apiFetch<Conversation[]>("/conversations")
+      .then((data) => setItems(data.filter((c) => c.status === "needs_human")))
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
+    return () => {
+      window.removeEventListener(CONVERSATION_READ_EVENT, syncRead);
+      window.removeEventListener("storage", syncRead);
+    };
   }, []);
 
-  const unread = items.length > 0 && !seen;
+  const unreadCount = useMemo(
+    () => items.filter((item) => isConversationUnread(item, readMap)).length,
+    [items, readMap],
+  );
 
-  function toggle() { setOpen((value) => !value); setSeen(true); }
+  const markAllRead = useCallback(() => {
+    setReadMap((prev) => markConversationsRead(items, prev));
+  }, [items]);
+
+  const markOneRead = useCallback((conversation: Conversation) => {
+    setReadMap((prev) => markConversationRead(conversation, prev));
+  }, []);
+
+  const badgeLabel = unreadCount > 9 ? "9+" : String(unreadCount);
 
   return (
     <div className="relative">
-      <button aria-label={unread ? `Notifications, ${items.length} unread` : "Notifications"} aria-haspopup="menu" aria-expanded={open} onClick={toggle} className="relative flex size-11 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800">
-        {unread && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-brand-500 ring-2 ring-white dark:ring-gray-900" />}
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      <button
+        type="button"
+        aria-label={unreadCount ? `Notifications, ${unreadCount} unread` : "Notifications"}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="dropdown-toggle relative flex size-11 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+      >
+        {unreadCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white dark:ring-gray-900">
+            {badgeLabel}
+          </span>
+        )}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
-      <Dropdown isOpen={open} onClose={() => setOpen(false)} className="absolute right-0 mt-[17px] w-[calc(100vw-2rem)] max-w-[360px] rounded-2xl border border-gray-200 p-3 shadow-theme-lg dark:border-gray-800 sm:w-[360px]">
-        <div className="flex items-center justify-between border-b border-gray-100 px-1 pb-3 dark:border-gray-800"><h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Needs your attention</h2><Badge size="sm" color={items.length ? "warning" : "light"}>{items.length} open</Badge></div>
-        <div className="mt-2 space-y-1">
-          {!items.length && <p className="px-3 py-8 text-center text-sm text-gray-500">Nothing needs your review right now.</p>}
-          {items.map((conversation) => (
-            <Link key={conversation.id} href="/inbox" onClick={() => setOpen(false)} className="flex gap-3 rounded-lg p-3 hover:bg-gray-50 dark:hover:bg-white/5">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning-50 text-xs font-semibold text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">{initials(conversation.customer_name)}</span>
-              <span className="min-w-0">
-                <span className="block text-sm text-gray-700 dark:text-gray-300"><strong>{conversation.customer_name}</strong> — {conversation.subject}. Mike escalated it.</span>
-                <span className="mt-1 block text-xs text-gray-500">{relativeTime(conversation.updated_at)} · {conversation.channel === "email" ? "Email" : "Website chat"}</span>
-              </span>
-            </Link>
-          ))}
+
+      <Dropdown
+        isOpen={open}
+        onClose={() => setOpen(false)}
+        className="mt-2 flex w-[min(100vw-1.5rem,22.5rem)] flex-col overflow-hidden p-0 shadow-theme-lg sm:w-[22.5rem]"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-white/90">Notifications</h2>
+          <button
+            type="button"
+            onClick={markAllRead}
+            disabled={unreadCount === 0}
+            className="inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-gray-500 transition-colors hover:text-gray-800 disabled:cursor-default disabled:opacity-40 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M4 12.5l4.5 4.5L20 6"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Mark all read
+          </button>
         </div>
-        <Link href="/inbox" onClick={() => setOpen(false)} className="mt-2 block rounded-lg border border-gray-200 px-3 py-2 text-center text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-300 dark:hover:bg-white/5">Open support inbox</Link>
+
+        <div className="max-h-[min(26rem,62vh)] overflow-y-auto overscroll-contain">
+          {!loaded && (
+            <p className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+          )}
+          {loaded && items.length === 0 && (
+            <p className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+              You&apos;re caught up — nothing needs review.
+            </p>
+          )}
+          {items.map((conversation, index) => {
+            const unread = isConversationUnread(conversation, readMap);
+            return (
+              <Link
+                key={conversation.id}
+                href="/inbox"
+                onClick={() => {
+                  markOneRead(conversation);
+                  setOpen(false);
+                }}
+                className={`relative flex gap-3 px-4 py-3.5 transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.04] ${
+                  index > 0 ? "border-t border-gray-100 dark:border-gray-800/80" : ""
+                }`}
+              >
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-400">
+                  <ChannelIcon channel={conversation.channel} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-start justify-between gap-3">
+                    <span className="text-sm font-semibold leading-5 text-gray-800 dark:text-white/90">
+                      {titleFor(conversation)}
+                    </span>
+                    {unread && (
+                      <span
+                        className="mt-1.5 size-2 shrink-0 rounded-full bg-brand-500"
+                        aria-label="Unread"
+                      />
+                    )}
+                  </span>
+                  <span className="mt-1 line-clamp-2 text-sm leading-5 text-gray-500 dark:text-gray-400">
+                    {previewFor(conversation)}
+                  </span>
+                  <span className="mt-2 flex items-center justify-between gap-2 text-xs text-gray-400 dark:text-gray-500">
+                    <span>{channelLabel(conversation.channel)}</span>
+                    <span>{relativeTime(conversation.updatedAt)}</span>
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+
+        <div className="border-t border-gray-200 p-2 dark:border-gray-800">
+          <Link
+            href="/inbox"
+            onClick={() => setOpen(false)}
+            className="block rounded-lg px-3 py-2 text-center text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.04]"
+          >
+            Open inbox
+          </Link>
+        </div>
       </Dropdown>
     </div>
   );

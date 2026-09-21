@@ -1,43 +1,63 @@
-# Staging Railway variables — copy/paste
+# Railway staging variables
 
-You cannot put real Clerk/Anthropic/Nylas **secrets** in git. Railway reads variables from the service UI, not from a committed `.env`.
+Use the safe paste templates:
 
-What *is* in the repo (safe to copy):
+- API: [`.env.staging.example`](../.env.staging.example)
+- frontend: [`frontend/.env.staging.example`](../frontend/.env.staging.example)
 
-- API paste block: [`.env.staging.example`](../.env.staging.example)
-- Frontend paste block: [`frontend/.env.staging.example`](../frontend/.env.staging.example)
+Secrets stay in Railway variables and must never be committed.
 
-## Where the secret values come from
+## Variable ownership
 
-| Variable | Copy from |
-|---|---|
-| `CLERK_JWKS_URL`, `CLERK_ISSUER` | Core kit `aix-clerk-core-env-values.md` **or** Jules/Nick **API** staging Railway |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Same kit **or** Jules/Nick **frontend** staging Railway |
-| `CLERK_ENCRYPTION_KEY` | Jules/Nick frontend staging, or generate once |
-| `OPENAI_API_KEY` | OpenAI dashboard (Agents SDK / Responses) |
-| `OPENAI_MODEL` | Default `gpt-5.6-luna`; optional `gpt-5.6-sol` |
-| `OPENAI_TRANSCRIBE_MODEL` | Default `gpt-transcribe` (Chat mic STT) |
-| `OPENAI_TRANSCRIBE_LANGUAGE` | Default `en` |
-| `NYLAS_API_KEY`, `NYLAS_WEBHOOK_SECRET` | Nylas dashboard (app API key + webhook secret) |
-| `NYLAS_GRANT_ID` | Nylas grant UUID for this Mike deploy (not shown in Settings UI) |
-| `NYLAS_MAILBOX_EMAIL` | Optional default mailbox email (e.g. `agent.mike@wkr.email`) |
-| `DATABASE_URL` | Already in the paste file as `${{Postgres.DATABASE_URL}}` |
-| `MIKE_WIDGET_SITE_TOKEN` / `MIKE_WIDGET_ORG_ID` | **Deprecated for multi-tenant.** Optional legacy fallback only. Prefer per-org tokens in `widget_sites` (Chat → Copy embed). |
+`mike-api`:
 
-Do **not** set `NYLAS_ORG_ID`. Set `NYLAS_GRANT_ID` on `mike-api`; managers only confirm mailbox email in Settings.
+- Postgres: `DATABASE_URL`
+- OpenAI: `OPENAI_API_KEY`
+- Clerk verification: `CLERK_JWKS_URL`, `CLERK_ISSUER`,
+  `CLERK_AUTHORIZED_PARTIES`
+- Core entitlement: `AIX_CORE_API_URL`, `AIX_CORE_AGENT_SLUG=mike`
+- Composio: `COMPOSIO_API_KEY` and each
+  `COMPOSIO_*_AUTH_CONFIG_ID`
+- Nylas: client/API/callback/state variables (`NYLAS_WEBHOOK_SECRET` is
+  reserved for future Foundation webhook support)
+- provider encryption: `ENCRYPTION_KEY`
+- optional Foundation integration credentials
 
-Remove any leftover `AGENTMAIL_*` variables from `mike-api` after cutover.
+`mike-frontend`:
 
-## Paste into Railway
+- `NEXT_PUBLIC_API_URL`
+- shared Clerk publishable/secret keys and sign-in URLs
+- Core API/app URLs
+- allowed redirect origins
 
-1. `mike-api` → **Variables** → Raw Editor → paste `.env.staging.example` → fill blanks.
-2. Generate a public domain on `mike-api`.
-3. `mike-frontend` → **Variables** → Raw Editor → paste `frontend/.env.staging.example`.
-4. Generate a public domain on `mike-frontend`.
-5. Put that frontend origin into:
-   - API `CLERK_AUTHORIZED_PARTIES` and `CORS_ALLOWED_ORIGINS`
-   - Frontend `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WIDGET_ORIGIN`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_AUTHORIZED_PARTIES`
-6. Register Nylas webhook → `https://YOUR-API-DOMAIN/api/v1/webhooks/nylas` (`message.created`) and save `webhook_secret`.
-7. Then Apply / Deploy.
+## Composio auth-config mapping
 
-Never set `MIKE_ALLOW_LOCAL_UNAUTH` on Railway.
+- Gmail: `COMPOSIO_GMAIL_AUTH_CONFIG_ID`
+- Google Calendar: `COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID`
+- Outlook: `COMPOSIO_OUTLOOK_AUTH_CONFIG_ID`
+- Linear: `COMPOSIO_LINEAR_AUTH_CONFIG_ID`
+- Jira: `COMPOSIO_JIRA_AUTH_CONFIG_ID`
+- Zoho: `COMPOSIO_ZOHO_AUTH_CONFIG_ID`
+
+Copy IDs exactly from the Composio dashboard. The API key and config IDs are
+server-only.
+
+## Never set on Railway
+
+- `MIKE_ALLOW_LOCAL_UNAUTH`
+- `MULTI_AGENT`
+- `DEMO_MODE=true`
+
+`MIKE_PLATFORM_AUTH` is unnecessary on Railway: the backend detects the
+Railway environment and requires Clerk + Core automatically.
+
+## Cross-service values
+
+After preview domains exist:
+
+1. Add the frontend origin to API `CORS_ALLOWED_ORIGINS` and
+   `CLERK_AUTHORIZED_PARTIES`.
+2. Set frontend `NEXT_PUBLIC_API_URL` to the API domain.
+3. Add the frontend origin to Clerk redirect origins.
+4. Register Mike's frontend/API URLs and catalog slug `mike` in AIX Core.
+5. Register the Nylas callback URL against the API domain.

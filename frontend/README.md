@@ -1,3 +1,11 @@
+# AI-worker-frontend
+
+> **Provenance:** built fresh, not bootstrapped from `agent-mike`. Neither of that repo's branches is a template — `main` is an old FastAPI/Claude-Agent-SDK build, `staging` is the real, deployed Mike but with Clerk and an externally-owned AIX Core catalog registration hard-wired into the middleware. This repo keeps only what's genuinely reusable from `staging`'s inherited design-system foundation (below) and rebuilds the product layer under `src/components/worker/*` with no auth vendor baked in — see [`AI-worker-backend`](https://github.com/Ai-Xccelerate/AI-worker-backend)'s `docs/ARCHITECTURE.md` for the identity-adapter decision this mirrors. Talks to that API over `/api/v1/*` (see `next.config.ts` rewrites).
+>
+> Everything below this line is the underlying design system's own README (the "AIX Theme") — still accurate as a description of the reusable foundation (`globals.css`, layout primitives, `ui/`, `form/`, `icons/`, contexts). The unused reference scaffolding (ecommerce/kanban/calendar demos, other agents' mock dashboards, the AI-tools panel gallery) has been pruned; only `src/components/worker/*` and the ten `src/app/(admin)/settings/*` pages are this product's actual surface.
+
+---
+
 # AIX Theme
 
 The reusable UI/UX component library and design system for **AI Xccelerate**

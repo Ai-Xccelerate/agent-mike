@@ -1,62 +1,27 @@
-import React from "react";
-import Image, { type StaticImageData } from "next/image";
-import nickImg from "@/agents/agent-nick.png";
-import julesImg from "@/agents/agent-jules.png";
-import pepperImg from "@/agents/agent-pepper.png";
-import tonyImg from "@/agents/agent-tony.png";
-import joyImg from "@/agents/agent-joy.png";
-import georgeImg from "@/agents/agent-george.png";
-import mikeImg from "@/agents/agent-mike.png";
+"use client";
 
-export type AgentName =
-  | "Nick"
-  | "Jules"
-  | "Pepper"
-  | "Tony"
-  | "Joy"
-  | "George"
-  | "Mike";
+import React, { useState } from "react";
 
-// Canonical agent identity colors from the AIX Core Design System
-// (--color-agent-* tokens in globals.css). Do not improvise new hues.
-export const AGENT_META: Record<
-  AgentName,
-  { role: string; color: string; hex: string }
-> = {
-  Nick: { role: "Demand gen", color: "bg-agent-nick", hex: "#F47920" },
-  Jules: { role: "Outbound", color: "bg-agent-jules", hex: "#3B82F6" },
-  Pepper: { role: "Inbound", color: "bg-agent-pepper", hex: "#10B981" },
-  Tony: { role: "Technical", color: "bg-agent-tony", hex: "#7A5AF8" },
-  Joy: { role: "Deal ops", color: "bg-agent-joy", hex: "#F79009" },
-  George: { role: "Retention", color: "bg-agent-george", hex: "#344054" },
-  Mike: { role: "Level 1 support", color: "bg-agent-mike", hex: "#2563EB" },
-};
-
-// Portrait avatars — bundled + optimized from src/agents/.
-const AGENT_IMAGES: Record<AgentName, StaticImageData> = {
-  Nick: nickImg,
-  Jules: julesImg,
-  Pepper: pepperImg,
-  Tony: tonyImg,
-  Joy: joyImg,
-  George: georgeImg,
-  Mike: mikeImg,
-};
+/**
+ * Generic, white-labelable avatar: initials on a stored accent colour, or an
+ * optional image URL. R16 requires an editable worker name/identity per
+ * deployment — a template can't ship with art for one fictional persona baked in.
+ */
 
 interface AgentAvatarProps {
-  name: AgentName;
+  initials: string;
   size?: "sm" | "md" | "lg";
   showStatus?: boolean;
   status?: "active" | "training" | "paused";
+  accentColor?: string;
+  avatarUrl?: string | null;
 }
 
 const sizeClasses = {
-  sm: "size-8",
-  md: "size-10",
-  lg: "size-14",
+  sm: "size-8 text-xs",
+  md: "size-10 text-sm",
+  lg: "size-14 text-lg",
 };
-
-const sizePx = { sm: 32, md: 40, lg: 56 };
 
 const statusColor = {
   active: "bg-success-500",
@@ -64,24 +29,44 @@ const statusColor = {
   paused: "bg-gray-400",
 };
 
+// Deterministic hue from the initials so a given worker's avatar stays stable
+// across renders without needing a stored color field.
+function hueFrom(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) % 360;
+  return hash;
+}
+
 export default function AgentAvatar({
-  name,
+  initials,
   size = "md",
   showStatus = false,
   status = "active",
+  accentColor,
+  avatarUrl,
 }: AgentAvatarProps) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const hue = hueFrom(initials || "AW");
+  const background = accentColor || `hsl(${hue} 55% 45%)`;
+  const showImage = Boolean(avatarUrl) && failedUrl !== avatarUrl;
+
   return (
     <span className="relative inline-flex shrink-0">
       <span
-        className={`relative block overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 ${sizeClasses[size]}`}
+        className={`relative flex items-center justify-center overflow-hidden rounded-full font-semibold text-white ring-1 ring-black/5 dark:ring-white/10 ${sizeClasses[size]}`}
+        style={{ backgroundColor: background }}
       >
-        <Image
-          src={AGENT_IMAGES[name]}
-          alt={name}
-          fill
-          sizes={`${sizePx[size]}px`}
-          className="object-cover"
-        />
+        {showImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarUrl ?? ""}
+            alt=""
+            className="absolute inset-0 size-full object-cover"
+            onError={() => setFailedUrl(avatarUrl ?? "")}
+          />
+        ) : (
+          initials.slice(0, 2).toUpperCase()
+        )}
       </span>
       {showStatus && (
         <span
