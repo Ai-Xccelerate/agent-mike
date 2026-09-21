@@ -1,14 +1,31 @@
-import { NextRequest } from "next/server";
-import { json, withTenant } from "@/lib/http";
-import { ensureWidgetSiteForOrg, serializeWidgetSite } from "@/lib/widget-sites";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { randomBytes } from "crypto";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { widgetSites } from "@/db/schema";
+import { getIdentityAdapter } from "@/lib/identity";
+import { ensureOrganization } from "@/lib/bootstrap";
 
-export const runtime = "nodejs";
+// Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
 
-/** Current org's public widget site token (created on first access). */
 export async function GET(req: NextRequest) {
-  return withTenant(req, async (tenant) => {
-    const site = await ensureWidgetSiteForOrg(tenant.orgId);
-    return json({ site: serializeWidgetSite(site) });
-  });
+  const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  await ensureOrganization(tenant.orgId);
+
+  const [existing] = await db
+    .select()
+    .from(widgetSites)
+    .where(eq(widgetSites.organizationId, tenant.orgId))
+    .limit(1);
+
+  if (existing) return NextResponse.json(existing);
+
+  const [created] = await db
+    .insert(widgetSites)
+    .values({ organizationId: tenant.orgId, siteToken: randomBytes(24).toString("hex") })
+    .returning();
+
+  return NextResponse.json(created, { status: 201 });
 }

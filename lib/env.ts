@@ -1,61 +1,45 @@
-export const AGENT_SLUG = "mike";
+export const DEFAULT_ORG_ID = "default";
+export const DEFAULT_ORG_NAME = "Default Workspace";
 
-function envName() {
-  return (
-    process.env.APP_ENV ||
-    process.env.RAILWAY_ENVIRONMENT_NAME ||
-    process.env.RAILWAY_ENVIRONMENT ||
-    ""
-  ).toLowerCase();
-}
-
-export function isDeployedEnvironment() {
-  const name = envName();
-  return (
-    Boolean(process.env.RAILWAY_ENVIRONMENT) ||
-    name === "staging" ||
-    name === "production"
-  );
-}
-
-export function localBypassRequested() {
-  const raw = (process.env.MIKE_ALLOW_LOCAL_UNAUTH || "").toLowerCase();
-  return raw === "true" || raw === "1" || raw === "yes";
-}
-
-/** Throws if the local Clerk bypass is enabled outside explicit local development. */
-export function assertLocalBypassSafe() {
-  if (localBypassRequested() && isDeployedEnvironment()) {
-    throw new Error(
-      "MIKE_ALLOW_LOCAL_UNAUTH is not allowed in staging or production. Unset it and use Clerk.",
-    );
-  }
-}
-
-export function isLocalUnauthEnabled() {
-  assertLocalBypassSafe();
-  if (!localBypassRequested()) return false;
-  if (process.env.APP_ENV !== "local") return false;
-  if (process.env.NODE_ENV === "production") return false;
-  if (process.env.RAILWAY_ENVIRONMENT) return false;
-  return true;
-}
-
-export function envList(name: string) {
-  const raw = (process.env[name] ?? "").trim();
+export function envList(raw: string | undefined): string[] {
   if (!raw) return [];
-  if (raw.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) {
-        return parsed.map((v) => String(v).trim()).filter(Boolean);
-      }
-    } catch {
-      // fall through
-    }
-  }
   return raw
     .split(",")
-    .map((v) => v.trim().replace(/^["']|["']$/g, ""))
+    .map((s) => s.trim())
     .filter(Boolean);
+}
+
+export function isDemoMode(): boolean {
+  return (process.env.DEMO_MODE || "").toLowerCase() === "true";
+}
+
+export type ModelUnavailabilityReason = "demo_mode" | "missing_api_key";
+
+/**
+ * Why the model cannot be called. Demo mode wins when both are set — blaming
+ * a missing key while DEMO_MODE=true was the original misdiagnosis.
+ */
+export function modelUnavailabilityReason(): ModelUnavailabilityReason | null {
+  if (isDemoMode()) return "demo_mode";
+  if (!process.env.OPENAI_API_KEY) return "missing_api_key";
+  return null;
+}
+
+/**
+ * Cheaper/faster model for input/output guardrail classifiers. Falls back to
+ * the same default as worker profiles until a real model registry (Gap 8).
+ */
+export function guardrailModel(): string {
+  return (process.env.GUARDRAIL_MODEL || "").trim() || "gpt-5.6-luna";
+}
+
+/**
+ * The frontend and this API commonly live on different hosts (split deploy,
+ * e.g. behind Railway's proxy) — `req.nextUrl.origin` is this API's own
+ * request origin, which can be an internal bind address the browser can
+ * never reach, not the page a redirect must send the manager back to.
+ * Prefer the configured allowed origin instead.
+ */
+export function firstAllowedOrigin(): string | null {
+  return envList(process.env.CORS_ALLOWED_ORIGINS)[0] ?? null;
 }

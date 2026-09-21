@@ -2,15 +2,20 @@
 .env
 .env.local
 .env*.local
-jules-variables.txt
-.venv/
-__pycache__/
-.pytest_cache/
-.ruff_cache/
-*.pyc
-*.db
+
 node_modules/
 .next/
 coverage/
 dist/
 *.tsbuildinfo
+next-env.d.ts
+
+# Local env backups — these hold real credentials.
+.env.bak*
+.env.*.bak
+
+# Python virtualenv used for local tooling
+.venv/
+
+# Runtime uploads land on the service's own disk; they are not source.
+public/uploads/

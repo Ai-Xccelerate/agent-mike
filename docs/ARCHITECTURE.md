@@ -1,43 +1,70 @@
 # Architecture
 
-## Service boundaries
+## Why this exists
 
-`frontend/` is a Next.js manager console and public `/widget`. It never receives OpenAI or Nylas secrets. Manager routes require the shared AIX Clerk session; `/widget` is public and authenticates to the API with a **per-org** site token (`widget_sites`).
+This is the AI Worker Foundation's API — a from-scratch rebuild, not a copy of
+any deployed agent. `agent-mike` (both its `main` and `staging` branches) was
+used as reference for patterns that are genuinely generic (the OKF-markdown +
+Postgres full-text-search knowledge approach, the guardrails shape), but
+nothing was inherited wholesale, because both branches are one product's
+implementation history, not a template:
 
-The API is a Next.js app at the repository root. It owns identity configuration, org-scoped conversations, messages, guardrails, knowledge ingestion/retrieval, OpenAI Agents SDK execution, Whisper/`gpt-transcribe` STT, and Nylas delivery. Clerk JWTs are verified locally; every manager request then checks `GET /api/v1/agents/mike/access` on AIX Core.
+- `main`: FastAPI + Python + `claude-agent-sdk` — wrong SDK (R1 requires
+  OpenAI Agents SDK), no multi-tenancy at all.
+- `staging`: the real, correct SDK choice (`@openai/agents`), but with Clerk
+  and an external "AIX Core" catalog service hard-wired into the middleware
+  itself — every route depended on a specific auth vendor and a specific,
+  externally-owned catalog registration just to boot.
 
-The legacy FastAPI app under `apps/api` is not the Railway root anymore.
+## The identity seam
 
-PostgreSQL is the durable system of record. OKF files remain the portable, human-reviewable knowledge source. Ingestion copies their frontmatter and body into PostgreSQL, then splits the body into searchable chunks.
+R6 already requires business-system integrations (CRM, ticketing) to be
+decoupled, external, and never baked into the worker. This codebase applies
+the same rule to identity/access: see `lib/identity.ts`.
 
-## Tenancy
+Every route resolves "who is this, which org" through an `IdentityAdapter`
+interface, not through a specific auth vendor. The default implementation,
+`StandaloneIdentityAdapter`, resolves every manager request to one fixed org
+with no login required — one deployment is one tenant, configured directly,
+matching Rahul's own framing in the planning meeting: a repo that "can be
+taken and deployed left, right, and center" doesn't need SaaS login
+infrastructure to be useful. A platform-specific adapter (Clerk + AIX Core,
+or anything else) plugs in later, at the point a worker actually joins a
+real multi-tenant platform, without this codebase ever needing to know that
+vendor exists.
 
-| Channel | Tenant resolution |
-|---|---|
-| Manager console | Clerk JWT `org_id` |
-| Website widget | `x-mike-site-token` → `widget_sites.organization_id` (see [WIDGET.md](./WIDGET.md)) |
-| Nylas email | Webhook `grant_id` → `nylas_mailboxes.organization_id` (see [NYLAS_GRANT_ORG_MAPPING.md](./NYLAS_GRANT_ORG_MAPPING.md)) |
-
-All conversations, messages, knowledge, and profile rows are filtered by `organization_id`.
+The schema is still fully multi-tenant-shaped (`organization_id` on every
+table) per R16 — the adapter, not the schema, is what's swapped.
 
 ## Request lifecycle
 
-1. A message arrives from the widget or the Nylas webhook.
-2. The API persists the customer message and retrieves relevant knowledge chunks using PostgreSQL full-text search.
-3. Deterministic rules check for escalation terms, prompt-injection language, and configured risk boundaries.
-4. If safe to proceed, the API builds Mike's instructions and runs a single OpenAI Agents SDK turn (`gpt-5.6-luna` by default) with no tools.
-5. The answer and citations are persisted. Email answers are sent through Nylas; chat answers are returned to the widget.
-6. Low-confidence or guarded requests are marked `needs_human` and appear in the manager inbox.
+1. A message arrives at `/api/v1/chat`, either from the manager test bench
+   (no site token) or the public widget (`x-worker-site-token` header).
+2. The identity adapter resolves an org. Widget requests with no matching
+   token are rejected; manager requests always resolve (standalone mode).
+3. The message is persisted, guardrails run deterministically first
+   (injection phrases, escalation terms, domain allowlist), then relevant
+   knowledge is retrieved via Postgres full-text search.
+4. If guardrails didn't already force escalation, a single `@openai/agents`
+   turn runs with the org's system-prompt template, tone, and role filled in,
+   and the retrieved knowledge attached as untrusted reference material.
+   `DEMO_MODE=true` (or a missing `OPENAI_API_KEY`) skips the live call and
+   returns a canned response instead.
+5. The reply and any citations are persisted; low-confidence or
+   guardrail-triggered turns are marked `needs_human`.
 
-## Why full-text search first
+## Configuration surface (R14 / R15)
 
-PostgreSQL `websearch_to_tsquery` gives a low-operations baseline: no extra database extension, embedding provider, or synchronization system. It works particularly well for product names, error codes, plan names, and exact support terminology. Add hybrid vector search later when the corpus becomes large or questions are highly paraphrased.
+Every field a manager can change lives on one `worker_profiles` row per org,
+exposed via `GET`/`PATCH /api/v1/worker` — including the system prompt
+template itself (R15: "your system prompt... must be exposed... to configure
+it"), not just the identity/tone fields around it.
 
-## Security boundaries
+## Deliberately not built yet
 
-- OpenAI Agents SDK calls run with no tools, so the support agent cannot use shell, filesystem, or code-editing tools.
-- Retrieved text is marked as untrusted reference material in the prompt.
-- Secrets stay server-side and are never serialized by API schemas (Nylas grant ids are not shown in Settings).
-- Nylas webhook verification uses HMAC-SHA256 over the raw body (`x-nylas-signature`) plus a GET challenge handshake.
-- The public chat endpoint should receive rate limiting and bot protection at the edge before a high-volume launch.
-- Manager routes require Clerk + Core access. Widget chat uses per-org `x-mike-site-token`. The Nylas webhook uses `NYLAS_WEBHOOK_SECRET`. The local Clerk bypass is fail-closed outside `APP_ENV=local`.
+- A generalized business-system (CRM/ticketing) tool-call pattern (R6) — the
+  agent runs with zero tools today.
+- Domain/user verification as a callable pattern (R11) — the allowlist check
+  exists; the "confirm this is a real customer" lookup does not.
+- A skills library (R9) — format still unspecified (PRD OQ5).
+- Voice channel (R12) — deferred, matches the plan.

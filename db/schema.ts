@@ -1,126 +1,181 @@
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
-  doublePrecision,
   index,
   integer,
   jsonb,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
+  uuid,
 } from "drizzle-orm/pg-core";
 
-export const users = pgTable("users", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull(),
-  displayName: text("display_name"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+/**
+ * Every table below is org-scoped (`organizationId`). The default identity
+ * adapter (lib/identity.ts) resolves every manager request to a single
+ * "default" org, so a fresh deployment works with zero login — but the
+ * schema is multi-tenant-ready from day one, per R16, without assuming any
+ * particular auth vendor.
+ */
 
 export const organizations = pgTable("organizations", {
-  id: text("id").primaryKey(),
-  name: text("name"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  id: text("id").primaryKey(), // slug-shaped, e.g. "default"
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const organizationMemberships = pgTable(
-  "organization_memberships",
+export const workerProfiles = pgTable(
+  "worker_profiles",
   {
-    id: text("id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
     organizationId: text("organization_id")
       .notNull()
-      .references(() => organizations.id),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id),
-    role: text("role").notNull().default("member"),
-    status: text("status").notNull().default("active"),
-  },
-  (table) => ({
-    orgUserUnique: uniqueIndex("uq_org_membership_org_user").on(
-      table.organizationId,
-      table.userId,
-    ),
-    orgIdx: index("organization_memberships_org_id_idx").on(table.organizationId),
-    userIdx: index("organization_memberships_user_id_idx").on(table.userId),
-  }),
-);
+      .references(() => organizations.id, { onDelete: "cascade" }),
 
-export const agentProfiles = pgTable(
-  "agent_profiles",
-  {
-    id: text("id").primaryKey(),
-    organizationId: text("organization_id")
-      .notNull()
-      .references(() => organizations.id),
-    name: text("name").notNull().default("Mike"),
-    displayName: text("display_name").notNull().default("Agent Mike"),
-    email: text("email").notNull().default("agent.mike@wkr.email"),
-    role: text("role")
-      .notNull()
-      .default("Level 1 product support specialist for trained products and solutions."),
-    tone: text("tone")
-      .notNull()
-      .default("Warm, concise, practical, and honest about uncertainty."),
-    managerName: text("manager_name").notNull().default("Charan Naik"),
-    managerEmail: text("manager_email").notNull().default("charan@aixccelerate.com"),
-    autoReply: boolean("auto_reply").notNull().default(true),
-    confidenceThreshold: doublePrecision("confidence_threshold").notNull().default(0.72),
+    // Identity (R14 / settings > Identity)
+    name: text("name").notNull().default("Worker"),
+    displayName: text("display_name").notNull().default("AI Worker"),
+    avatarInitials: text("avatar_initials").notNull().default("AW"),
+    slug: text("slug").notNull().default("worker"),
+    status: text("status").notNull().default("active"), // active | paused
+    avatarUrl: text("avatar_url"),
+    accentColor: text("accent_color").notNull().default("#4F46E5"),
+    bio: text("bio").notNull().default(""),
+    timezone: text("timezone").notNull().default("UTC"),
+    locale: text("locale").notNull().default("en-US"),
+    email: text("email"),
+    emailSignature: text("email_signature").notNull().default(""),
+    tone: text("tone").notNull().default("Warm, concise, and honest about uncertainty."),
+
+    // Role (settings > Role)
+    role: text("role").notNull().default("Configure this worker's role and responsibilities."),
+    jobDescription: text("job_description"),
+
+    // Agent Configuration (settings > Agent Configuration) — R15: system prompt
+    // must be exposed and editable without a code deployment.
+    //
+    // Holds only the *additional* instructions beyond identity/role/tone —
+    // those three are built deterministically in lib/agent.ts's
+    // buildInstructions from the Identity/Role columns above, not from this
+    // field, so they can never be silently lost by editing this text. This
+    // field used to hold the whole scaffold including a "{{role}}"-style
+    // placeholder block; see migration 0019 for the one-time cleanup of rows
+    // saved under that older shape.
+    systemPromptTemplate: text("system_prompt_template").notNull().default(
+      "Only use the supplied knowledge when making factual claims. If you are not confident, say so and escalate.",
+    ),
+    model: text("model").notNull().default("gpt-5.6-luna"),
     maxAgentTurns: integer("max_agent_turns").notNull().default(3),
-    guardrails: jsonb("guardrails")
-      .$type<string[]>()
+    confidenceThreshold: real("confidence_threshold").notNull().default(0.72),
+
+    // Guardrails (settings > Guardrails) — R10: domain/user restriction is a
+    // standard, foundation-level feature, not built per-worker.
+    escalationTerms: jsonb("escalation_terms").$type<string[]>().notNull().default(
+      sql`'["refund","chargeback","lawyer","breach","security incident","delete my account","cancel subscription"]'::jsonb`,
+    ),
+    allowedDomains: jsonb("allowed_domains").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    requireUserVerification: boolean("require_user_verification").notNull().default(false),
+    // Fail-closed: write tools (create/update in an external system) wait for a
+    // human unless this worker is explicitly set to auto-execute.
+    requireWriteApproval: boolean("require_write_approval").notNull().default(true),
+    // Off by default - gates the admin Assistant's Tier 4 "Act" tools
+    // (send a reply, resolve a ticket, publish a knowledge article) entirely.
+    // Distinct from requireWriteApproval above (that one is about the
+    // customer-facing agent's own external-system writes); the Assistant
+    // always requires an explicit confirm-then-yes turn regardless of this
+    // flag - this just controls whether those tools are offered at all.
+    assistantActionsEnabled: boolean("assistant_actions_enabled").notNull().default(false),
+
+    // Human manager (settings > Human Manager)
+    managerName: text("manager_name").notNull().default("Manager"),
+    managerEmail: text("manager_email"),
+    autoReply: boolean("auto_reply").notNull().default(true),
+
+    // Tools (settings > Tools) — toggles only; each tool is a decoupled,
+    // externally-connected integration per R6, never baked into the harness.
+    // Keep the live catalog keys (including scribe/artifacts). Internal AIX
+    // tools also have connect state in integrations_config.
+    toolsConfig: jsonb("tools_config")
+      .$type<Record<string, boolean>>()
       .notNull()
-      .default([
-        "Never invent product behavior or policies.",
-        "Never request passwords, secrets, or full payment card details.",
-        "Escalate billing disputes, security incidents, legal threats, and account deletion.",
-        "Use only the supplied knowledge when making product-specific claims.",
-      ]),
-    escalationTerms: jsonb("escalation_terms")
-      .$type<string[]>()
+      .default(sql`'{"browser_use":false,"internet_search":false,"scribe":false,"artifacts":false}'::jsonb`),
+
+    // Skills — catalog ids from skills/*/SKILL.md the worker has turned on.
+    // Empty until a later settings surface enables any; not wired into the agent yet.
+    enabledSkills: jsonb("enabled_skills").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+
+    // Integrations (settings > Integrations) — externally-connected systems per
+    // R6. Each entry is per-integration state; `enabled` is the user-facing
+    // toggle. Parchment is read-only, so it is default-allow and its toggle is
+    // an opt-OUT. AgentDB (full SQL scope), Scribe (internal meeting talk),
+    // Artifacts (writes) and Agent Wiki (can also write) are all default-off
+    // opt-INs (see lib/integrations.ts).
+    integrationsConfig: jsonb("integrations_config")
+      .$type<Record<string, { enabled: boolean; [key: string]: unknown }>>()
       .notNull()
-      .default([
-        "refund",
-        "chargeback",
-        "lawyer",
-        "breach",
-        "security incident",
-        "delete my account",
-        "cancel subscription",
-      ]),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+      .default(
+        sql`'{"parchment":{"enabled":true,"workspaceId":null,"orgId":null},"agentdb":{"enabled":false,"workspaceId":null,"orgId":null},"scribe":{"enabled":false,"lookbackDays":null},"artifacts":{"enabled":false,"brandKitId":null,"allowPublish":false},"agent_wiki":{"enabled":false,"spaceId":null,"allowWrite":false},"agent_skills":{"enabled":false,"category":null,"maxResults":5}}'::jsonb`,
+      ),
+
+    // Channels (settings > Channels)
+    channelsConfig: jsonb("channels_config")
+      .$type<{ email: boolean; chat: boolean; voice: boolean }>()
+      .notNull()
+      .default(sql`'{"email":false,"chat":true,"voice":false}'::jsonb`),
+
+    ticketPrefix: text("ticket_prefix").notNull().default("TCK"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    orgUnique: uniqueIndex("uq_agent_profiles_org").on(table.organizationId),
+    orgUnique: uniqueIndex("worker_profiles_org_unique").on(table.organizationId),
+    // Per org, not global. Two agents may each call their worker "support";
+    // what must not collide is two workers inside one org.
+    orgSlugUnique: uniqueIndex("worker_profiles_org_slug_unique").on(
+      table.organizationId,
+      table.slug,
+    ),
   }),
 );
 
 export const conversations = pgTable(
   "conversations",
   {
-    id: text("id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
     organizationId: text("organization_id")
       .notNull()
-      .references(() => organizations.id),
-    ticketNumber: integer("ticket_number"),
-    channel: text("channel").notNull().default("chat"),
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ticketNumber: integer("ticket_number").notNull(),
+    channel: text("channel").notNull().default("chat"), // "chat" | "email" | "widget"
     customerName: text("customer_name").notNull().default("Website visitor"),
     customerEmail: text("customer_email"),
-    subject: text("subject").notNull().default("Support conversation"),
-    status: text("status").notNull().default("open"),
+    subject: text("subject"),
+    status: text("status").notNull().default("open"), // open | needs_human | resolved | closed
     priority: text("priority").notNull().default("normal"),
-    assignedTo: text("assigned_to").notNull().default("Mike"),
-    confidence: doublePrecision("confidence"),
+    assignedTo: text("assigned_to"),
+    // A manager has taken direct control (Inbox "Take over" button) — the
+    // agent stops replying on this conversation until it's handed back.
+    humanControlled: boolean("human_controlled").notNull().default(false),
+    confidence: real("confidence"),
     summary: text("summary"),
-    externalThreadId: text("external_thread_id"),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    // How many of this conversation's messages (oldest-first) are already
+    // folded into `summary` — the watermark a rolling summarization pass
+    // advances so it never re-summarizes the same messages twice.
+    summarizedMessageCount: integer("summarized_message_count").notNull().default(0),
+    // Soft-delete: archived conversations are hidden by default and
+    // restorable, instead of the row being gone for good.
+    archived: boolean("archived").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    orgIdx: index("conversations_org_id_idx").on(table.organizationId),
-    orgThread: uniqueIndex("uq_conversations_org_thread").on(
+    orgIdx: index("conversations_org_idx").on(table.organizationId),
+    orgTicketUnique: uniqueIndex("conversations_org_ticket_unique").on(
       table.organizationId,
-      table.externalThreadId,
+      table.ticketNumber,
     ),
   }),
 );
@@ -128,113 +183,330 @@ export const conversations = pgTable(
 export const messages = pgTable(
   "messages",
   {
-    id: text("id").primaryKey(),
-    conversationId: text("conversation_id")
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
-    senderType: text("sender_type").notNull(),
+    senderType: text("sender_type").notNull(), // "customer" | "agent" | "manager"
     senderName: text("sender_name").notNull(),
     body: text("body").notNull(),
-    citations: jsonb("citations").$type<Record<string, unknown>[]>().notNull().default([]),
-    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    citations: jsonb("citations").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    conversationIdx: index("messages_conversation_id_idx").on(table.conversationId),
+    conversationIdx: index("messages_conversation_idx").on(table.conversationId),
   }),
 );
 
 export const knowledgeDocuments = pgTable(
   "knowledge_documents",
   {
-    id: text("id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
     organizationId: text("organization_id")
       .notNull()
-      .references(() => organizations.id),
+      .references(() => organizations.id, { onDelete: "cascade" }),
     conceptId: text("concept_id").notNull(),
-    type: text("type").notNull(),
     title: text("title").notNull(),
     description: text("description"),
-    resource: text("resource"),
-    tags: jsonb("tags").$type<string[]>().notNull().default([]),
-    sourcePath: text("source_path"),
+    tags: jsonb("tags").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     body: text("body").notNull(),
-    status: text("status").notNull().default("ready"),
     checksum: text("checksum").notNull(),
-    sourceTimestamp: text("source_timestamp"),
-    ingestedAt: timestamp("ingested_at", { withTimezone: true }).defaultNow().notNull(),
+    resource: text("resource"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    orgConcept: uniqueIndex("uq_knowledge_org_concept").on(
+    orgConceptUnique: uniqueIndex("knowledge_documents_org_concept_unique").on(
       table.organizationId,
       table.conceptId,
     ),
-    orgIdx: index("knowledge_documents_org_id_idx").on(table.organizationId),
   }),
 );
 
 export const knowledgeChunks = pgTable(
   "knowledge_chunks",
   {
-    id: text("id").primaryKey(),
-    documentId: text("document_id")
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentId: uuid("document_id")
       .notNull()
       .references(() => knowledgeDocuments.id, { onDelete: "cascade" }),
-    position: integer("position").notNull(),
     heading: text("heading"),
     content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    documentIdx: index("knowledge_chunks_document_id_idx").on(table.documentId),
+    documentIdx: index("knowledge_chunks_document_idx").on(table.documentId),
+  }),
+);
+
+export const widgetSites = pgTable(
+  "widget_sites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteToken: text("site_token").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgUnique: uniqueIndex("widget_sites_org_unique").on(table.organizationId),
+    tokenUnique: uniqueIndex("widget_sites_token_unique").on(table.siteToken),
+  }),
+);
+
+export const workerUsers = pgTable(
+  "worker_users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    role: text("role").notNull().default("member"), // owner | admin | member
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgEmailUnique: uniqueIndex("worker_users_org_email_unique").on(
+      table.organizationId,
+      table.email,
+    ),
+  }),
+);
+
+export const integrationConnections = pgTable(
+  "integration_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    integrationType: text("integration_type").notNull(), // crm | helpdesk | ticketing
+    system: text("system").notNull(), // Composio toolkit slug, e.g. "zoho"
+    composioAuthConfigId: text("composio_auth_config_id").notNull(),
+    composioConnectedAccountId: text("composio_connected_account_id"), // null until OAuth completes
+    status: text("status").notNull().default("pending"), // pending | active | failed | disabled
+    connectedBy: text("connected_by"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsed: timestamp("last_used", { withTimezone: true }),
+  },
+  (table) => ({
+    orgTypeUnique: uniqueIndex("integration_connections_org_type_unique").on(
+      table.organizationId,
+      table.integrationType,
+    ),
+  }),
+);
+
+export const toolCalls = pgTable(
+  "tool_calls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    calledBy: text("called_by"),
+    input: jsonb("input")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    output: jsonb("output").$type<Record<string, unknown>>(),
+    status: text("status").notNull().default("success"), // success | error | escalated
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("tool_calls_org_idx").on(table.organizationId),
+  }),
+);
+
+export const toolApprovals = pgTable(
+  "tool_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // Which assistant thread proposed this - so confirm/cancel only ever act
+    // on that same thread's own pending item, never an unrelated thread's
+    // abandoned proposal. Nullable because a pre-existing row (or a future
+    // non-conversational caller) may not have one.
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    input: jsonb("input")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    status: text("status").notNull().default("pending"), // pending | approved | rejected
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    errorMessage: text("error_message"),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgStatusIdx: index("tool_approvals_org_status_idx").on(table.organizationId, table.status),
+    conversationIdx: index("tool_approvals_conversation_idx").on(table.conversationId),
+  }),
+);
+
+export const customSkills = pgTable(
+  "custom_skills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    requires: jsonb("requires").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("custom_skills_org_idx").on(table.organizationId),
   }),
 );
 
 /**
- * Nylas grant ↔ Clerk organization mapping.
- * One active mailbox per org (v1). Webhooks resolve org from grant_id;
- * outbound send/reply resolves grant from organization_id.
- * Rows are created by authenticated managers (JWT org), never from env org stamps.
+ * Per-agent credentials for a provider that has no broker in front of it.
+ *
+ * Composio-backed integrations do not appear here — Composio holds those
+ * tokens, which is why 3ebbb40 deleted this app's encryption layer. Nylas has
+ * no such broker: an agent given its own Nylas application has to keep the
+ * application's own client id and API key somewhere, and env cannot express
+ * "per agent".
+ *
+ * `secrets` is a single encrypted blob rather than a column per field, so a
+ * second provider with a different credential shape needs no migration. It is
+ * ciphertext at rest (AES-256-GCM, lib/crypto.ts) and is never serialized back
+ * out of an API route — the settings screen only ever learns *that* a value is
+ * set, never what it is.
+ *
+ * A missing row is not an error: the agent falls back to the fleet-wide
+ * credentials in env, which is what most deployments will use.
+ */
+export const providerCredentials = pgTable(
+  "provider_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** "nylas" today; the table is deliberately not Nylas-shaped. */
+    provider: text("provider").notNull(),
+    /** Encrypted JSON. Shape is the provider's business, not this table's. */
+    secrets: text("secrets").notNull(),
+    /** Non-secret settings worth showing back, e.g. the region. */
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgProviderUnique: uniqueIndex("provider_credentials_org_provider_unique").on(
+      table.organizationId,
+      table.provider,
+    ),
+  }),
+);
+
+/**
+ * The worker's own mailbox and calendar, connected through Nylas.
+ *
+ * This is identity, not a delegated business-system connection — the address
+ * the agent sends *from*, not an account it borrows. One worker per org
+ * (`worker_profiles_org_unique`) means one identity, hence one row per org.
+ *
+ * Only the grant id is stored. Hosted OAuth with `access_type=online` leaves
+ * the refresh token with Nylas, so there is no access token here to rotate or
+ * leak — just a handle that can be revoked.
  */
 export const nylasMailboxes = pgTable(
   "nylas_mailboxes",
   {
-    id: text("id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
     organizationId: text("organization_id")
       .notNull()
-      .references(() => organizations.id),
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** The Nylas grant. The only credential-shaped thing we keep. */
     grantId: text("grant_id").notNull(),
+    /** The address this mailbox actually speaks as, per Nylas. */
     email: text("email").notNull(),
-    active: boolean("active").notNull().default(true),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    /** google | microsoft | imap | … — reported by Nylas, never guessed. */
+    provider: text("provider"),
+    // connected | invalid | disconnected. `invalid` means the grant was
+    // revoked upstream: the row is kept so the screen can say "reconnect"
+    // rather than silently forgetting a mailbox somebody set up.
+    status: text("status").notNull().default("connected"),
+    connectedBy: text("connected_by"),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    grantUnique: uniqueIndex("uq_nylas_mailboxes_grant").on(table.grantId),
-    orgUnique: uniqueIndex("uq_nylas_mailboxes_org").on(table.organizationId),
-    orgIdx: index("nylas_mailboxes_org_id_idx").on(table.organizationId),
+    orgUnique: uniqueIndex("nylas_mailboxes_org_unique").on(table.organizationId),
   }),
 );
 
 /**
- * Per-org public widget site tokens.
- * Embed snippets include the token; API resolves organization_id from it.
- * Never use a global MIKE_WIDGET_ORG_ID for multi-tenant embeds.
+ * Email domains the worker is allowed to share activity with.
+ *
+ * The list is an allow-list, not a block-list: a domain that is not approved
+ * here is one the worker may not send to, so an empty table means "nowhere
+ * outside the org". A row is never hard-deleted on a decision — revoking keeps
+ * it with `status = 'revoked'` so the audit trail survives and re-approving is
+ * one click rather than retyping the domain and its justification.
  */
-export const widgetSites = pgTable(
-  "widget_sites",
+export const emailDomains = pgTable(
+  "email_domains",
   {
-    id: text("id").primaryKey(),
+    id: uuid("id").primaryKey().defaultRandom(),
     organizationId: text("organization_id")
       .notNull()
-      .references(() => organizations.id),
-    siteToken: text("site_token").notNull(),
-    active: boolean("active").notNull().default(true),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Normalized: lowercase, no scheme, no leading @, no trailing dot. */
+    domain: text("domain").notNull(),
+    /** Why the worker needs it. Free text, optional. */
+    reason: text("reason"),
+    // pending | approved | revoked
+    status: text("status").notNull().default("pending"),
+    /** Who asked: "manager" when added here, "agent" when the worker raised it. */
+    requestedBy: text("requested_by").notNull().default("manager"),
+    /** Who approved or revoked it, and when. Null while still pending. */
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    tokenUnique: uniqueIndex("uq_widget_sites_token").on(table.siteToken),
-    orgUnique: uniqueIndex("uq_widget_sites_org").on(table.organizationId),
-    orgIdx: index("widget_sites_org_id_idx").on(table.organizationId),
+    // One row per domain per org — asking twice updates the request rather
+    // than creating a second one that could be approved and revoked at once.
+    orgDomainUnique: uniqueIndex("email_domains_org_domain_unique").on(
+      table.organizationId,
+      table.domain,
+    ),
+    orgStatusIdx: index("email_domains_org_status_idx").on(table.organizationId, table.status),
   }),
 );
+
+export const conversationsRelations = relations(conversations, ({ many }) => ({
+  messages: many(messages),
+}));
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [messages.conversationId],
+    references: [conversations.id],
+  }),
+}));
+
+export const knowledgeDocumentsRelations = relations(knowledgeDocuments, ({ many }) => ({
+  chunks: many(knowledgeChunks),
+}));

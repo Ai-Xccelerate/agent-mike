@@ -1,9 +1,24 @@
 ---
-okf_version: "0.1"
+type: reference
+id: okf-format
+title: "OKF format guide"
+description: "How to write knowledge files this worker can ingest."
+tags: ["meta"]
 ---
 
-# Agent Mike support knowledge
+Add markdown files to this folder (or upload them from Settings → Knowledge). Each
+file needs YAML frontmatter with at least a `type` field:
 
-Add OKF v0.1 concept documents here (one concept per file, with YAML
-frontmatter). Files placed under this folder are ingested on API startup;
-`index.md` and `log.md` are reserved and skipped.
+```markdown
+---
+type: reference
+title: "Human-readable title"
+description: "One line, shown in the knowledge list."
+tags: ["billing", "setup"]
+---
+
+Body content goes here, in normal markdown. Headings become searchable chunks.
+```
+
+Files are ingested on API startup from this folder, and can also be uploaded
+(markdown, PDF, or plain text) directly from the Knowledge page.
