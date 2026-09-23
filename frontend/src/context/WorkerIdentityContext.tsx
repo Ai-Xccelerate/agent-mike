@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { apiFetch, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 
@@ -10,6 +11,33 @@ type WorkerIdentityContextValue = {
 
 const WorkerIdentityContext = createContext<WorkerIdentityContextValue>({ profile: null });
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+
+// The favicon fields only, cached so a returning visitor's tab shows their
+// real avatar/color immediately instead of the generic robot icon while the
+// "/worker" fetch is still in flight. Deliberately NOT the full WorkerProfile:
+// this seed only ever feeds the favicon effect below, never WorkerIdentityContext's
+// own `profile` value, so a stale cached name/bio/tone can never leak into the
+// Settings form (which seeds itself from that `profile` once and never re-seeds).
+type FaviconSeed = { avatarUrl: string | null; avatarInitials: string; accentColor: string };
+const FAVICON_SEED_KEY = "aix:favicon-seed";
+
+function readFaviconSeed(): FaviconSeed | null {
+  try {
+    const raw = window.localStorage.getItem(FAVICON_SEED_KEY);
+    return raw ? (JSON.parse(raw) as FaviconSeed) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeFaviconSeed(seed: FaviconSeed) {
+  try {
+    window.localStorage.setItem(FAVICON_SEED_KEY, JSON.stringify(seed));
+  } catch {
+    // Private browsing / quota exceeded — the favicon just falls back to the
+    // default icon until this session's own fetch resolves, same as before.
+  }
+}
 
 function avatarMimeType(url: string): string {
   const pathname = url.split(/[?#]/, 1)[0].toLowerCase();
@@ -43,13 +71,27 @@ function placeholderFaviconDataUrl(initials: string, accentColor: string): strin
 
 export function WorkerIdentityProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
+  const [faviconSeed, setFaviconSeed] = useState<FaviconSeed | null>(() =>
+    typeof window === "undefined" ? null : readFaviconSeed(),
+  );
 
   useEffect(() => {
-    void apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
+    void apiFetch<WorkerProfile>("/worker")
+      .then((next) => {
+        setProfile(next);
+        const seed = { avatarUrl: next.avatarUrl, avatarInitials: next.avatarInitials, accentColor: next.accentColor };
+        setFaviconSeed(seed);
+        writeFaviconSeed(seed);
+      })
+      .catch(() => undefined);
 
     const update = (event: Event) => {
       const next = (event as CustomEvent<WorkerProfile>).detail;
-      if (next) setProfile(next);
+      if (!next) return;
+      setProfile(next);
+      const seed = { avatarUrl: next.avatarUrl, avatarInitials: next.avatarInitials, accentColor: next.accentColor };
+      setFaviconSeed(seed);
+      writeFaviconSeed(seed);
     };
     window.addEventListener(IDENTITY_UPDATED_EVENT, update);
     return () => window.removeEventListener(IDENTITY_UPDATED_EVENT, update);
@@ -77,10 +119,21 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
   // it throws "Cannot read properties of null (reading 'removeChild')" -
   // this crashed on every client-side route change for the rest of the tab's
   // session once this effect had run a single time.
+  //
+  // That same per-navigation reconciliation is also why `pathname` is a
+  // dependency below even though nothing in this effect reads it: Next
+  // re-resolves and re-syncs its own <link rel="icon"> on every client-side
+  // route change, independently of this component's render, which silently
+  // overwrote our href back to the default robot on every tab switch within
+  // (admin)/layout.tsx (which never remounts between routes, so `profile`
+  // never changed and this effect never re-ran to fix it back up). Re-running
+  // on every pathname change re-applies our href right after Next resets it.
+  const pathname = usePathname();
   const defaultFaviconRef = useRef<{ href: string; type: string } | null>(null);
   const ownLinkRef = useRef<HTMLLinkElement | null>(null);
   useEffect(() => {
-    if (!profile) return;
+    const source = profile ?? faviconSeed;
+    if (!source) return;
     const frameworkLinks = Array.from(
       document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]:not([data-worker-avatar-favicon])'),
     );
@@ -92,10 +145,10 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
       };
     }
 
-    const usingAvatar = Boolean(profile.avatarUrl);
+    const usingAvatar = Boolean(source.avatarUrl);
     const href = usingAvatar
-      ? absoluteAvatarUrl(profile.avatarUrl ?? "")
-      : placeholderFaviconDataUrl(profile.avatarInitials, profile.accentColor);
+      ? absoluteAvatarUrl(source.avatarUrl ?? "")
+      : placeholderFaviconDataUrl(source.avatarInitials, source.accentColor);
     const type = usingAvatar ? avatarMimeType(href) : "image/svg+xml";
 
     // Chrome can prefer Next's typed SVG icon over a later untyped link.
@@ -131,7 +184,7 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
         else frameworkLink.removeAttribute("type");
       }
     };
-  }, [profile]);
+  }, [profile, faviconSeed, pathname]);
 
   return <WorkerIdentityContext.Provider value={{ profile }}>{children}</WorkerIdentityContext.Provider>;
 }
