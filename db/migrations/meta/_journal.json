@@ -169,6 +169,13 @@
       "when": 1790148870268,
       "tag": "0023_clerk_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790660000004,
+      "tag": "0024_accent_color_brand_default",
+      "breakpoints": true
     }
   ]
 }

@@ -41,7 +41,10 @@ export const workerProfiles = pgTable(
     slug: text("slug").notNull().default("worker"),
     status: text("status").notNull().default("active"), // active | paused
     avatarUrl: text("avatar_url"),
-    accentColor: text("accent_color").notNull().default("#4F46E5"),
+    // Brand orange (#F47920) — matches the app's own icon.svg default and
+    // CLAUDE.md's "never blue/indigo" rule, so an org with no chosen color
+    // yet doesn't get a favicon/avatar mismatch out of the box.
+    accentColor: text("accent_color").notNull().default("#F47920"),
     bio: text("bio").notNull().default(""),
     timezone: text("timezone").notNull().default("UTC"),
     locale: text("locale").notNull().default("en-US"),
