@@ -29,13 +29,13 @@ const statusColor = {
   paused: "bg-gray-400",
 };
 
-// Deterministic hue from the initials so a given worker's avatar stays stable
-// across renders without needing a stored color field.
-function hueFrom(seed: string): number {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) % 360;
-  return hash;
-}
+// The worker's own accent color defaults to this same brand orange server-side
+// (see withIdentityDefaults in use-worker-profile.ts), so falling back to it
+// here — rather than a hash-derived hue — means most workers never see a color
+// flash at all while identity is still loading, and the ones who did pick a
+// custom color at least get the app's one on-brand accent (CLAUDE.md: orange
+// #F47920 only, never blue/indigo) instead of an arbitrary generated hue.
+const DEFAULT_ACCENT_COLOR = "#F47920";
 
 export default function AgentAvatar({
   initials,
@@ -46,8 +46,7 @@ export default function AgentAvatar({
   avatarUrl,
 }: AgentAvatarProps) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const hue = hueFrom(initials || "AW");
-  const background = accentColor || `hsl(${hue} 55% 45%)`;
+  const background = accentColor || DEFAULT_ACCENT_COLOR;
   const showImage = Boolean(avatarUrl) && failedUrl !== avatarUrl;
 
   return (
