@@ -43,3 +43,25 @@ export function guardrailModel(): string {
 export function firstAllowedOrigin(): string | null {
   return envList(process.env.CORS_ALLOWED_ORIGINS)[0] ?? null;
 }
+
+/**
+ * This deployment's own public frontend origin — for building a redirect/
+ * callback URL that must point back at *this app specifically* (OAuth
+ * callbacks for Composio and Nylas mailbox connect both need this).
+ *
+ * Deliberately NOT firstAllowedOrigin(): CORS_ALLOWED_ORIGINS is an
+ * unordered allow-list (AIX Core's shell origin is typically listed first,
+ * since that's where auth redirects originate) — treating its first entry
+ * as "our own canonical origin" sent every OAuth callback here to whatever
+ * happened to be listed first, not to this app. Prefers a var meant for
+ * exactly this purpose, falls back to the widget's already-correct public
+ * origin, and only then to the historical (order-dependent) behavior so a
+ * deployment that hasn't set either new var doesn't regress.
+ */
+export function publicAppUrl(): string | null {
+  const explicit = (process.env.PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+  if (explicit) return explicit;
+  const widgetOrigin = (process.env.NEXT_PUBLIC_WIDGET_ORIGIN || "").trim().replace(/\/+$/, "");
+  if (widgetOrigin) return widgetOrigin;
+  return firstAllowedOrigin();
+}

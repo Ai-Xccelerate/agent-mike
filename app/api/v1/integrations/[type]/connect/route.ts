@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { firstAllowedOrigin } from "@/lib/env";
+import { publicAppUrl } from "@/lib/env";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { getAuthConfigId } from "@/lib/tools-integrations/auth-configs";
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { type: strin
       ? body.connectedBy.trim()
       : tenant.userId;
 
-  const callbackUrl = `${firstAllowedOrigin() || req.nextUrl.origin}/settings/integrations`;
+  const callbackUrl = `${publicAppUrl() || req.nextUrl.origin}/settings/integrations`;
   let linked: { redirectUrl: string; id: string | null };
   try {
     linked = await linkConnection(tenant.orgId, authConfigId, callbackUrl);

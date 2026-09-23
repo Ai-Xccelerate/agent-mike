@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { firstAllowedOrigin } from "@/lib/env";
+import { publicAppUrl } from "@/lib/env";
 import {
   NylasError,
   callbackUri,
@@ -30,7 +30,7 @@ function settingsUrl(req: NextRequest, params: Record<string, string>): string {
   // The frontend and this API commonly live on different hosts (split
   // deploy) — req.nextUrl.origin is this API's own origin, which doesn't
   // serve /settings/tools, so prefer the configured allowed origin.
-  const base = firstAllowedOrigin() || req.nextUrl.origin;
+  const base = publicAppUrl() || req.nextUrl.origin;
   // The mailbox card lives under Tools > External tools, so that is where the
   // manager must land to see whether the connection took.
   const url = new URL("/settings/tools", base);
@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
     const grant = await exchangeCodeForGrant({
       credentials: resolved.values,
       code,
-      redirectUri: callbackUri(firstAllowedOrigin() || req.nextUrl.origin),
+      redirectUri: callbackUri(publicAppUrl() || req.nextUrl.origin),
     });
     await saveMailbox({
       organizationId: issued.orgId,
