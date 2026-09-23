@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { getAccountStatus } from "@/lib/tools-integrations/composio-client";
 import {
   getConnectionForOrg,
@@ -43,6 +44,9 @@ export async function GET(req: NextRequest, { params }: { params: { type: string
 
 export async function DELETE(req: NextRequest, { params }: { params: { type: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   if (!getIntegrationType(params.type)) {
     return NextResponse.json({ error: `Unknown integration type "${params.type}"` }, { status: 400 });
   }

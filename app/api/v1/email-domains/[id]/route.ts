@@ -6,6 +6,7 @@ import { emailDomains } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { fieldErrors } from "@/lib/identity-fields";
 import { decisionSchema, isNoOp, statusAfter, type DomainStatus } from "@/lib/email-domains";
+import { isOrgAdmin } from "@/lib/org-roles";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -23,6 +24,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const { id } = await params;
 
   const body = await req.json().catch(() => null);
@@ -70,6 +74,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const { id } = await params;
 
   const [deleted] = await db

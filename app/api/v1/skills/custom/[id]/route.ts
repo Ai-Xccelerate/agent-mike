@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { fieldErrors } from "@/lib/identity-fields";
 import { customSkillPatchSchema } from "@/lib/tools-integrations/custom-skill-schema";
 import { deleteCustomSkill, updateCustomSkill } from "@/lib/tools-integrations/custom-skills-repository";
@@ -9,6 +10,9 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = customSkillPatchSchema.safeParse(body);
@@ -25,6 +29,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const deleted = await deleteCustomSkill(tenant.orgId, params.id);
   if (!deleted) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

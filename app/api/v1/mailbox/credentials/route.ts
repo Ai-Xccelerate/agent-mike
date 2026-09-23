@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { fieldErrors } from "@/lib/identity-fields";
 import {
@@ -57,6 +58,9 @@ export async function GET(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   await getOrCreateProfile(tenant.orgId);
 
   const body = await req.json().catch(() => null);
@@ -101,6 +105,9 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const removed = await clearOrgCredentials(tenant.orgId, NYLAS_PROVIDER);
   if (!removed) {
     return NextResponse.json(

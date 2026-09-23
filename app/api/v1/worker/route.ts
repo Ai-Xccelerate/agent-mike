@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { workerProfiles } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { fieldErrors, isUniqueViolation, workerPatchSchema } from "@/lib/worker-patch";
 import { publicWorkerIdentity } from "@/lib/public-worker-identity";
@@ -37,6 +38,9 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const profile = await getOrCreateProfile(tenant.orgId);
 
   const body = await req.json().catch(() => null);

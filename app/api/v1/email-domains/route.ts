@@ -6,6 +6,7 @@ import { emailDomains } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { fieldErrors } from "@/lib/identity-fields";
 import { countByStatus, createDomainSchema } from "@/lib/email-domains";
+import { isOrgAdmin } from "@/lib/org-roles";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -31,6 +32,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = createDomainSchema.safeParse(body);

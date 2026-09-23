@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { knowledgeDocuments } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { ingestOkf, InvalidOKFDocument, wrapAsOkf } from "@/lib/knowledge";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
@@ -11,6 +12,9 @@ export const dynamic = "force-dynamic";
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   await db
     .delete(knowledgeDocuments)
     .where(and(eq(knowledgeDocuments.id, params.id), eq(knowledgeDocuments.organizationId, tenant.orgId)));
@@ -23,6 +27,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
 // parsed out of real frontmatter are carried forward rather than erased.
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
 
   const title = body?.title as string | undefined;
