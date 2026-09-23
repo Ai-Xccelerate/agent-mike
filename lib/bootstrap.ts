@@ -49,6 +49,12 @@ export async function getOrCreateProfile(orgId: string) {
   if (existing) return existing;
 
   const seededSlug = slugSchema.safeParse(orgId).success ? orgId : undefined;
+  // Only title-case the org id itself when it's slug-shaped (multi-agent
+  // fleet org ids are, e.g. "agent-george" -> "Agent George"). A Clerk
+  // organization id ("org_3DIjvbx...") never is, and title-casing it
+  // produced a garbled customer-facing name straight from the opaque id
+  // instead of a real one — fall back to this deployment's own name.
+  const seededDisplayName = seededSlug ? titleCase(seededSlug) : "Mike";
 
   try {
     const [created] = await db
@@ -57,7 +63,7 @@ export async function getOrCreateProfile(orgId: string) {
         organizationId: orgId,
         ...(orgId === DEFAULT_ORG_ID
           ? {}
-          : { ...(seededSlug ? { slug: seededSlug } : {}), displayName: titleCase(orgId) }),
+          : { ...(seededSlug ? { slug: seededSlug } : {}), displayName: seededDisplayName }),
       })
       .returning();
     return created;
@@ -68,7 +74,7 @@ export async function getOrCreateProfile(orgId: string) {
       .values({
         organizationId: orgId,
         slug: `worker-${randomUUID()}`,
-        ...(orgId === DEFAULT_ORG_ID ? {} : { displayName: titleCase(orgId) }),
+        ...(orgId === DEFAULT_ORG_ID ? {} : { displayName: seededDisplayName }),
       })
       .returning();
     return created;
