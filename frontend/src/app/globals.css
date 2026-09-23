@@ -221,7 +221,6 @@ html[data-density='compact'] {
   --color-agent-joy: #f79009;
   --color-agent-george: #344054;
   --color-agent-sam: #0ea5e9;
-  --color-agent-mike: #2563eb;
 
   --shadow-theme-md:
     0px 4px 8px -2px rgba(16, 24, 40, 0.1),
@@ -292,11 +291,11 @@ html[data-density='compact'] {
   }
 
   /* Public embed: hide ambient chrome so host pages show through the iframe. */
-  html[data-mike-widget="1"],
-  body[data-mike-widget="1"] {
+  html[data-worker-widget="1"],
+  body[data-worker-widget="1"] {
     background: transparent !important;
   }
-  html[data-mike-widget="1"] .liquid-backdrop {
+  html[data-worker-widget="1"] .liquid-backdrop {
     display: none !important;
   }
 
