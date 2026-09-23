@@ -334,27 +334,46 @@ export class WorkerApiError extends Error {
  * MIKE_PLATFORM_AUTH) can resolve the org/user/role; a widget request
  * instead carries the org-scoped site token and skips auth entirely.
  */
-export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise<T> {
-  const headers = new Headers(init?.headers);
-  if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
+async function attachAuth(headers: Headers, init: ApiFetchOptions | undefined, forceFreshToken: boolean) {
   if (init?.widgetSiteToken) {
     headers.set("x-worker-site-token", init.widgetSiteToken);
+    return;
+  }
+  const token = await getManagerToken(forceFreshToken);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   } else {
-    const token = await getManagerToken();
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
+    headers.delete("Authorization");
   }
-  if (init?.body instanceof FormData) {
-    headers.delete("Content-Type");
-  }
+}
 
+export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise<T> {
   const requestInit: RequestInit = { ...(init ?? {}) };
   delete (requestInit as ApiFetchOptions).widgetSiteToken;
 
-  const response = await fetch(`/api/v1${path}`, { ...requestInit, headers });
+  const run = async (forceFreshToken: boolean) => {
+    const headers = new Headers(init?.headers);
+    if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    await attachAuth(headers, init, forceFreshToken);
+    if (init?.body instanceof FormData) {
+      headers.delete("Content-Type");
+    }
+    return fetch(`/api/v1${path}`, { ...requestInit, headers });
+  };
+
+  let response = await run(false);
+  // A manager request that comes back 401 isn't necessarily an actually
+  // signed-out user — Clerk's getToken() can hand back a cached token that
+  // looked valid client-side but had already expired by the time the
+  // backend checked it. One retry with skipCache forces a genuinely fresh
+  // token before giving up. Never retried for widget requests (site-token
+  // auth, unrelated to Clerk) or once already retried.
+  if (response.status === 401 && !init?.widgetSiteToken) {
+    response = await run(true);
+  }
+
   if (!response.ok) {
     const detail = await response.text();
     let errors: Record<string, string> | undefined;
