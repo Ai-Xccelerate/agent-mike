@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { widgetSites } from "@/db/schema";
 import { DEFAULT_ORG_ID } from "@/lib/env";
-import { platformAuthRequired } from "@/lib/clerk-core-auth";
+import { ClerkIdentityAdapter } from "@/lib/identity-clerk";
 
 /**
  * Every request that needs to know "which org, which user" goes through an
@@ -48,11 +48,7 @@ export class StandaloneIdentityAdapter implements IdentityAdapter {
   }
 
   async resolveWidgetRequest(req: NextRequest): Promise<TenantContext | null> {
-    const token = (
-      req.headers.get("x-worker-site-token") ||
-      req.headers.get("x-mike-site-token") ||
-      ""
-    ).trim();
+    const token = (req.headers.get("x-worker-site-token") || "").trim();
     if (!token) return null;
 
     const [site] = await db
@@ -69,32 +65,6 @@ export class StandaloneIdentityAdapter implements IdentityAdapter {
       role: "member",
       source: "widget",
     };
-  }
-}
-
-/**
- * Mike's platform adapter consumes tenant headers written by middleware only
- * after Clerk JWT verification and the AIX Core `agents/mike/access` check.
- * Keeping that boundary here means every Foundation route remains tenant-
- * agnostic while this product deployment keeps its existing access contract.
- */
-export class ClerkCoreIdentityAdapter implements IdentityAdapter {
-  async resolveManagerRequest(req: NextRequest): Promise<TenantContext> {
-    const orgId = (req.headers.get("x-aix-verified-org-id") || "").trim();
-    const userId = (req.headers.get("x-aix-verified-user-id") || "").trim();
-    const rawRole = (req.headers.get("x-aix-verified-role") || "").trim();
-    const role =
-      rawRole === "owner" || rawRole === "admin" || rawRole === "member"
-        ? rawRole
-        : null;
-    if (!orgId || !userId || !role) {
-      throw new Error("Verified Clerk tenant context is missing");
-    }
-    return { orgId, userId, role, source: "clerk-core" };
-  }
-
-  async resolveWidgetRequest(req: NextRequest): Promise<TenantContext | null> {
-    return new StandaloneIdentityAdapter().resolveWidgetRequest(req);
   }
 }
 
@@ -142,8 +112,8 @@ export class MultiAgentIdentityAdapter implements IdentityAdapter {
 }
 
 function defaultAdapter(): IdentityAdapter {
-  if (platformAuthRequired()) {
-    return new ClerkCoreIdentityAdapter();
+  if ((process.env.MIKE_PLATFORM_AUTH || "").toLowerCase() === "true") {
+    return new ClerkIdentityAdapter();
   }
   return (process.env.MULTI_AGENT || "").toLowerCase() === "true"
     ? new MultiAgentIdentityAdapter()
