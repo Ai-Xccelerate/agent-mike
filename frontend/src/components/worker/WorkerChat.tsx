@@ -256,7 +256,7 @@ export function ChatPanel({
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-2xl bg-white p-6 text-center dark:bg-gray-900">
         <p className="text-sm font-semibold text-gray-800 dark:text-white/90">Widget not configured</p>
         <p className="max-w-xs text-xs leading-5 text-gray-500 dark:text-gray-400">
-          Open Chat in the console and use Copy embed snippet. The link must include your org's site token.
+          Open Chat in the console and use Copy embed snippet. The link must include your org&apos;s site token.
         </p>
       </div>
     );
@@ -375,7 +375,7 @@ export function ChatPanel({
                   onClick={() => void sendText(prompt)}
                   className="block w-full rounded-lg border border-gray-200 px-3 py-2.5 text-left text-xs text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
                 >
-                  "{prompt}"
+                  &quot;{prompt}&quot;
                 </button>
               ))}
             </div>

@@ -8,8 +8,8 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { ManagerAuthBridge } from "@/lib/manager-auth";
 
 export const metadata = {
-  title: "Agent Mike | Manager console",
-  description: "Configure and operate Agent Mike.",
+  title: "AI Worker | Manager console",
+  description: "Configure and operate your AI worker.",
 };
 
 const noFlashTheme = `(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');}}catch(e){}})();`;

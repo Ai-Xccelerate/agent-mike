@@ -328,7 +328,12 @@ export class WorkerApiError extends Error {
   }
 }
 
-/** Manager requests use Clerk; public widget requests use only their site token. */
+/**
+ * Manager requests carry a Clerk session bearer token so the backend's
+ * platform identity adapter (lib/identity-clerk.ts, gated by
+ * MIKE_PLATFORM_AUTH) can resolve the org/user/role; a widget request
+ * instead carries the org-scoped site token and skips auth entirely.
+ */
 export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
@@ -336,13 +341,11 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
   }
   if (init?.widgetSiteToken) {
     headers.set("x-worker-site-token", init.widgetSiteToken);
-    headers.delete("Authorization");
   } else {
     const token = await getManagerToken();
-    if (!token) {
-      throw new WorkerApiError("No authenticated Clerk session", 401);
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
-    headers.set("Authorization", `Bearer ${token}`);
   }
   if (init?.body instanceof FormData) {
     headers.delete("Content-Type");
