@@ -40,6 +40,15 @@ export default function IntegrationCategorySection({
   const [failedSystem, setFailedSystem] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState("");
+  // A "pending" row can be stuck forever with nothing to unstick it: Composio's
+  // own INITIALIZING status doesn't reliably self-expire, and there was
+  // previously no way to retry once status left "failed" territory — the
+  // button just showed a permanent spinner. Retrying is safe even mid-pending
+  // (calling connect again supersedes/expires whatever attempt was stuck), so
+  // offer it once enough time has passed that this clearly isn't still the
+  // few-seconds-normal OAuth round trip.
+  const [pendingSince, setPendingSince] = useState<number | null>(null);
+  const STUCK_AFTER_MS = 20_000;
 
   useEffect(() => {
     getIntegrationConnection(integrationType)
@@ -57,6 +66,14 @@ export default function IntegrationCategorySection({
     }, 3000);
     return () => clearInterval(interval);
   }, [connection?.status, integrationType, title]);
+
+  useEffect(() => {
+    setPendingSince(connection?.status === "pending" ? Date.now() : null);
+    // Only the transition into/out of "pending" should reset the clock, not
+    // every poll tick that still returns "pending" — otherwise "stuck" could
+    // never be reached, since each poll would restart the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection?.status === "pending"]);
 
   async function handleConnect(vendor: VendorOption) {
     setError("");
@@ -95,6 +112,7 @@ export default function IntegrationCategorySection({
   }
 
   const activeSystem = connection?.status === "active" || connection?.status === "pending" ? connection.system : null;
+  const stuckPending = pendingSince !== null && Date.now() - pendingSince > STUCK_AFTER_MS;
 
   return (
     <section>
@@ -118,7 +136,9 @@ export default function IntegrationCategorySection({
             status === "unavailable"
               ? `Disconnect ${vendors.find((v) => v.system === activeSystem)?.label ?? "the current connection"} first to switch.`
               : status === "pending"
-                ? `Finish signing in to ${vendor.label} in the popup or redirected tab.`
+                ? stuckPending
+                  ? "This is taking a while. Try again."
+                  : `Finish signing in to ${vendor.label} in the popup or redirected tab.`
                 : status === "failed"
                   ? "The previous attempt failed. Try again."
                   : undefined;
@@ -135,7 +155,7 @@ export default function IntegrationCategorySection({
               >
                 Disconnect
               </Button>
-            ) : status === "pending" ? (
+            ) : status === "pending" && !stuckPending ? (
               <Button size="sm" className="w-full" disabled loading>
                 Connecting…
               </Button>
@@ -147,7 +167,7 @@ export default function IntegrationCategorySection({
                 loading={connectingSystem === vendor.system}
                 disabled={connectingSystem !== null}
               >
-                {status === "failed" ? `Retry connecting ${vendor.label}` : `Connect ${vendor.label}`}
+                {status === "failed" || stuckPending ? `Retry connecting ${vendor.label}` : `Connect ${vendor.label}`}
               </Button>
             );
 
