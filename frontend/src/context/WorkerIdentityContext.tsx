@@ -23,6 +23,24 @@ function absoluteAvatarUrl(url: string): string {
   return new URL(url, window.location.origin).href;
 }
 
+/**
+ * Mirrors AgentAvatar's own colored-circle-with-initials treatment (same
+ * accent color, same initials) so the tab icon reads as the same identity
+ * as the sidebar/Identity avatar instead of the app's generic robot icon —
+ * that generic icon.svg fallback is what made the favicon never match once
+ * a worker had a custom color but no uploaded image yet.
+ */
+function placeholderFaviconDataUrl(initials: string, accentColor: string): string {
+  const text = (initials || "AW").slice(0, 2).toUpperCase();
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">` +
+    `<circle cx="32" cy="32" r="32" fill="${accentColor}"/>` +
+    `<text x="32" y="33" text-anchor="middle" dominant-baseline="central" ` +
+    `font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="600" ` +
+    `fill="#fff">${text}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 export function WorkerIdentityProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
 
@@ -37,8 +55,13 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
     return () => window.removeEventListener(IDENTITY_UPDATED_EVENT, update);
   }, []);
 
-  // The browser tab icon: the worker's own uploaded avatar when there is one,
-  // the app's own robot icon.svg otherwise (captured once so this never has
+  // The browser tab icon: the worker's own uploaded avatar image when there
+  // is one, otherwise a generated circle in the worker's own accent color
+  // and initials (matching AgentAvatar) rather than the app's generic robot
+  // icon.svg — that generic fallback is what made the favicon never match
+  // the sidebar/Identity avatar for a worker with a custom color but no
+  // uploaded image yet. defaultFaviconRef still exists purely to restore the
+  // framework's own icon.svg link on unmount (captured once so this never has
   // to guess its URL) — never any other placeholder or stock image.
   //
   // Mutating an existing <link>'s href is not enough — several browsers cache
@@ -72,8 +95,8 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
     const usingAvatar = Boolean(profile.avatarUrl);
     const href = usingAvatar
       ? absoluteAvatarUrl(profile.avatarUrl ?? "")
-      : defaultFaviconRef.current.href;
-    const type = usingAvatar ? avatarMimeType(href) : defaultFaviconRef.current.type;
+      : placeholderFaviconDataUrl(profile.avatarInitials, profile.accentColor);
+    const type = usingAvatar ? avatarMimeType(href) : "image/svg+xml";
 
     // Chrome can prefer Next's typed SVG icon over a later untyped link.
     // Point the framework-managed icon at the avatar too, but never remove it:

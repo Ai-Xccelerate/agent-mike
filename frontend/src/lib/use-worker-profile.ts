@@ -12,7 +12,7 @@ function withIdentityDefaults(profile: WorkerProfile): WorkerProfile {
     slug: profile.slug ?? "worker",
     status: profile.status ?? "active",
     avatarUrl: profile.avatarUrl ?? null,
-    accentColor: profile.accentColor ?? "#4F46E5",
+    accentColor: profile.accentColor ?? "#F47920",
     bio: profile.bio ?? "",
     timezone: profile.timezone ?? "UTC",
     locale: profile.locale ?? "en-US",

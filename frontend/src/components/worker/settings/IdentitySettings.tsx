@@ -146,7 +146,7 @@ export default function IdentitySettings() {
               <input
                 value={profile.accentColor}
                 onChange={(e) => update("accentColor", e.target.value.toUpperCase())}
-                placeholder="#4F46E5"
+                placeholder="#F47920"
                 className={`${fieldClass} font-mono`}
               />
             </div>
