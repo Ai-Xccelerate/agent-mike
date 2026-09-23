@@ -35,17 +35,17 @@ export const workerProfiles = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
 
     // Identity (R14 / settings > Identity)
-    name: text("name").notNull().default("Mike"),
-    displayName: text("display_name").notNull().default("Agent Mike"),
-    avatarInitials: text("avatar_initials").notNull().default("AM"),
-    slug: text("slug").notNull().default("mike"),
+    name: text("name").notNull().default("Worker"),
+    displayName: text("display_name").notNull().default("AI Worker"),
+    avatarInitials: text("avatar_initials").notNull().default("AW"),
+    slug: text("slug").notNull().default("worker"),
     status: text("status").notNull().default("active"), // active | paused
     avatarUrl: text("avatar_url"),
     accentColor: text("accent_color").notNull().default("#4F46E5"),
     bio: text("bio").notNull().default(""),
     timezone: text("timezone").notNull().default("UTC"),
     locale: text("locale").notNull().default("en-US"),
-    email: text("email").default("agent.mike@wkr.email"),
+    email: text("email"),
     emailSignature: text("email_signature").notNull().default(""),
     tone: text("tone").notNull().default("Warm, concise, and honest about uncertainty."),
 
@@ -125,7 +125,7 @@ export const workerProfiles = pgTable(
       .notNull()
       .default(sql`'{"email":false,"chat":true,"voice":false}'::jsonb`),
 
-    ticketPrefix: text("ticket_prefix").notNull().default("AIX"),
+    ticketPrefix: text("ticket_prefix").notNull().default("TCK"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -264,12 +264,19 @@ export const workerUsers = pgTable(
     email: text("email").notNull(),
     name: text("name"),
     role: text("role").notNull().default("member"), // owner | admin | member
+    // Set only for users provisioned through the Clerk identity adapter
+    // (lib/identity-clerk.ts); most existing rows leave this null.
+    clerkUserId: text("clerk_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     orgEmailUnique: uniqueIndex("worker_users_org_email_unique").on(
       table.organizationId,
       table.email,
+    ),
+    orgClerkUserUnique: uniqueIndex("worker_users_org_clerk_user_unique").on(
+      table.organizationId,
+      table.clerkUserId,
     ),
   }),
 );
