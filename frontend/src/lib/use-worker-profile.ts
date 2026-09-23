@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, WorkerApiError, WorkerProfile } from "@/lib/worker-api";
+import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
 
 const IDENTITY_UPDATED_EVENT = "aix:identity-updated";
 
@@ -26,22 +27,30 @@ function withIdentityDefaults(profile: WorkerProfile): WorkerProfile {
  * exposed and editable without a code deployment").
  */
 export function useWorkerProfile() {
+  // Seeded from WorkerIdentityContext's own fetch rather than running a
+  // second, independent apiFetch("/worker") here. Two separate fetches of
+  // the same endpoint could resolve at slightly different times, so the
+  // sidebar (context) and this page could briefly show two different
+  // placeholder/loaded states for the same profile. Seeded once, not kept
+  // in sync on every later context change, so an in-progress unsaved edit
+  // here is never clobbered by an unrelated update elsewhere (e.g. another
+  // tab saving) — later updates still flow through applyServerUpdate/save().
+  const identity = useWorkerIdentity();
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [saved, setSaved] = useState<WorkerProfile | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeError, setNoticeError] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const seededRef = useRef(false);
 
   useEffect(() => {
-    apiFetch<WorkerProfile>("/worker")
-      .then((data) => {
-        const next = withIdentityDefaults(data);
-        setProfile(next);
-        setSaved(next);
-      })
-      .catch(() => undefined);
-  }, []);
+    if (seededRef.current || !identity) return;
+    seededRef.current = true;
+    const next = withIdentityDefaults(identity);
+    setProfile(next);
+    setSaved(next);
+  }, [identity]);
 
   const dirty = Boolean(profile && saved && JSON.stringify(profile) !== JSON.stringify(saved));
 
