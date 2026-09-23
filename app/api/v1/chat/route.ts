@@ -32,9 +32,7 @@ function toHistoryTurns(
 
 export async function POST(req: NextRequest) {
   const identity = getIdentityAdapter();
-  const isWidget = Boolean(
-    req.headers.get("x-worker-site-token") || req.headers.get("x-mike-site-token"),
-  );
+  const isWidget = Boolean(req.headers.get("x-worker-site-token"));
   const tenant = isWidget
     ? await identity.resolveWidgetRequest(req)
     : await identity.resolveManagerRequest(req);

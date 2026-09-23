@@ -5,29 +5,169 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1756800000000,
-      "tag": "0000_mike_init",
+      "when": 1789042117261,
+      "tag": "0000_ordinary_pride",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1788515021009,
-      "tag": "0001_nylas_mailboxes",
+      "when": 1789048800000,
+      "tag": "0001_identity_fields",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1788518400000,
-      "tag": "0002_widget_sites",
+      "when": 1789064506778,
+      "tag": "0002_lush_skin",
       "breakpoints": true
     },
     {
       "idx": 3,
       "version": "7",
-      "when": 1789992213578,
-      "tag": "0003_migrate_to_foundation",
+      "when": 1789129678892,
+      "tag": "0003_mighty_karma",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789130602262,
+      "tag": "0004_modern_the_hood",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789377099871,
+      "tag": "0005_tool_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789480000000,
+      "tag": "0006_parchment_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789560000000,
+      "tag": "0007_agentdb_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789620000000,
+      "tag": "0008_scribe_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789740000000,
+      "tag": "0009_agent_artifacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789800000000,
+      "tag": "0010_agent_wiki",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789860000000,
+      "tag": "0011_email_domains",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789480334395,
+      "tag": "0012_enabled_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789486259177,
+      "tag": "0013_conversation_human_controlled",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789488310943,
+      "tag": "0014_blushing_mongoose",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790120000000,
+      "tag": "0015_nylas_mailbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790180000000,
+      "tag": "0016_worker_slug_per_org",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790240000000,
+      "tag": "0017_provider_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790600000000,
+      "tag": "0018_agent_skills_repository",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790660000000,
+      "tag": "0019_agent_config_prompt_split",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790660000001,
+      "tag": "0020_assistant_history_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790660000002,
+      "tag": "0021_assistant_actions_toggle",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790660000003,
+      "tag": "0022_tool_approvals_conversation_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790148870268,
+      "tag": "0023_clerk_identity",
       "breakpoints": true
     }
   ]

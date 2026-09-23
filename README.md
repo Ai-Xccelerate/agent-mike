@@ -1,16 +1,18 @@
-# Agent Mike
+# AI-worker-backend
 
-Agent Mike runs the AI Worker Foundation in Mike's existing repository and
-Railway deployment. It preserves Mike's Clerk + AIX Core access contract,
-database data, widget/Nylas behavior, and `AIX` ticket identity.
+The API for AI Xccelerate's AI Worker Foundation — Next.js (route handlers) +
+Drizzle ORM + PostgreSQL, with the [OpenAI Agents SDK](https://github.com/openai/openai-agents-js)
+as the harness. Built fresh — see `docs/ARCHITECTURE.md` for why, and how
+identity/access is kept decoupled from the base template.
 
 ## What's here
 
-- repository root: Mike API (Next.js, OpenAI Agents SDK, Drizzle/Postgres)
-- `frontend/`: manager UI and public widget
-- `db/migrations/`: Mike's deployed lineage plus the Foundation migration
-- `docs/MIGRATION.md`: preserved contracts and cutover gate
-- `docs/DEPLOY_RAILWAY.md`: Mike Railway deployment
+- `app/api/v1/` — worker profile (identity/role/guardrails/manager/agent
+  config), chat, conversations, knowledge, widget site tokens, users
+- `lib/` — harness (`agent.ts`), identity adapter (`identity.ts`), guardrails,
+  knowledge ingestion + retrieval
+- `db/` — Drizzle schema (Postgres)
+- `knowledge/` — starter OKF markdown bundle, ingested on demand
 
 ## Quick start
 
@@ -21,12 +23,14 @@ cp .env.example .env.local
 npm install
 npx drizzle-kit migrate
 npm run dev
-
-cd frontend
-npm install
-npm run dev
 ```
 
-API runs at `http://localhost:3000`; frontend at `http://localhost:3001`.
-`DEMO_MODE=true` skips live model calls locally. Railway always requires Clerk
-and AIX Core access.
+API runs at `http://localhost:3000`. `DEMO_MODE=true` (the default in
+`.env.example`) skips live OpenAI calls and returns a canned response — no
+API key required to run the whole stack locally.
+
+## Known gaps
+
+Domain/user verification as a callable pattern, a skills library, a
+generalized business-system integration pattern, and voice are all still
+open — see `docs/ARCHITECTURE.md` → "Deliberately not built yet."

@@ -48,8 +48,13 @@ server-only.
 - `MULTI_AGENT`
 - `DEMO_MODE=true`
 
-`MIKE_PLATFORM_AUTH` is unnecessary on Railway: the backend detects the
-Railway environment and requires Clerk + Core automatically.
+**As of the AI Worker Foundation v2 migration, `MIKE_PLATFORM_AUTH=true` is
+required on Railway.** `middleware.ts` still requires Clerk + Core
+automatically on any deployed (Railway/staging/production) environment, but
+`lib/identity.ts`'s `defaultAdapter()` now switches on `MIKE_PLATFORM_AUTH`
+alone rather than auto-detecting the deployed environment — leaving it unset
+would authenticate every request correctly and then still resolve every org
+to the single "default" tenant.
 
 ## Cross-service values
 

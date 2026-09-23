@@ -1,6 +1,6 @@
 /**
  * Messages store citations as jsonb. Current Foundation writes string titles,
- * but older Mike rows saved rich objects
+ * but older rows may have saved rich objects
  * `{ title, heading, resource, concept_id, document_id }`. Normalize on read so
  * Inbox/Chat never try to render those objects as React children.
  */

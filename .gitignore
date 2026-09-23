@@ -13,7 +13,6 @@ next-env.d.ts
 # Local env backups — these hold real credentials.
 .env.bak*
 .env.*.bak
-jules-variables.txt
 
 # Python virtualenv used for local tooling
 .venv/
