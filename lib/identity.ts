@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { widgetSites } from "@/db/schema";
 import { DEFAULT_ORG_ID } from "@/lib/env";
 import { ClerkIdentityAdapter } from "@/lib/identity-clerk";
+import { platformAuthRequired } from "@/lib/clerk-core-auth";
 
 /**
  * Every request that needs to know "which org, which user" goes through an
@@ -111,8 +112,15 @@ export class MultiAgentIdentityAdapter implements IdentityAdapter {
   }
 }
 
+/**
+ * The same switch middleware.ts uses to decide whether to enforce a Clerk
+ * JWT — not a second, independently-set flag. Two separately-configured
+ * env vars that happen to agree today is how a future deployment could end
+ * up enforcing login (middleware) while silently collapsing every org onto
+ * DEFAULT_ORG_ID (here), if only one of the two ever got set.
+ */
 function defaultAdapter(): IdentityAdapter {
-  if ((process.env.MIKE_PLATFORM_AUTH || "").toLowerCase() === "true") {
+  if (platformAuthRequired()) {
     return new ClerkIdentityAdapter();
   }
   return (process.env.MULTI_AGENT || "").toLowerCase() === "true"
