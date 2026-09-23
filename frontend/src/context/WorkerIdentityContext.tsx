@@ -7,35 +7,54 @@ import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 
 type WorkerIdentityContextValue = {
   profile: WorkerProfile | null;
+  identitySeed: IdentitySeed | null;
 };
 
-const WorkerIdentityContext = createContext<WorkerIdentityContextValue>({ profile: null });
+const WorkerIdentityContext = createContext<WorkerIdentityContextValue>({ profile: null, identitySeed: null });
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
-// The favicon fields only, cached so a returning visitor's tab shows their
-// real avatar/color immediately instead of the generic robot icon while the
-// "/worker" fetch is still in flight. Deliberately NOT the full WorkerProfile:
-// this seed only ever feeds the favicon effect below, never WorkerIdentityContext's
-// own `profile` value, so a stale cached name/bio/tone can never leak into the
-// Settings form (which seeds itself from that `profile` once and never re-seeds).
-type FaviconSeed = { avatarUrl: string | null; avatarInitials: string; accentColor: string };
-const FAVICON_SEED_KEY = "aix:favicon-seed";
+// The display-only fields, cached so a returning visitor sees their real
+// name/avatar/color immediately — in the sidebar and the tab favicon —
+// instead of the generic "AI Worker"/"AW" placeholder while the "/worker"
+// fetch is still in flight. Deliberately NOT the full WorkerProfile: this
+// seed only ever feeds display fallbacks, never WorkerIdentityContext's own
+// `profile` value, so a stale cached bio/tone/role can never leak into the
+// Settings form (which seeds itself from that `profile` once and never
+// re-seeds).
+type IdentitySeed = {
+  displayName: string;
+  avatarInitials: string;
+  accentColor: string;
+  avatarUrl: string | null;
+  status: WorkerProfile["status"];
+};
+const IDENTITY_SEED_KEY = "aix:identity-seed";
 
-function readFaviconSeed(): FaviconSeed | null {
+function toIdentitySeed(profile: WorkerProfile): IdentitySeed {
+  return {
+    displayName: profile.displayName,
+    avatarInitials: profile.avatarInitials,
+    accentColor: profile.accentColor,
+    avatarUrl: profile.avatarUrl,
+    status: profile.status,
+  };
+}
+
+function readIdentitySeed(): IdentitySeed | null {
   try {
-    const raw = window.localStorage.getItem(FAVICON_SEED_KEY);
-    return raw ? (JSON.parse(raw) as FaviconSeed) : null;
+    const raw = window.localStorage.getItem(IDENTITY_SEED_KEY);
+    return raw ? (JSON.parse(raw) as IdentitySeed) : null;
   } catch {
     return null;
   }
 }
 
-function writeFaviconSeed(seed: FaviconSeed) {
+function writeIdentitySeed(seed: IdentitySeed) {
   try {
-    window.localStorage.setItem(FAVICON_SEED_KEY, JSON.stringify(seed));
+    window.localStorage.setItem(IDENTITY_SEED_KEY, JSON.stringify(seed));
   } catch {
-    // Private browsing / quota exceeded — the favicon just falls back to the
-    // default icon until this session's own fetch resolves, same as before.
+    // Private browsing / quota exceeded — display just falls back to the
+    // generic placeholder until this session's own fetch resolves, same as before.
   }
 }
 
@@ -71,17 +90,17 @@ function placeholderFaviconDataUrl(initials: string, accentColor: string): strin
 
 export function WorkerIdentityProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
-  const [faviconSeed, setFaviconSeed] = useState<FaviconSeed | null>(() =>
-    typeof window === "undefined" ? null : readFaviconSeed(),
+  const [identitySeed, setIdentitySeed] = useState<IdentitySeed | null>(() =>
+    typeof window === "undefined" ? null : readIdentitySeed(),
   );
 
   useEffect(() => {
     void apiFetch<WorkerProfile>("/worker")
       .then((next) => {
         setProfile(next);
-        const seed = { avatarUrl: next.avatarUrl, avatarInitials: next.avatarInitials, accentColor: next.accentColor };
-        setFaviconSeed(seed);
-        writeFaviconSeed(seed);
+        const seed = toIdentitySeed(next);
+        setIdentitySeed(seed);
+        writeIdentitySeed(seed);
       })
       .catch(() => undefined);
 
@@ -89,9 +108,9 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
       const next = (event as CustomEvent<WorkerProfile>).detail;
       if (!next) return;
       setProfile(next);
-      const seed = { avatarUrl: next.avatarUrl, avatarInitials: next.avatarInitials, accentColor: next.accentColor };
-      setFaviconSeed(seed);
-      writeFaviconSeed(seed);
+      const seed = toIdentitySeed(next);
+      setIdentitySeed(seed);
+      writeIdentitySeed(seed);
     };
     window.addEventListener(IDENTITY_UPDATED_EVENT, update);
     return () => window.removeEventListener(IDENTITY_UPDATED_EVENT, update);
@@ -132,7 +151,7 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
   const defaultFaviconRef = useRef<{ href: string; type: string } | null>(null);
   const ownLinkRef = useRef<HTMLLinkElement | null>(null);
   useEffect(() => {
-    const source = profile ?? faviconSeed;
+    const source = profile ?? identitySeed;
     if (!source) return;
     const frameworkLinks = Array.from(
       document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]:not([data-worker-avatar-favicon])'),
@@ -184,11 +203,32 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
         else frameworkLink.removeAttribute("type");
       }
     };
-  }, [profile, faviconSeed, pathname]);
+  }, [profile, identitySeed, pathname]);
 
-  return <WorkerIdentityContext.Provider value={{ profile }}>{children}</WorkerIdentityContext.Provider>;
+  return (
+    <WorkerIdentityContext.Provider value={{ profile, identitySeed }}>{children}</WorkerIdentityContext.Provider>
+  );
 }
 
 export function useWorkerIdentity() {
   return useContext(WorkerIdentityContext).profile;
+}
+
+// For display-only chrome (sidebar, header) that would otherwise flash the
+// generic "AI Worker"/"AW" placeholder on every reload while `/worker` is
+// in flight: falls back to the cached IdentitySeed first, and only to the
+// hardcoded generic defaults if this is the very first visit with nothing
+// cached yet. Never use this for anything that reads or writes the full
+// profile (e.g. Settings) — use useWorkerIdentity()/useWorkerProfile() there,
+// so stale cached data can never masquerade as a freshly loaded profile.
+export function useWorkerIdentityDisplay() {
+  const { profile, identitySeed } = useContext(WorkerIdentityContext);
+  const source = profile ?? identitySeed;
+  return {
+    displayName: source?.displayName ?? "AI Worker",
+    avatarInitials: source?.avatarInitials ?? "AW",
+    accentColor: source?.accentColor,
+    avatarUrl: source?.avatarUrl ?? null,
+    status: source?.status,
+  };
 }

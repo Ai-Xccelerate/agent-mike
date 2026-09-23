@@ -2,7 +2,7 @@
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
-import { useWorkerIdentity } from "@/context/WorkerIdentityContext";
+import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
 import { GearIcon, GridIcon, MailIcon, SparklesIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -27,9 +27,11 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const showLabels = isExpanded || isHovered || isMobileOpen;
   const settingsActive = pathname.startsWith("/settings");
-  const identity = useWorkerIdentity();
-  const displayName = identity?.displayName ?? "AI Worker";
-  const initials = identity?.avatarInitials ?? "AW";
+  // Reload-safe: falls back to the last-seen name/avatar/color (cached by
+  // WorkerIdentityContext) instead of the generic "AI Worker"/"AW" while
+  // "/worker" is still in flight, so a returning visitor doesn't see a flash
+  // of placeholder identity before their real one paints in.
+  const { displayName, avatarInitials, accentColor, avatarUrl, status } = useWorkerIdentityDisplay();
 
   return (
     <aside
@@ -46,11 +48,11 @@ export default function AppSidebar() {
         className={`flex h-20 items-center gap-3 px-2 ${showLabels ? "justify-start" : "justify-center"}`}
       >
         <AgentAvatar
-          initials={initials}
+          initials={avatarInitials}
           size="md"
-          accentColor={identity?.accentColor}
-          avatarUrl={identity?.avatarUrl}
-          status={identity?.status}
+          accentColor={accentColor}
+          avatarUrl={avatarUrl}
+          status={status}
           showStatus
         />
         {showLabels && (
