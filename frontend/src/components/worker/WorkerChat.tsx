@@ -19,8 +19,12 @@ const SAMPLE_PROMPTS = [
 
 const MESSAGE_MAX_LENGTH = 4000;
 
-function storageKey(compact: boolean) {
-  return compact ? "worker.widget.chat.v1" : "worker.manager.chat.v1";
+// Scoped by site token, not a fixed string: the widget is served from one
+// shared origin regardless of which org embeds it, so a fixed key would let
+// one org's cached conversation flash into another's view if the same tab
+// is reused across site tokens (e.g. previewing multiple embeds in a row).
+function storageKey(siteToken: string | undefined) {
+  return `worker.widget.chat.v1.${(siteToken || "").trim()}`;
 }
 
 type StoredChat = {
@@ -118,7 +122,7 @@ export function ChatPanel({
     let cancelled = false;
     async function restore() {
       try {
-        const raw = sessionStorage.getItem(storageKey(true));
+        const raw = sessionStorage.getItem(storageKey(siteToken));
         if (!raw) {
           setMessages([welcomeMessage(profile)]);
           return;
@@ -131,7 +135,7 @@ export function ChatPanel({
         );
         setEscalated(Boolean(stored.escalated));
       } catch {
-        sessionStorage.removeItem(storageKey(true));
+        sessionStorage.removeItem(storageKey(siteToken));
         setMessages([welcomeMessage(profile)]);
       } finally {
         if (!cancelled) setRestoring(false);
@@ -142,15 +146,15 @@ export function ChatPanel({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, identityReady]);
+  }, [compact, identityReady, siteToken]);
 
   useEffect(() => {
     if (!compact || restoring) return;
     sessionStorage.setItem(
-      storageKey(true),
+      storageKey(siteToken),
       JSON.stringify({ conversationId: compactConversationId, messages, escalated } satisfies StoredChat),
     );
-  }, [compact, compactConversationId, messages, escalated, restoring]);
+  }, [compact, compactConversationId, messages, escalated, restoring, siteToken]);
 
   // Manager mode: the rail owns which conversation is selected. Load its
   // transcript when the selection changes; reset to a blank slate when
