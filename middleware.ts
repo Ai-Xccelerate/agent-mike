@@ -6,6 +6,7 @@ import {
   authenticateManagerRequest,
   platformAuthRequired,
   platformAuthErrorResponse,
+  PlatformAuthError,
 } from "@/lib/clerk-core-auth";
 
 /**
@@ -78,6 +79,18 @@ export async function middleware(req: NextRequest) {
     requestHeaders.set("x-aix-verified-role", tenant.role);
     return withCors(NextResponse.next({ request: { headers: requestHeaders } }), headers);
   } catch (error) {
+    // Every known auth-rejection reason (bad/expired JWT, azp not allowed,
+    // missing org/role claims, AIX Core denying a validly-signed token)
+    // collapses to a plain 401/403 on the wire with no server-side trace —
+    // impossible to tell them apart from HTTP status/logs alone. Logging the
+    // actual PlatformAuthError here is what makes a live "why is this user
+    // getting logged out" investigation possible instead of guessing.
+    if (error instanceof PlatformAuthError) {
+      console.warn(
+        `[auth] rejected ${req.nextUrl.pathname}: ${error.status} ${error.message}`,
+        error.details ?? "",
+      );
+    }
     return withCors(platformAuthErrorResponse(error), headers);
   }
 }
