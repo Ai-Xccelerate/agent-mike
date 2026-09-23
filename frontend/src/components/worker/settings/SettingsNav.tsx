@@ -61,7 +61,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     title: "Workspace",
     items: [
-      { href: "/settings/users", label: "User management", icon: GroupIcon, available: true },
+      { href: "/settings/users", label: "Team", icon: GroupIcon, available: true },
     ],
   },
 ];

@@ -1,88 +1,119 @@
 "use client";
 
 import Badge from "@/components/ui/badge/Badge";
-import Button from "@/components/ui/button/Button";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, fieldClass, sectionTitleClass } from "@/components/worker/settings/ui";
+import { cardClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { apiFetch } from "@/lib/worker-api";
 import { useEffect, useState } from "react";
 
-type WorkerUser = { id: string; email: string; name: string | null; role: string };
+type TeamMember = {
+  userId: string;
+  email: string;
+  displayName: string | null;
+  role: string;
+  signedUp: boolean;
+};
 
+const CORE_APP_URL = (process.env.NEXT_PUBLIC_CORE_APP_URL ?? "").replace(/\/$/, "");
+
+function initials(member: TeamMember): string {
+  const source = member.displayName || member.email || "?";
+  return source.slice(0, 2).toUpperCase();
+}
+
+function label(member: TeamMember): string {
+  return member.displayName || member.email || "Invited teammate";
+}
+
+/**
+ * Team membership lives in AIX Core, not here — invite/role-change/remove
+ * all happen on Core's own pages. This just mirrors the roster (live from
+ * Core when reachable, falling back to whoever has actually logged into
+ * Mike at least once) so a manager can see who has access without leaving
+ * this screen, matching how Nick's Team tab works.
+ */
 export default function UsersSettings() {
-  const [users, setUsers] = useState<WorkerUser[]>([]);
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [noticeError, setNoticeError] = useState(false);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    apiFetch<WorkerUser[]>("/users").then(setUsers).catch(() => undefined);
+    apiFetch<{ members: TeamMember[] }>("/users")
+      .then((data) => setMembers(data.members))
+      .catch(() => setError(true))
+      .finally(() => setLoaded(true));
   }, []);
 
-  async function invite() {
-    if (!email.trim()) return;
-    setSaving(true);
-    setNotice("");
-    setNoticeError(false);
-    try {
-      const created = await apiFetch<WorkerUser>("/users", {
-        method: "POST",
-        body: JSON.stringify({ email: email.trim(), name: name.trim() || undefined }),
-      });
-      setUsers((items) => [...items, created]);
-      setEmail("");
-      setName("");
-      setNotice("Added.");
-    } catch {
-      setNoticeError(true);
-      setNotice("Could not add this user. Check that the API is running.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const sorted = [...members].sort((a, b) => Number(a.signedUp === false) - Number(b.signedUp === false));
 
   return (
     <>
-      <SettingsPageHeader title="User management" description="Who can manage this worker." />
-      <section className={cardClass}>
-        <h2 className={sectionTitleClass}>Add a manager</h2>
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={`${fieldClass} mt-2`} />
-          </label>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Name (optional)
-            <input value={name} onChange={(e) => setName(e.target.value)} className={`${fieldClass} mt-2`} />
-          </label>
-          <Button loading={saving} disabled={!email.trim()} onClick={invite}>
-            Add
-          </Button>
-        </div>
-        {notice && (
-          <p className={`mt-3 text-xs ${noticeError ? "text-error-600 dark:text-error-400" : "text-success-600 dark:text-success-400"}`}>
-            {notice}
+      <SettingsPageHeader title="Team" description="Who has access to this worker." />
+
+      {CORE_APP_URL && (
+        <section className={cardClass}>
+          <h2 className={sectionTitleClass}>Manage team in AIX Core</h2>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Invitations, roles, and access to this worker are all managed in AIX Core. New
+            teammates show up here automatically once they&apos;re invited.
           </p>
-        )}
-      </section>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a
+              href={`${CORE_APP_URL}/dashboard/team`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium text-brand-500 hover:underline"
+            >
+              Invite team in AIX Core
+            </a>
+            <a
+              href={`${CORE_APP_URL}/dashboard/agents/manage`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium text-brand-500 hover:underline"
+            >
+              Manage Mike access
+            </a>
+          </div>
+        </section>
+      )}
 
       <section className={cardClass}>
-        <h2 className={sectionTitleClass}>Current users</h2>
+        <h2 className={sectionTitleClass}>Members</h2>
         <div className="mt-4 divide-y divide-gray-100 dark:divide-gray-800">
-          {users.map((user) => (
-            <div key={user.id} className="flex items-center justify-between gap-4 py-3">
-              <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-white/90">{user.name || user.email}</p>
-                {user.name && <p className="text-xs text-gray-500 dark:text-gray-400">{user.email}</p>}
+          {sorted.map((member) => {
+            const notOpened = member.signedUp === false;
+            return (
+              <div
+                key={member.userId}
+                title={notOpened ? "Hasn't opened Mike yet" : undefined}
+                className={`flex items-center justify-between gap-4 py-3 ${notOpened ? "opacity-60" : ""}`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
+                    {initials(member)}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800 dark:text-white/90">{label(member)}</p>
+                    {member.displayName && member.email && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{member.email}</p>
+                    )}
+                  </div>
+                </div>
+                <Badge size="sm" color={member.role === "owner" || member.role === "admin" ? "primary" : "light"}>
+                  {member.role}
+                </Badge>
               </div>
-              <Badge size="sm" color="light">
-                {user.role}
-              </Badge>
-            </div>
-          ))}
-          {!users.length && <p className="py-6 text-center text-sm text-gray-500">No users added yet.</p>}
+            );
+          })}
+          {loaded && !sorted.length && !error && (
+            <p className="py-6 text-center text-sm text-gray-500">No team members yet.</p>
+          )}
+          {error && (
+            <p className="py-6 text-center text-sm text-error-600 dark:text-error-400">
+              Could not load the team list.
+            </p>
+          )}
         </div>
       </section>
     </>
