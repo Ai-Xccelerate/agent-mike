@@ -9,6 +9,9 @@ export const ATTACHMENT_INTENT_LABELS: Record<AttachmentIntent, string> = {
   skill: "Turn into a skill",
 };
 
+// Same list as Settings > Knowledge accepts; other files can still be used as chat context.
+const KNOWLEDGE_FILE = /\.(pdf|md|markdown|txt|text)$/i;
+
 /** A file picked in the composer, before it's sent. */
 export type StagedAttachment = {
   localId: string;
@@ -59,11 +62,14 @@ export function StagedAttachmentChips({
               aria-label={`What to do with ${file.filename}`}
               className="rounded-md border border-gray-200 bg-transparent py-0.5 pl-1.5 pr-6 text-xs text-gray-700 outline-none focus:border-brand-400 dark:border-gray-700 dark:text-gray-300 [&>option]:text-gray-800"
             >
-              {(Object.keys(ATTACHMENT_INTENT_LABELS) as AttachmentIntent[]).map((intent) => (
-                <option key={intent} value={intent}>
-                  {ATTACHMENT_INTENT_LABELS[intent]}
-                </option>
-              ))}
+              {(Object.keys(ATTACHMENT_INTENT_LABELS) as AttachmentIntent[]).map((intent) => {
+                const unsupported = intent === "knowledge" && !KNOWLEDGE_FILE.test(file.filename);
+                return (
+                  <option key={intent} value={intent} disabled={unsupported}>
+                    {unsupported ? `${ATTACHMENT_INTENT_LABELS[intent]} (PDF, Markdown, or text only)` : ATTACHMENT_INTENT_LABELS[intent]}
+                  </option>
+                );
+              })}
             </select>
           )}
           {file.truncated && <span title="Only the first part of this file was read">Partial</span>}

@@ -12,10 +12,13 @@ import { useState } from "react";
 export default function AssistantApprovalCard({
   actions,
   busy,
+  readOnly = false,
   onDecide,
 }: {
   actions: AssistantPendingAction[];
   busy: boolean;
+  /** Members can see what's proposed, but only owners and admins decide. */
+  readOnly?: boolean;
   onDecide: (decision: "approve" | "cancel") => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -55,6 +58,11 @@ export default function AssistantApprovalCard({
           </li>
         ))}
       </ul>
+      {readOnly ? (
+        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+          Only workspace owners and admins can approve changes.
+        </p>
+      ) : (
       <div className="mt-3 flex gap-2">
         <button
           type="button"
@@ -73,9 +81,12 @@ export default function AssistantApprovalCard({
           Cancel
         </button>
       </div>
-      <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
-        Nothing changes until you approve. You can also reply in your own words.
-      </p>
+      )}
+      {!readOnly && (
+        <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+          Nothing changes until you approve. You can also reply in your own words.
+        </p>
+      )}
     </div>
   );
 }

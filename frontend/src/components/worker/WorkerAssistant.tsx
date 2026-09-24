@@ -34,10 +34,23 @@ import {
   Conversation,
   Message,
   uploadAssistantAttachments,
+  WorkerApiError,
   WorkerProfile,
 } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  isPendingConversation,
+  lastConversationKey,
+  markPendingConversation,
+  readDraft,
+  readLastConversation,
+  rememberLastConversation,
+  saveDraft,
+  subscribeToLastConversation,
+} from "@/lib/assistant-session";
+import { useAuth } from "@clerk/nextjs";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 const MESSAGE_MAX_LENGTH = 4000;
 const MAX_ATTACHMENTS = 5;
@@ -81,7 +94,26 @@ function greetingForHour(hour: number): string {
 
 export default function WorkerAssistant() {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  // The open chat lives in the URL (?c=<id>), so a reload, the back button,
+  // leaving for Settings, or Chrome discarding the tab all come back to it.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const conversationId = searchParams.get("c");
+  const startedNew = searchParams.has("new");
+  const { userId, orgId, isLoaded: authLoaded } = useAuth();
+  const lastKey = lastConversationKey(userId, orgId);
+  const storedLast = useSyncExternalStore(
+    subscribeToLastConversation,
+    () => readLastConversation(lastKey),
+    () => null,
+  );
+  // Opening Assistant with no chat in the URL (the sidebar link) reopens the
+  // last one, until the manager explicitly starts a new chat.
+  const restoreTarget = !conversationId && !startedNew ? storedLast : null;
+  const [notice, setNotice] = useState<string | null>(null);
+  // A reply that was still being written when the manager left and came back.
+  const [awaitingReply, setAwaitingReply] = useState(false);
+  const [canChange, setCanChange] = useState(true);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [value, setValue] = useState("");
@@ -116,6 +148,20 @@ export default function WorkerAssistant() {
     inputRef.current?.focus();
   });
 
+  function openConversation(id: string | null, mode: "push" | "replace" = "push") {
+    const url = id ? `/assistant?c=${id}` : "/assistant?new=1";
+    if (mode === "replace") router.replace(url, { scroll: false });
+    else router.push(url, { scroll: false });
+  }
+
+  useEffect(() => {
+    if (restoreTarget) router.replace(`/assistant?c=${restoreTarget}`, { scroll: false });
+  }, [restoreTarget, router]);
+
+  useEffect(() => {
+    if (conversationId) rememberLastConversation(lastKey, conversationId);
+  }, [conversationId, lastKey]);
+
   useEffect(() => {
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
     const update = (event: Event) => {
@@ -132,27 +178,111 @@ export default function WorkerAssistant() {
       setMessages([]);
       setConversationTitle(null);
       setPendingActions([]);
+      setAwaitingReply(false);
       return;
     }
     if (loadedIdRef.current === conversationId) return; // already showing it (e.g. just created)
     loadedIdRef.current = conversationId;
     let cancelled = false;
+    let finished = false;
+    let timer: number | undefined;
+
+    const apply = (conversation: Conversation) => {
+      setMessages(conversation.messages ?? []);
+      setConversationTitle(conversation.subject ?? null);
+      setPendingActions(conversation.pendingActions ?? []);
+      if (typeof conversation.canChange === "boolean") setCanChange(conversation.canChange);
+    };
+    const lastIsUnanswered = (conversation: Conversation) => {
+      const last = conversation.messages?.[conversation.messages.length - 1];
+      return last?.senderType === "manager";
+    };
+
     (async () => {
-      try {
-        const conversation = await apiFetch<Conversation>(`/conversations/${conversationId}`);
-        if (!cancelled) {
-          setMessages(conversation.messages ?? []);
-          setConversationTitle(conversation.subject ?? null);
-          setPendingActions(conversation.pendingActions ?? []);
+      const draft = readDraft(conversationId);
+      if (draft) {
+        setValue(draft.text);
+        setStaged(
+          draft.files.map((file, index) => ({
+            localId: `restored-${conversationId}-${index}`,
+            id: file.id,
+            filename: file.filename,
+            intent: file.intent,
+            status: "ready" as const,
+          })),
+        );
+      }
+      // A just-sent new chat may not be saved on the server for a moment yet.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const conversation = await apiFetch<Conversation>(`/conversations/${conversationId}`);
+          if (cancelled) return;
+          finished = true;
+          apply(conversation);
+          if (lastIsUnanswered(conversation) || isPendingConversation(conversationId)) {
+            // Left while a reply was being written: show that, and pick the
+            // reply up as soon as the server has it.
+            setAwaitingReply(true);
+            let polls = 0;
+            const poll = async () => {
+              polls += 1;
+              const next = await apiFetch<Conversation>(`/conversations/${conversationId}`).catch(() => null);
+              if (cancelled) return;
+              if (next && !lastIsUnanswered(next)) {
+                apply(next);
+                setAwaitingReply(false);
+                markPendingConversation(conversationId, false);
+              } else if (polls < 60) {
+                timer = window.setTimeout(poll, 3000);
+              } else {
+                setAwaitingReply(false);
+                markPendingConversation(conversationId, false);
+                setNotice("That reply is taking longer than expected. Send your message again if nothing shows up.");
+              }
+            };
+            timer = window.setTimeout(poll, 3000);
+          }
+          return;
+        } catch (error) {
+          if (cancelled) return;
+          const missing = error instanceof WorkerApiError && error.status === 404;
+          if (missing && isPendingConversation(conversationId) && attempt < 5) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+          if (missing) {
+            // Archived elsewhere, or no longer exists: fall back to a new chat.
+            markPendingConversation(conversationId, false);
+            rememberLastConversation(lastKey, null);
+            setNotice("That chat isn't available anymore, so here's a new one.");
+            openConversation(null, "replace");
+          } else {
+            setMessages([]);
+          }
+          return;
         }
-      } catch {
-        if (!cancelled) setMessages([]);
       }
     })();
     return () => {
       cancelled = true;
+      if (timer) window.clearTimeout(timer);
+      // Cancelled before it loaded (React's dev double-mount, or a quick
+      // switch): let the next run fetch it instead of skipping as "loaded".
+      if (!finished && loadedIdRef.current === conversationId) loadedIdRef.current = null;
     };
+    // openConversation/lastKey only change with auth or navigation; the id drives loading.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
+
+  // Unsent text and files are kept per chat for this browser session.
+  useEffect(() => {
+    saveDraft(conversationId, {
+      text: value,
+      files: staged
+        .filter((item) => item.status === "ready" && item.id)
+        .map((item) => ({ id: item.id!, filename: item.filename, intent: item.intent })),
+    });
+  }, [conversationId, value, staged]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -279,6 +409,16 @@ export default function WorkerAssistant() {
       (decision ? (decision === "approve" ? "Approve" : "Cancel") : uiAction ? uiAction.label : "(Attached files)");
     const approvalIds = decision ? pendingActions.map((action) => action.id) : [];
     if (!conversationId && !conversationTitle) setConversationTitle(shownText.slice(0, 120));
+    // A new chat gets its id now, so it's in the URL before the reply comes
+    // back: leaving mid-reply and returning finds it instead of a blank chat.
+    const newConversationId = conversationId ? null : crypto.randomUUID();
+    if (newConversationId) {
+      markPendingConversation(newConversationId, true);
+      loadedIdRef.current = newConversationId;
+      saveDraft(null, { text: "", files: [] });
+      openConversation(newConversationId, "replace");
+    }
+    setNotice(null);
     const optimisticId = `manager-local-${++localIdRef.current}`;
     setMessages((items) => [
       ...items,
@@ -307,6 +447,7 @@ export default function WorkerAssistant() {
         body: JSON.stringify({
           message: trimmed || (showPanel ? shownText : undefined),
           conversation_id: conversationId ?? undefined,
+          new_conversation_id: newConversationId ?? undefined,
           attachments: ready.length ? ready.map((item) => ({ id: item.id, intent: item.intent })) : undefined,
           approval_decision: decision ? { decision, approval_ids: approvalIds } : undefined,
           ui_action: uiAction ? { tool: uiAction.tool, args: uiAction.args, label: uiAction.label } : undefined,
@@ -315,7 +456,11 @@ export default function WorkerAssistant() {
       });
       loadedIdRef.current = response.conversation_id;
       const isNew = !conversationId;
-      setConversationId(response.conversation_id);
+      if (newConversationId) markPendingConversation(newConversationId, false);
+      if (response.conversation_id !== (conversationId ?? newConversationId)) {
+        openConversation(response.conversation_id, "replace");
+      }
+      if (typeof response.can_change === "boolean") setCanChange(response.can_change);
       if (isNew) setRefreshKey((k) => k + 1);
       if (response.conversation_title) setConversationTitle(response.conversation_title);
       setMessages((items) => [
@@ -375,7 +520,11 @@ export default function WorkerAssistant() {
   }
 
   function startNew() {
-    setConversationId(null);
+    // The only way (besides archiving the open chat) that the Assistant stops
+    // reopening the current conversation.
+    rememberLastConversation(lastKey, null);
+    setNotice(null);
+    openConversation(null);
     setMessages([]);
     setConversationTitle(null);
     setValue("");
@@ -386,7 +535,9 @@ export default function WorkerAssistant() {
   }
 
   const managerName = profile?.managerName;
-  const isBlank = !conversationId && messages.length === 0;
+  // Until sign-in state is known we can't tell whether a chat is about to be
+  // restored, so hold the start screen rather than flash it.
+  const isBlank = !conversationId && !restoreTarget && (startedNew || authLoaded) && messages.length === 0;
   const uploading = staged.some((item) => item.status === "uploading");
   const hasReadyFiles = staged.some((item) => item.status === "ready");
 
@@ -417,6 +568,11 @@ export default function WorkerAssistant() {
         </header>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 pb-4 pt-5 sm:px-6 sm:pt-6">
+          {notice && (
+            <div className="mx-auto max-w-md rounded-lg bg-gray-100 px-3 py-2 text-center text-xs text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
+              {notice}
+            </div>
+          )}
           {preview && (
             <div className="mx-auto max-w-md rounded-lg bg-warning-50 px-3 py-2 text-center text-xs text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
               Couldn&apos;t reach the assistant
@@ -518,7 +674,14 @@ export default function WorkerAssistant() {
               })}
 
               {!loading && (
-                <AssistantApprovalCard actions={pendingActions} busy={loading} onDecide={decide} />
+                <AssistantApprovalCard actions={pendingActions} busy={loading} readOnly={!canChange} onDecide={decide} />
+              )}
+
+              {awaitingReply && !loading && (
+                <div className="flex items-center gap-2.5">
+                  <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Still working on your last message…</p>
+                </div>
               )}
 
               {loading && (
@@ -651,7 +814,7 @@ export default function WorkerAssistant() {
         selectedId={conversationId}
         refreshKey={refreshKey}
         open={historyOpen}
-        onSelect={(id) => setConversationId(id)}
+        onSelect={(id) => openConversation(id)}
         onNew={startNew}
         onClose={() => setHistoryOpen(false)}
       />

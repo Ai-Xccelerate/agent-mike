@@ -39,6 +39,8 @@ export type Conversation = {
   messages: Message[];
   /** Admin Assistant threads only: proposals still waiting for Approve / Cancel. */
   pendingActions?: AssistantPendingAction[];
+  /** Admin Assistant threads only: false for members, who can read but not approve changes. */
+  canChange?: boolean;
 };
 
 /**
@@ -331,6 +333,8 @@ export type AssistantChatResponse = {
   changes_applied: boolean;
   /** A sign-in page to open so the manager can finish connecting what they approved. */
   connect_link: AssistantConnectLink | null;
+  /** False for members without owner/admin rights: they can ask, but not approve changes. */
+  can_change: boolean;
 };
 
 export type AssistantConnectLink = {
