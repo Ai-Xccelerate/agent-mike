@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { fieldErrors } from "@/lib/identity-fields";
 import { customSkillCreateSchema } from "@/lib/tools-integrations/custom-skill-schema";
 import { createCustomSkill } from "@/lib/tools-integrations/custom-skills-repository";
@@ -9,6 +10,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = customSkillCreateSchema.safeParse(body);

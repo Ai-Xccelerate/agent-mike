@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { publicAppUrl } from "@/lib/env";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { ConnectionFlowError, startIntegrationConnection } from "@/lib/connection-flows";
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
@@ -10,6 +11,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest, { params }: { params: { type: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   await getOrCreateProfile(tenant.orgId);
   if (!getIntegrationType(params.type)) {
     return NextResponse.json({ error: `Unknown integration type "${params.type}"` }, { status: 400 });

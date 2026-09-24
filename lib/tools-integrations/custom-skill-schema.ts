@@ -10,11 +10,14 @@ const integrationTypeIdSchema = z
     message: `Unknown integration type. Must be one of: ${INTEGRATION_TYPE_IDS.join(", ")}`,
   });
 
+/** Settings > Skills caps instructions at this; enforced here too so no path can store more. */
+export const SKILL_BODY_MAX_LENGTH = 6000;
+
 export const customSkillCreateSchema = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
   requires: z.array(integrationTypeIdSchema),
-  body: z.string().min(1),
+  body: z.string().min(1).max(SKILL_BODY_MAX_LENGTH, `Skill instructions can be at most ${SKILL_BODY_MAX_LENGTH.toLocaleString()} characters.`),
 });
 
 export const customSkillPatchSchema = customSkillCreateSchema.partial();

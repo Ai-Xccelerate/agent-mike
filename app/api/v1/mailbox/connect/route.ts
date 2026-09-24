@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { publicAppUrl } from "@/lib/env";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { ConnectionFlowError, startMailboxConnection } from "@/lib/connection-flows";
 
@@ -22,6 +23,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const profile = await getOrCreateProfile(tenant.orgId);
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;

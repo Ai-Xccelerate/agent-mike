@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { knowledgeDocuments } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { isOrgAdmin } from "@/lib/org-roles";
-import { ingestOkf, InvalidOKFDocument, wrapAsOkf } from "@/lib/knowledge";
+import { editKnowledgeDocument, InvalidOKFDocument } from "@/lib/knowledge";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -47,13 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "Knowledge document not found" }, { status: 404 });
   }
 
-  const raw = wrapAsOkf(existing.conceptId, title.trim(), content, {
-    description: existing.description,
-    tags: existing.tags,
-  });
-
   try {
-    const doc = await ingestOkf(tenant.orgId, existing.conceptId, raw);
+    const doc = await editKnowledgeDocument(tenant.orgId, existing, title, content);
     return NextResponse.json(doc);
   } catch (err) {
     if (err instanceof InvalidOKFDocument) {

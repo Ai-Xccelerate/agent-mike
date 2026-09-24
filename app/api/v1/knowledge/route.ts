@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { knowledgeDocuments } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { ingestOkf, InvalidOKFDocument, wrapAsOkf } from "@/lib/knowledge";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
@@ -21,6 +22,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
 
   const conceptId = body?.conceptId as string | undefined;

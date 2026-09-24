@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { publicAppUrl } from "@/lib/env";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { isPanelKind, type PanelKind } from "@/lib/assistant-panels";
 import type { NextRequest } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
@@ -26,6 +27,8 @@ import {
   type AssistantAttachmentIntent,
 } from "@/lib/assistant-attachments";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Matches the customer-facing chat route's cap — same reasoning, same limit. */
 const MAX_MESSAGE_LENGTH = 10000;
 
@@ -48,7 +51,14 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  const conversationId = body?.conversation_id as string | undefined;
+  let conversationId = body?.conversation_id as string | undefined;
+  // A new chat can arrive with an id the browser generated, so the page can
+  // put the chat in its address (and survive a reload or navigation) before
+  // the reply comes back.
+  const newConversationId = typeof body?.new_conversation_id === "string" ? body.new_conversation_id : undefined;
+  if (newConversationId && !UUID_RE.test(newConversationId)) {
+    return NextResponse.json({ error: "new_conversation_id must be a UUID" }, { status: 400 });
+  }
 
   const rawAttachments = Array.isArray(body?.attachments) ? (body.attachments as unknown[]) : [];
   const attachmentRefs: { id: string; intent: AssistantAttachmentIntent }[] = [];
@@ -120,6 +130,17 @@ export async function POST(req: NextRequest) {
   const profile = await getOrCreateProfile(tenant.orgId);
 
   let conversation;
+  if (!conversationId && newConversationId) {
+    // A retry of a send that already created this chat reuses it; an id that
+    // belongs to anything else is refused rather than adopted.
+    const [existing] = await db.select().from(conversations).where(eq(conversations.id, newConversationId)).limit(1);
+    if (existing) {
+      if (existing.organizationId !== tenant.orgId || existing.channel !== "assistant") {
+        return NextResponse.json({ error: "That conversation id is already in use" }, { status: 409 });
+      }
+      conversationId = existing.id;
+    }
+  }
   if (conversationId) {
     // Scoped to this org's own assistant threads: an id from another org, or
     // a real customer conversation, must never be written into from here.
@@ -143,30 +164,34 @@ export async function POST(req: NextRequest) {
     ? await db.select().from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(messages.createdAt)
     : [];
 
+  let pendingTitle: Promise<string> | null = null;
   if (!conversation) {
-    const [ticketResult, title] = await Promise.all([
-      db.execute<{ next_ticket: number }>(
-        sql`select coalesce(max(ticket_number), 1000) + 1 as next_ticket from conversations where organization_id = ${tenant.orgId}`,
-      ),
-      // A files-only first message has no words to title from; use the file names.
-      typeof body?.message === "string" && body.message.trim()
-        ? generateAssistantTitle(profile, message)
-        : attachmentFilenames(tenant.orgId, attachmentRefs.map((ref) => ref.id)).then(
-            (names) => (names.length ? names.join(", ") : message).slice(0, 120),
-          ),
-    ]);
+    const ticketResult = await db.execute<{ next_ticket: number }>(
+      sql`select coalesce(max(ticket_number), 1000) + 1 as next_ticket from conversations where organization_id = ${tenant.orgId}`,
+    );
     const nextTicket = Number(ticketResult.rows[0]?.next_ticket ?? 1001);
 
+    // Saved straight away with a provisional title, so a page that reloads
+    // mid-reply can already find the chat; the generated title follows.
     [conversation] = await db
       .insert(conversations)
       .values({
+        ...(newConversationId ? { id: newConversationId } : {}),
         organizationId: tenant.orgId,
         ticketNumber: nextTicket,
         channel: "assistant",
         customerName: profile.managerName,
-        subject: title,
+        subject: message.slice(0, 120),
       })
       .returning();
+
+    // A files-only first message has no words to title from; use the file names.
+    pendingTitle =
+      typeof body?.message === "string" && body.message.trim()
+        ? generateAssistantTitle(profile, message)
+        : attachmentFilenames(tenant.orgId, attachmentRefs.map((ref) => ref.id)).then(
+            (names) => (names.length ? names.join(", ") : message).slice(0, 120),
+          );
   }
 
   const attachments = await bindAttachments(tenant.orgId, conversation.id, attachmentRefs);
@@ -206,6 +231,7 @@ export async function POST(req: NextRequest) {
       showPanel,
       appOrigin: publicAppUrl() || req.nextUrl.origin,
       userId: tenant.userId,
+      canChange: isOrgAdmin(tenant.role),
     });
   } catch (error) {
     // A raw agent-run failure (e.g. MaxTurnsExceededError from a longer
@@ -246,12 +272,16 @@ export async function POST(req: NextRequest) {
     allTurns,
   );
 
+  const generatedTitle = pendingTitle ? await pendingTitle.catch(() => null) : null;
+  if (generatedTitle) conversation.subject = generatedTitle;
+
   await db
     .update(conversations)
     .set({
       updatedAt: new Date(),
       summary: summaryState.summary,
       summarizedMessageCount: summaryState.summarizedMessageCount,
+      ...(generatedTitle ? { subject: generatedTitle } : {}),
     })
     .where(eq(conversations.id, conversation.id));
 
@@ -268,5 +298,6 @@ export async function POST(req: NextRequest) {
     tools_used: result.toolsUsed ?? [],
     changes_applied: Boolean(result.changesApplied),
     connect_link: result.connectLink ?? null,
+    can_change: isOrgAdmin(tenant.role),
   });
 }

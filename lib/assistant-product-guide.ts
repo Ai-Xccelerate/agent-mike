@@ -108,9 +108,13 @@ const GUIDE: Record<ProductGuideTopic, string> = {
 
   knowledge: [
     "Settings > Knowledge (/settings/knowledge).",
-    "- Upload PDF, Markdown, or text files, or write an article by hand. Each becomes a searchable article the worker cites when answering.",
+    "- Upload PDF, Markdown, or text files, or write an article by hand (New doc). Each becomes a searchable article the worker cites when answering.",
+    "- OKF format: Markdown with OKF frontmatter is stored as written. Minimum frontmatter: type (required, e.g. reference), title, description, tags. PDFs and text are wrapped into a concept document automatically. Markdown without frontmatter is rejected on upload; add frontmatter or use New doc.",
+    "- An article's id comes from its filename (or the frontmatter id); re-uploading the same file updates that article, which is the intended way to replace one.",
+    "- Keep one concept per article and use headings. Retrieval works on chunks, and an article that covers six things answers none of them cleanly.",
+    "- Articles can be viewed, edited in place (id, description and tags are kept), or deleted from the page.",
     "- Answers are grounded in this knowledge plus any active Parchment / Scribe / Agent Wiki source. With none of those, the worker has nothing to cite and will escalate or hedge.",
-    "- From this Assistant: attach a file and choose 'Add to knowledge base' to add a new article or update an existing one (with your confirmation).",
+    "- From this Assistant: attach a file and choose 'Add to knowledge base' to add or update an article (same rules), or ask to change wording in an article (edited in place). Always with your confirmation.",
     "- An external knowledge-base connector is not available yet.",
   ].join("\n"),
 

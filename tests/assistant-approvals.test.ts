@@ -4,11 +4,14 @@ import type { workerProfiles } from "@/db/schema";
 // A chainable stand-in for drizzle: every builder call returns the chain,
 // and awaiting it yields `rows`. Records update/insert so tests can see
 // whether anything was written.
-const dbState = vi.hoisted(() => ({ rows: [] as unknown[], writes: [] as string[] }));
+// `queue` hands out one result per awaited query, in order, before falling
+// back to `rows` - for tests where different queries must see different data.
+const dbState = vi.hoisted(() => ({ rows: [] as unknown[], queue: [] as unknown[][], writes: [] as string[] }));
 vi.mock("@/lib/db", () => {
   const chain = (): unknown =>
     new Proxy(() => undefined, {
-      get: (_target, prop) => (prop === "then" ? (resolve: (v: unknown) => void) => resolve(dbState.rows) : chain),
+      get: (_target, prop) =>
+        prop === "then" ? (resolve: (v: unknown) => void) => resolve(dbState.queue.length ? dbState.queue.shift() : dbState.rows) : chain,
       apply: () => chain(),
     });
   return {
@@ -28,6 +31,10 @@ vi.mock("@/lib/db", () => {
 });
 
 vi.mock("@/lib/tools-integrations/tool-call-log", () => ({ logToolCall: vi.fn() }));
+vi.mock("@/lib/worker-settings", () => ({
+  applyWorkerPatch: vi.fn(async () => ({ ok: true, profile: {} })),
+  describePatchErrors: vi.fn(() => "invalid"),
+}));
 vi.mock("@/lib/tools-integrations/approval-repository", () => ({
   createPendingApproval: vi.fn(),
   listPendingApprovals: vi.fn(),
@@ -52,6 +59,9 @@ import {
   pendingChangeDetails,
   PENDING_APPROVAL_TTL_MS,
   PROPOSE_CHANNEL_CHANGE_TOOL_NAME,
+  PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME,
+  PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME,
+  READ_ONLY_REPLY,
   PROPOSE_EMAIL_DOMAIN_CHANGE_TOOL_NAME,
   PROPOSE_SETTINGS_CHANGE_TOOL_NAME,
   PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME,
@@ -111,6 +121,7 @@ async function invoke(tools: unknown[], name: string, input: Record<string, unkn
 beforeEach(() => {
   vi.clearAllMocks();
   dbState.rows = [];
+  dbState.queue = [];
   dbState.writes = [];
   let n = 0;
   createMock.mockImplementation(async (entry) => approval(`new-${++n}`, entry.toolId, entry.input));
@@ -164,6 +175,7 @@ describe("proposals", () => {
       await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
         attachmentId: "att-x",
         title: "Refunds",
+        conceptId: null,
         updateConceptId: null,
         body: null,
         allowOverlap: false,
@@ -175,6 +187,7 @@ describe("proposals", () => {
     const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
       attachmentId: "att-1",
       title: "Refunds",
+      conceptId: null,
       updateConceptId: null,
       body: null,
       allowOverlap: false,
@@ -191,6 +204,7 @@ describe("proposals", () => {
     const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
       attachmentId: "att-1",
       title: "Refunds",
+      conceptId: null,
       updateConceptId: "refund-policy",
       body: null,
       allowOverlap: false,
@@ -262,6 +276,8 @@ Refunds go back to the original payment method within 5-7 business days.`;
       },
       { conceptId: "shipping", title: "Shipping times", body: "Standard shipping takes 3-5 business days in the EU." },
     ];
+    // First query: "is there already an article with this file's id?" (no).
+    dbState.queue = [[]];
   });
 
   it("refuses a new article that overlaps an existing one, naming it", async () => {
@@ -269,6 +285,7 @@ Refunds go back to the original payment method within 5-7 business days.`;
     const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
       attachmentId: "att-1",
       title: "Returns & exchanges",
+      conceptId: null,
       updateConceptId: null,
       body: null,
       allowOverlap: false,
@@ -285,6 +302,7 @@ Refunds go back to the original payment method within 5-7 business days.`;
     const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
       attachmentId: "att-1",
       title: "Returns & exchanges",
+      conceptId: null,
       updateConceptId: null,
       body: null,
       allowOverlap: true,
@@ -433,5 +451,130 @@ describe("voice", () => {
   it("marks sign-in changes so the browser opens the popup on the Approve click", () => {
     expect(toPendingActionView(approval("c", "assistant_connect_mailbox", {})).opensSignIn).toBe(true);
     expect(toPendingActionView(approval("r", "assistant_configure_role", { newValue: "x" })).opensSignIn).toBe(false);
+  });
+});
+
+describe("knowledge follows the Knowledge page's OKF rules", () => {
+  const baseArgs = { updateConceptId: null, conceptId: null, title: null, body: null, allowOverlap: true, reason: "upload" };
+
+  it("keeps Markdown frontmatter as written and takes the article id from it", async () => {
+    attachmentMock.mockResolvedValueOnce({
+      id: "att-1",
+      filename: "whatever.md",
+      extractedText: "---\ntype: reference\nid: returns-v2\ntitle: Returns\n---\n# Returns\nFree within 30 days.",
+    } as AssistantAttachment);
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, { ...baseArgs, attachmentId: "att-1" });
+    const input = createMock.mock.calls[0][0].input;
+    expect(input).toMatchObject({ targetConceptId: "returns-v2", title: "Returns", format: "as_written", autoUpdate: false });
+    expect(pendingChangeDetails("assistant_configure_knowledge_from_attachment", input)).toContain("Stored as written");
+  });
+
+  it("takes the id from the filename, and updates an existing article with that id like a re-upload", async () => {
+    attachmentMock.mockResolvedValueOnce({ id: "att-1", filename: "Refund Policy.pdf", extractedText: "Refunds within 30 days of purchase." } as AssistantAttachment);
+    dbState.queue = [[{ id: "doc-1", title: "Refund policy" }]];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, { ...baseArgs, attachmentId: "att-1" });
+    expect(out).toContain('already exists, so this updates it');
+    expect(createMock.mock.calls[0][0].input).toMatchObject({ targetConceptId: "refund-policy", updateConceptId: "refund-policy", autoUpdate: true, format: "wrapped" });
+  });
+
+  it("refuses file types the Knowledge page doesn't accept, unless an article is written from them", async () => {
+    attachmentMock.mockResolvedValue({ id: "att-1", filename: "prices.csv", extractedText: "plan,price\nbasic,10" } as AssistantAttachment);
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    expect(await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, { ...baseArgs, attachmentId: "att-1" })).toContain(
+      "accepts PDF, Markdown, or plain text",
+    );
+    expect(createMock).not.toHaveBeenCalled();
+    dbState.queue = [[]];
+    await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
+      ...baseArgs,
+      attachmentId: "att-1",
+      title: "Pricing",
+      body: "# Pricing\nBasic costs 10.",
+    });
+    expect(createMock.mock.calls[0][0].input).toMatchObject({ targetConceptId: "pricing", format: "written_from_file" });
+  });
+});
+
+describe("editing a knowledge article in place", () => {
+  const article = { conceptId: "faq", title: "AI Worker FAQ", body: "Up to 5 files at a time, 8 MB each.\nMore text.", checksum: "abc", description: null, tags: [] };
+
+  it("replaces one exact passage and keeps a checksum to detect later edits", async () => {
+    dbState.rows = [article];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const out = await invoke(tools, PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME, {
+      conceptId: "faq",
+      find: "Up to 5 files at a time, 8 MB each.",
+      replaceWith: "Attach up to 5 files (8 MB each).",
+      newBody: null,
+      newTitle: null,
+      reason: "asked",
+    });
+    expect(out).toContain('edit the knowledge article "AI Worker FAQ"');
+    const input = createMock.mock.calls[0][0].input;
+    expect(input).toMatchObject({ checksum: "abc", find: "Up to 5 files at a time, 8 MB each." });
+    expect(pendingChangeDetails("assistant_configure_edit_knowledge", input)).toContain("Keeps the article's id, description and tags");
+  });
+
+  it("refuses text that isn't there exactly once", async () => {
+    dbState.rows = [{ ...article, body: "a b a" }];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const none = await invoke(tools, PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME, { conceptId: "faq", find: "zzz", replaceWith: "y", newBody: null, newTitle: null, reason: "x" });
+    expect(none).toContain("isn't in the article");
+    const twice = await invoke(tools, PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME, { conceptId: "faq", find: "a", replaceWith: "y", newBody: null, newTitle: null, reason: "x" });
+    expect(twice).toContain("appears 2 times");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("won't apply if the article changed after it was proposed", async () => {
+    listMock.mockResolvedValue([approval("e1", "assistant_configure_edit_knowledge", { conceptId: "faq", title: "AI Worker FAQ", find: "Up to 5", replaceWith: "Five", checksum: "old" })]);
+    dbState.rows = [article];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["e1"] });
+    const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
+    expect(out).toContain("the article changed after I proposed this edit");
+  });
+});
+
+describe("skills from files follow Settings > Skills", () => {
+  const args = { attachmentId: "att-1", name: "Chargebacks", description: "Use for chargebacks.", requires: [], enable: false, reason: "x" };
+  beforeEach(() => {
+    attachmentMock.mockResolvedValue({ id: "att-1", filename: "proc.txt", extractedText: "steps" } as AssistantAttachment);
+  });
+
+  it("enforces the instruction length limit and valid integration types", async () => {
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    expect(await invoke(tools, PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME, { ...args, body: "x".repeat(6001) })).toContain("at most 6,000 characters");
+    expect(await invoke(tools, PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME, { ...args, body: "Do it.", requires: ["fax"] })).toContain("Unknown integration type");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("won't offer to turn a skill on before its integration is connected", async () => {
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const out = await invoke(tools, PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME, { ...args, body: "Look up the customer.", requires: ["crm"], enable: true });
+    expect(out).toContain("needs crm connected first");
+  });
+});
+
+describe("read-only members", () => {
+  it("get no tools that propose or apply changes", () => {
+    const names = buildAssistantTools(profile(), "org-1", "conv-1", { readOnly: true }).map((t) => (t as { name: string }).name);
+    expect(names.some((name) => name.startsWith("propose_") || name.includes("pending_change"))).toBe(false);
+    expect(names).toContain("search_knowledge");
+  });
+
+  it("can't approve a card or use a panel button", async () => {
+    const decided = await runAssistantAgent(profile(), "org-1", "conv-1", "Approve", [], null, {
+      decision: { decision: "approve", approvalIds: ["a"] },
+      canChange: false,
+    });
+    expect(decided.answer).toBe(READ_ONLY_REPLY);
+    const clicked = await runAssistantAgent(profile(), "org-1", "conv-1", "Turn on", [], null, {
+      uiAction: { tool: "propose_skill_change", args: { skillId: "x", enabled: true, reason: "x" } },
+      canChange: false,
+    });
+    expect(clicked.answer).toBe(READ_ONLY_REPLY);
+    expect(decideMock).not.toHaveBeenCalled();
+    expect(createMock).not.toHaveBeenCalled();
   });
 });

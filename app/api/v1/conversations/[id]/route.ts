@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { withNormalizedCitations } from "@/lib/citations";
 import { livePendingApprovals, toPendingActionView } from "@/lib/assistant-agent";
@@ -29,7 +30,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     conversation.channel === "assistant"
       ? (await livePendingApprovals(tenant.orgId, conversation.id)).map(toPendingActionView)
       : [];
-  return NextResponse.json({ ...conversation, messages: msgs.map(withNormalizedCitations), pendingActions });
+  return NextResponse.json({
+    ...conversation,
+    messages: msgs.map(withNormalizedCitations),
+    pendingActions,
+    canChange: isOrgAdmin(tenant.role),
+  });
 }
 
 const VALID_STATUSES = ["open", "needs_human", "resolved", "closed"] as const;

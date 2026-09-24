@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
-import { ingestOkf, InvalidOKFDocument, wrapAsOkf } from "@/lib/knowledge";
+import { isOrgAdmin } from "@/lib/org-roles";
+import { ingestOkf, InvalidOKFDocument, readOkfFrontmatter, uploadedKnowledgeRaw } from "@/lib/knowledge";
 import { assignConceptIds } from "@/lib/knowledge-ids";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
@@ -15,6 +16,9 @@ type UploadedFile = {
 
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
 
   const form = await req.formData().catch(() => null);
   // Cast rather than `instanceof File` — Node's global File (buffer) and the
@@ -30,20 +34,19 @@ export async function POST(req: NextRequest) {
 
   const results = await Promise.all(
     files.map(async (file, index) => {
-      const conceptId = conceptIds[index];
+      let conceptId = conceptIds[index];
       try {
-        let raw: string;
+        let text: string;
         if (file.name.toLowerCase().endsWith(".pdf")) {
           const { default: pdfParse } = await import("pdf-parse");
           const buffer = Buffer.from(await file.arrayBuffer());
-          const parsed = await pdfParse(buffer);
-          raw = wrapAsOkf(conceptId, file.name.replace(/\.pdf$/i, ""), parsed.text);
-        } else if (file.name.toLowerCase().endsWith(".md") || file.name.toLowerCase().endsWith(".markdown")) {
-          raw = await file.text();
+          text = (await pdfParse(buffer)).text;
         } else {
-          const text = await file.text();
-          raw = wrapAsOkf(conceptId, file.name, text);
+          text = await file.text();
         }
+        // Frontmatter `id` wins over the filename, as it always has.
+        conceptId = readOkfFrontmatter(text)?.id ?? conceptId;
+        const { raw } = uploadedKnowledgeRaw(file.name, conceptId, text, { strictMarkdown: true });
 
         const document = await ingestOkf(tenant.orgId, conceptId, raw);
         return { filename: file.name, ok: true, conceptId, document };

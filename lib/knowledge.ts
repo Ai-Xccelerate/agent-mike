@@ -68,6 +68,87 @@ export function wrapAsOkf(
   return `---\ntype: reference\ntitle: "${title.replace(/"/g, '\\"')}"${description}${tags}\n---\n\n${body}`;
 }
 
+/** What Settings > Knowledge accepts as an upload. Everything else is chat context only. */
+export const KNOWLEDGE_FILE_EXTENSIONS = ["pdf", "md", "markdown", "txt", "text"] as const;
+export const KNOWLEDGE_FILE_LABEL = "PDF, Markdown, or plain text";
+
+function fileExtension(filename: string): string {
+  const match = /\.([a-z0-9]+)$/i.exec(filename);
+  return match ? match[1].toLowerCase() : "";
+}
+
+export function isKnowledgeFile(filename: string): boolean {
+  return (KNOWLEDGE_FILE_EXTENSIONS as readonly string[]).includes(fileExtension(filename));
+}
+
+export function isMarkdownFile(filename: string): boolean {
+  const ext = fileExtension(filename);
+  return ext === "md" || ext === "markdown";
+}
+
+/** Frontmatter an upload already carries (only counted when it has the required `type`). */
+export function readOkfFrontmatter(text: string): { id?: string; title?: string; data: Record<string, unknown> } | null {
+  try {
+    const { data } = matter(text);
+    if (!data?.type) return null;
+    return {
+      id: typeof data.id === "string" ? data.id : undefined,
+      title: typeof data.title === "string" ? data.title : undefined,
+      data,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The raw OKF document for an uploaded file, by the Knowledge page's own
+ * rules: Markdown that already carries OKF frontmatter is stored as written
+ * (only its concept id is pinned, so it lands on the intended article);
+ * PDFs and text are wrapped as a concept document titled after the file.
+ * Markdown without frontmatter is wrapped the way "New doc" wraps free text.
+ */
+export function uploadedKnowledgeRaw(
+  filename: string,
+  conceptId: string,
+  text: string,
+  options: {
+    title?: string | null;
+    keep?: { description?: string | null; tags?: string[] };
+    /** The upload route's rule: Markdown must carry OKF frontmatter, so pass it through and let ingest reject it. */
+    strictMarkdown?: boolean;
+  } = {},
+): { raw: string; storedAsWritten: boolean } {
+  if (isMarkdownFile(filename)) {
+    const front = readOkfFrontmatter(text);
+    if (front) {
+      const { content } = matter(text);
+      return { raw: matter.stringify(content, { ...front.data, id: conceptId }), storedAsWritten: true };
+    }
+    if (options.strictMarkdown) return { raw: text, storedAsWritten: true };
+  }
+  const fallbackTitle =
+    fileExtension(filename) === "pdf" ? filename.replace(/\.pdf$/i, "") : isMarkdownFile(filename) ? filename.replace(/\.(md|markdown)$/i, "") : filename;
+  return { raw: wrapAsOkf(conceptId, options.title?.trim() || fallbackTitle, text, options.keep), storedAsWritten: false };
+}
+
+/**
+ * Editing an existing article, as Settings > Knowledge does: same concept id,
+ * new title and body, and the description/tags it already had are kept.
+ */
+export async function editKnowledgeDocument(
+  organizationId: string,
+  existing: { conceptId: string; description: string | null; tags: string[] },
+  title: string,
+  content: string,
+) {
+  const raw = wrapAsOkf(existing.conceptId, title.trim(), content, {
+    description: existing.description,
+    tags: existing.tags,
+  });
+  return ingestOkf(organizationId, existing.conceptId, raw);
+}
+
 export async function ingestOkf(organizationId: string, conceptId: string, raw: string) {
   const doc = parseOkf(raw, conceptId);
   const checksum = checksumOf(doc.body);

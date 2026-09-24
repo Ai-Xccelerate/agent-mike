@@ -333,6 +333,30 @@ export function mergeAgentSkillsSettings(
   return { ...current, [AGENT_SKILLS_KEY]: { ...current[AGENT_SKILLS_KEY], ...patch } };
 }
 
+/**
+ * Switches one internal tool on or off with that tool's own merge helper, so
+ * its other settings (workspace, lookback window, write/publish permission)
+ * are preserved exactly as its Settings route would. Null for an unknown key.
+ */
+export function mergeIntegrationEnabled(stored: unknown, key: string, enabled: boolean): IntegrationsConfig | null {
+  switch (key) {
+    case PARCHMENT_KEY:
+      return mergeParchmentSettings(stored, { enabled });
+    case AGENTDB_KEY:
+      return mergeAgentDbSettings(stored, { enabled });
+    case SCRIBE_KEY:
+      return mergeScribeSettings(stored, { enabled });
+    case ARTIFACTS_KEY:
+      return mergeArtifactsSettings(stored, { enabled });
+    case AGENT_WIKI_KEY:
+      return mergeAgentWikiSettings(stored, { enabled });
+    case AGENT_SKILLS_KEY:
+      return mergeAgentSkillsSettings(stored, { enabled });
+    default:
+      return null;
+  }
+}
+
 export interface IntegrationStatus {
   key: string;
   name: string;

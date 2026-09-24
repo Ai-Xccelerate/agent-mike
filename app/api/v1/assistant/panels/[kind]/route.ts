@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { isPanelKind, loadPanel } from "@/lib/assistant-panels";
 
 // Reads live settings per request — never statically prerender or cache.
@@ -15,5 +16,10 @@ export async function GET(req: NextRequest, { params }: { params: { kind: string
   if (!isPanelKind(params.kind)) {
     return NextResponse.json({ error: "Unknown panel" }, { status: 404 });
   }
-  return NextResponse.json(await loadPanel(tenant.orgId, params.kind));
+  const panel = await loadPanel(tenant.orgId, params.kind);
+  // Members see the same live status, just without buttons they can't use.
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ ...panel, readOnly: true, items: panel.items.map((item) => ({ ...item, actions: [] })) });
+  }
+  return NextResponse.json(panel);
 }
