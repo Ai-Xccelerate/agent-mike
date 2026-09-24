@@ -118,7 +118,7 @@ export default function WorkerDashboard() {
             <div>
               <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Recent conversations</h2>
               <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                What {subtitleName} is handling right now.
+                What {subtitleName || "this worker"} is handling right now.
               </p>
             </div>
             <Link href="/inbox" className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">

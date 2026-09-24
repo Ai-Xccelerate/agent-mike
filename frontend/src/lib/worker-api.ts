@@ -7,8 +7,17 @@ export type Message = {
   senderName: string;
   body: string;
   citations: string[];
+  /** Files the manager attached in the admin Assistant; empty elsewhere. */
+  attachments?: MessageAttachment[];
+  /** Interactive panels an admin Assistant reply shows (kinds only; data is fetched live). */
+  panels?: AssistantPanelKind[];
   createdAt: string;
 };
+
+/** What the manager wants done with a file attached in the admin Assistant. */
+export type AttachmentIntent = "context" | "knowledge" | "skill";
+
+export type MessageAttachment = { id: string; filename: string; intent: AttachmentIntent };
 
 export type Conversation = {
   id: string;
@@ -28,6 +37,8 @@ export type Conversation = {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  /** Admin Assistant threads only: proposals still waiting for Approve / Cancel. */
+  pendingActions?: AssistantPendingAction[];
 };
 
 /**
@@ -311,8 +322,75 @@ export type ChatResponse = {
 export type AssistantChatResponse = {
   conversation_id: string;
   message: Message;
+  /** The manager's own message as stored (with any attachment refs). */
+  user_message: Message;
   conversation_title: string | null;
+  pending_actions: AssistantPendingAction[];
+  tools_used: string[];
+  /** This turn applied a change - anything showing worker settings should refresh. */
+  changes_applied: boolean;
+  /** A sign-in page to open so the manager can finish connecting what they approved. */
+  connect_link: AssistantConnectLink | null;
 };
+
+export type AssistantConnectLink = {
+  url: string;
+  label: string;
+  kind: "integration" | "mailbox";
+  integrationType?: string;
+};
+
+export type AssistantPanelKind = "skills" | "knowledge" | "integrations" | "tools" | "channels" | "email_domains";
+
+export type AssistantPanelAction = {
+  label: string;
+  tool: string;
+  args: Record<string, unknown>;
+  variant?: "primary" | "secondary";
+};
+
+export type AssistantPanelItem = {
+  id: string;
+  title: string;
+  description?: string;
+  status?: { label: string; tone: "success" | "warning" | "neutral" | "error" };
+  detail?: string;
+  note?: string;
+  actions: AssistantPanelAction[];
+};
+
+export type AssistantPanel = {
+  kind: AssistantPanelKind;
+  title: string;
+  description: string;
+  items: AssistantPanelItem[];
+  emptyText?: string;
+  settingsHref: string;
+};
+
+export function getAssistantPanel(kind: AssistantPanelKind): Promise<AssistantPanel> {
+  return apiFetch<AssistantPanel>(`/assistant/panels/${kind}`);
+}
+
+/** A proposed change waiting for the manager's Approve / Cancel. */
+export type AssistantPendingAction = {
+  id: string;
+  kind: "configure" | "action";
+  summary: string;
+  details: string | null;
+  opensSignIn: boolean;
+};
+
+export type AssistantAttachmentUpload =
+  | { ok: true; id: string; filename: string; sizeBytes: number; charCount: number; truncated: boolean }
+  | { ok: false; filename: string; error: string };
+
+/** Extracts and stores each file's text; nothing is applied until the file is sent in a message. */
+export async function uploadAssistantAttachments(files: File[]): Promise<AssistantAttachmentUpload[]> {
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+  return apiFetch<AssistantAttachmentUpload[]>("/assistant/attachments", { method: "POST", body: form });
+}
 
 export type ApiFetchOptions = RequestInit & { widgetSiteToken?: string };
 

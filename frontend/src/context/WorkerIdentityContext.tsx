@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { apiFetch, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
@@ -8,9 +8,11 @@ import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 type WorkerIdentityContextValue = {
   profile: WorkerProfile | null;
   identitySeed: IdentitySeed | null;
+  /** The "/worker" fetch has finished (either way). */
+  settled: boolean;
 };
 
-const WorkerIdentityContext = createContext<WorkerIdentityContextValue>({ profile: null, identitySeed: null });
+const WorkerIdentityContext = createContext<WorkerIdentityContextValue>({ profile: null, identitySeed: null, settled: false });
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 // The display-only fields, cached so a returning visitor sees their real
@@ -40,10 +42,34 @@ function toIdentitySeed(profile: WorkerProfile): IdentitySeed {
   };
 }
 
-function readIdentitySeed(): IdentitySeed | null {
+// Read through useSyncExternalStore rather than a useState initializer:
+// the server has no localStorage, so reading it during the first client
+// render made the hydrated HTML ("AI Worker") disagree with the client
+// ("Mike") and React threw a hydration error. With a null server snapshot,
+// hydration matches and the stored seed is applied right after.
+const seedListeners = new Set<() => void>();
+
+function subscribeToSeed(listener: () => void) {
+  seedListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    seedListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function readSeedRaw(): string | null {
   try {
-    const raw = window.localStorage.getItem(IDENTITY_SEED_KEY);
-    return raw ? (JSON.parse(raw) as IdentitySeed) : null;
+    return window.localStorage.getItem(IDENTITY_SEED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function parseSeed(raw: string | null): IdentitySeed | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as IdentitySeed;
   } catch {
     return null;
   }
@@ -56,6 +82,7 @@ function writeIdentitySeed(seed: IdentitySeed) {
     // Private browsing / quota exceeded — display just falls back to the
     // generic placeholder until this session's own fetch resolves, same as before.
   }
+  seedListeners.forEach((listener) => listener());
 }
 
 function avatarMimeType(url: string): string {
@@ -90,27 +117,24 @@ function placeholderFaviconDataUrl(initials: string, accentColor: string): strin
 
 export function WorkerIdentityProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
-  const [identitySeed, setIdentitySeed] = useState<IdentitySeed | null>(() =>
-    typeof window === "undefined" ? null : readIdentitySeed(),
-  );
+  const [settled, setSettled] = useState(false);
+  const seedRaw = useSyncExternalStore(subscribeToSeed, readSeedRaw, () => null);
+  const identitySeed = useMemo(() => parseSeed(seedRaw), [seedRaw]);
 
   useEffect(() => {
     void apiFetch<WorkerProfile>("/worker")
       .then((next) => {
         setProfile(next);
-        const seed = toIdentitySeed(next);
-        setIdentitySeed(seed);
-        writeIdentitySeed(seed);
+        writeIdentitySeed(toIdentitySeed(next));
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setSettled(true));
 
     const update = (event: Event) => {
       const next = (event as CustomEvent<WorkerProfile>).detail;
       if (!next) return;
       setProfile(next);
-      const seed = toIdentitySeed(next);
-      setIdentitySeed(seed);
-      writeIdentitySeed(seed);
+      writeIdentitySeed(toIdentitySeed(next));
     };
     window.addEventListener(IDENTITY_UPDATED_EVENT, update);
     return () => window.removeEventListener(IDENTITY_UPDATED_EVENT, update);
@@ -206,7 +230,7 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
   }, [profile, identitySeed, pathname]);
 
   return (
-    <WorkerIdentityContext.Provider value={{ profile, identitySeed }}>{children}</WorkerIdentityContext.Provider>
+    <WorkerIdentityContext.Provider value={{ profile, identitySeed, settled }}>{children}</WorkerIdentityContext.Provider>
   );
 }
 
@@ -223,12 +247,18 @@ export function useWorkerIdentity() {
 // so stale cached data can never masquerade as a freshly loaded profile.
 // `fallbackName` lets a page keep its own first-visit wording (e.g. "your
 // worker") instead of the sidebar's "AI Worker".
+//
+// `ready` is false only during the server render / first paint of a visit with
+// nothing cached and the fetch still in flight: callers show a blank
+// placeholder then, instead of flashing the generic "AI Worker"/"AW".
 export function useWorkerIdentityDisplay(fallbackName = "AI Worker") {
-  const { profile, identitySeed } = useContext(WorkerIdentityContext);
+  const { profile, identitySeed, settled } = useContext(WorkerIdentityContext);
   const source = profile ?? identitySeed;
+  const ready = Boolean(source) || settled;
   return {
-    displayName: source?.displayName ?? fallbackName,
-    avatarInitials: source?.avatarInitials ?? "AW",
+    ready,
+    displayName: source?.displayName ?? (ready ? fallbackName : ""),
+    avatarInitials: source?.avatarInitials ?? (ready ? "AW" : ""),
     accentColor: source?.accentColor,
     avatarUrl: source?.avatarUrl ?? null,
     status: source?.status,

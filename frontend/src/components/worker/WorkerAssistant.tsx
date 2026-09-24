@@ -1,26 +1,75 @@
 "use client";
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
+import AssistantApprovalCard from "@/components/worker/AssistantApprovalCard";
+import {
+  SentAttachmentChips,
+  StagedAttachmentChips,
+  type StagedAttachment,
+} from "@/components/worker/AssistantAttachmentChips";
 import AssistantHistoryPanel from "@/components/worker/AssistantHistoryPanel";
+import AssistantPanel from "@/components/worker/AssistantPanel";
 import Markdown from "@/components/worker/Markdown";
-import { ArrowUpIcon, MicrophoneIcon, PlusIcon, TimeIcon } from "@/icons";
+import {
+  ArrowUpIcon,
+  BoxCubeIcon,
+  ChatIcon,
+  DocsIcon,
+  EnvelopeIcon,
+  MicrophoneIcon,
+  PlugInIcon,
+  PlusIcon,
+  ShootingStarIcon,
+  TimeIcon,
+} from "@/icons";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
-import { apiFetch, AssistantChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
+import {
+  apiFetch,
+  AssistantChatResponse,
+  AssistantConnectLink,
+  AssistantPanelKind,
+  AssistantPendingAction,
+  AttachmentIntent,
+  Conversation,
+  Message,
+  uploadAssistantAttachments,
+  WorkerProfile,
+} from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 const MESSAGE_MAX_LENGTH = 4000;
+const MAX_ATTACHMENTS = 5;
+// Matches the API's own cap (lib/assistant-attachments.ts), checked here too
+// so an oversized file fails instantly instead of after uploading.
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const ATTACHMENT_ACCEPT = ".pdf,.md,.markdown,.txt,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,.log";
 
 // Short label for the chip button, full sentence actually sent on click -
 // same split Jules uses (compact pills, longer prompt underneath). Generic
 // across whatever this worker is configured to do: no "ticket", no
 // "refund" - this page ships for any AI Worker persona, not just support.
-const SUGGESTION_CHIPS = [
-  { label: "Open conversations", prompt: "How many conversations are open right now?" },
-  { label: "Summarize a conversation", prompt: "Summarize my most recently escalated conversation" },
-  { label: "Guardrail rules", prompt: "What does my current guardrail escalate on?" },
-  { label: "Search knowledge", prompt: "Search my knowledge base for a topic" },
+// Quick access to the interactive panels, shown straight away with no model
+// turn. Same icons as the Settings nav, so each reads as that section.
+const PANEL_SHORTCUTS: { label: string; kind: AssistantPanelKind; icon: typeof DocsIcon }[] = [
+  { label: "Skills", kind: "skills", icon: ShootingStarIcon },
+  { label: "Knowledge", kind: "knowledge", icon: DocsIcon },
+  { label: "Integrations", kind: "integrations", icon: PlugInIcon },
+  { label: "Tools", kind: "tools", icon: BoxCubeIcon },
+  { label: "Channels", kind: "channels", icon: ChatIcon },
+  { label: "Email domains", kind: "email_domains", icon: EnvelopeIcon },
+];
+
+// Short label on the button, fuller question actually sent. Generic across
+// whatever this worker is configured to do (no "ticket", no "refund").
+const SUGGESTED_PROMPTS = [
+  { label: "Check my setup", prompt: "Check my worker's setup and tell me what's missing or wrong" },
+  { label: "What needs my attention?", prompt: "Which conversations are open or waiting for me right now?" },
+  { label: "Summarize the latest escalation", prompt: "Summarize my most recently escalated conversation" },
+  { label: "Draft a reply for me", prompt: "Draft a reply to my most recent open conversation" },
+  { label: "Explain my guardrails", prompt: "What does my current guardrail escalate on, and what does each guardrail setting do?" },
+  { label: "What's in my knowledge base?", prompt: "What topics does my knowledge base cover?" },
 ];
 
 function greetingForHour(hour: number): string {
@@ -40,12 +89,27 @@ export default function WorkerAssistant() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [preview, setPreview] = useState(false);
+  const [staged, setStaged] = useState<StagedAttachment[]>([]);
+  const [pendingActions, setPendingActions] = useState<AssistantPendingAction[]>([]);
+  // Only kept for replies received in this session - the activity line is a
+  // live "what I just did", not part of the stored transcript.
+  const [toolsByMessage, setToolsByMessage] = useState<Record<string, string[]>>({});
+  const [dragActive, setDragActive] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  // Bumped after anything that may change what a panel shows, so every
+  // open panel re-reads live state.
+  const [panelRefresh, setPanelRefresh] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Local ids for optimistic messages and staged files, until the server's own ids replace them.
+  const localIdRef = useRef(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
   // Name/avatar come from the shared identity (cached seed until "/worker"
   // resolves), not this page's own fetch, so a reload doesn't flash "AW".
-  const { displayName, avatarInitials, accentColor, avatarUrl } = useWorkerIdentityDisplay("your worker");
+  const identity = useWorkerIdentityDisplay("your worker");
+  const { avatarInitials, accentColor, avatarUrl } = identity;
+  const displayName = identity.displayName || "your worker";
 
   const { listening, supported: voiceSupported, toggle: toggleVoice, error: voiceError } = useVoiceInput((text) => {
     setValue((prev) => (prev ? `${prev} ` : "") + text);
@@ -67,6 +131,7 @@ export default function WorkerAssistant() {
       loadedIdRef.current = null;
       setMessages([]);
       setConversationTitle(null);
+      setPendingActions([]);
       return;
     }
     if (loadedIdRef.current === conversationId) return; // already showing it (e.g. just created)
@@ -78,6 +143,7 @@ export default function WorkerAssistant() {
         if (!cancelled) {
           setMessages(conversation.messages ?? []);
           setConversationTitle(conversation.subject ?? null);
+          setPendingActions(conversation.pendingActions ?? []);
         }
       } catch {
         if (!cancelled) setMessages([]);
@@ -92,39 +158,191 @@ export default function WorkerAssistant() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
 
-  async function sendText(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed || loading) return;
-    const managerName = profile?.managerName ?? "You";
-    if (!conversationId && !conversationTitle) setConversationTitle(trimmed.slice(0, 120));
+  async function addFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
+    setAttachError(null);
+    const room = MAX_ATTACHMENTS - staged.length;
+    if (room <= 0) {
+      setAttachError(`You can attach up to ${MAX_ATTACHMENTS} files per message.`);
+      return;
+    }
+    const accepted = files.slice(0, room);
+    if (files.length > room) setAttachError(`Only the first ${room} file(s) were added (max ${MAX_ATTACHMENTS} per message).`);
+
+    const entries: StagedAttachment[] = accepted.map((file, index) => ({
+      localId: `file-${++localIdRef.current}-${index}`,
+      filename: file.name,
+      intent: "context",
+      status: file.size > MAX_ATTACHMENT_BYTES ? "error" : "uploading",
+      error: file.size > MAX_ATTACHMENT_BYTES ? "Larger than 8 MB." : undefined,
+    }));
+    setStaged((prev) => [...prev, ...entries]);
+    const update = (localId: string, patch: Partial<StagedAttachment>) =>
+      setStaged((prev) => prev.map((item) => (item.localId === localId ? { ...item, ...patch } : item)));
+
+    // One request per file: the API proxy caps each request body at 10 MB,
+    // so batching several files into one upload could get it cut off.
+    await Promise.all(
+      accepted.map(async (file, index) => {
+        const entry = entries[index];
+        if (entry.status === "error") return;
+        try {
+          const [result] = await uploadAssistantAttachments([file]);
+          if (!result) update(entry.localId, { status: "error", error: "Upload failed." });
+          else if (result.ok) update(entry.localId, { status: "ready", id: result.id, truncated: result.truncated });
+          else update(entry.localId, { status: "error", error: result.error });
+        } catch (error) {
+          update(entry.localId, { status: "error", error: error instanceof Error ? error.message : "Upload failed." });
+        }
+      }),
+    );
+  }
+
+  function addLocalAgentMessage(body: string) {
     setMessages((items) => [
       ...items,
       {
-        id: `manager-${Date.now()}`,
+        id: `local-agent-${++localIdRef.current}`,
         conversationId: conversationId ?? "",
-        senderType: "manager",
-        senderName: managerName,
-        body: trimmed,
+        senderType: "agent",
+        senderName: `${displayName} Assistant`,
+        body,
         citations: [],
         createdAt: new Date().toISOString(),
       },
     ]);
-    setValue("");
+  }
+
+  /**
+   * After an approved "Connect X": send the sign-in window to the provider,
+   * then watch the connection until it's live (or the window is closed), so
+   * the manager never has to leave the chat or refresh anything.
+   */
+  function followConnection(link: AssistantConnectLink, popup: Window | null) {
+    const target = popup && !popup.closed ? popup : window.open(link.url, "aix-connect", "width=520,height=720");
+    if (!target) {
+      addLocalAgentMessage(`Your browser blocked the sign-in window. [Open the ${link.label} sign-in](${link.url}) to finish connecting.`);
+      return;
+    }
+    if (target === popup) target.location.href = link.url;
+    // Every 3s for up to 5 minutes.
+    let ticks = 0;
+    const check = async (): Promise<boolean> => {
+      if (link.kind === "mailbox") {
+        const mailbox = await apiFetch<{ connected?: boolean }>("/mailbox").catch(() => null);
+        return Boolean(mailbox?.connected);
+      }
+      const row = await apiFetch<{ status?: string } | null>(`/integrations/${link.integrationType}`).catch(() => null);
+      return row?.status === "active";
+    };
+    const timer = window.setInterval(async () => {
+      const connected = await check();
+      const gaveUp = ++ticks > 100;
+      if (connected) {
+        window.clearInterval(timer);
+        if (!target.closed) target.close();
+        setPanelRefresh((n) => n + 1);
+        addLocalAgentMessage(`${link.label} is connected now. The worker can start using it right away.`);
+      } else if (target.closed || gaveUp) {
+        window.clearInterval(timer);
+        setPanelRefresh((n) => n + 1);
+        addLocalAgentMessage(
+          `It looks like the ${link.label} sign-in didn't finish, so nothing is connected yet. You can try again from the panel whenever you're ready.`,
+        );
+      }
+    }, 3000);
+  }
+
+  type SendOptions = {
+    decision?: "approve" | "cancel";
+    uiAction?: { tool: string; args: Record<string, unknown>; label: string };
+    showPanel?: AssistantPanelKind;
+    /** Opened synchronously from the click, so popup blockers allow it. */
+    popup?: Window | null;
+  };
+
+  async function send(text: string, options: SendOptions = {}) {
+    const { decision, uiAction, showPanel, popup } = options;
+    const structured = Boolean(decision || uiAction || showPanel);
+    const trimmed = text.trim();
+    const ready = structured ? [] : staged.filter((item) => item.status === "ready" && item.id);
+    if (loading || (!trimmed && ready.length === 0 && !structured)) {
+      popup?.close();
+      return;
+    }
+    if (!structured && staged.some((item) => item.status === "uploading")) return;
+
+    const managerName = profile?.managerName ?? "You";
+    const shownText =
+      trimmed ||
+      (decision ? (decision === "approve" ? "Approve" : "Cancel") : uiAction ? uiAction.label : "(Attached files)");
+    const approvalIds = decision ? pendingActions.map((action) => action.id) : [];
+    if (!conversationId && !conversationTitle) setConversationTitle(shownText.slice(0, 120));
+    const optimisticId = `manager-local-${++localIdRef.current}`;
+    setMessages((items) => [
+      ...items,
+      {
+        id: optimisticId,
+        conversationId: conversationId ?? "",
+        senderType: "manager",
+        senderName: managerName,
+        body: shownText,
+        citations: [],
+        attachments: ready.map((item) => ({ id: item.id!, filename: item.filename, intent: item.intent })),
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    const stagedBefore = staged;
+    if (!structured) {
+      setValue("");
+      setStaged([]);
+      setAttachError(null);
+    }
+    setPendingActions([]);
     setLoading(true);
     try {
       const response = await apiFetch<AssistantChatResponse>("/assistant/chat", {
         method: "POST",
-        body: JSON.stringify({ message: trimmed, conversation_id: conversationId ?? undefined }),
+        body: JSON.stringify({
+          message: trimmed || (showPanel ? shownText : undefined),
+          conversation_id: conversationId ?? undefined,
+          attachments: ready.length ? ready.map((item) => ({ id: item.id, intent: item.intent })) : undefined,
+          approval_decision: decision ? { decision, approval_ids: approvalIds } : undefined,
+          ui_action: uiAction ? { tool: uiAction.tool, args: uiAction.args, label: uiAction.label } : undefined,
+          show_panel: showPanel,
+        }),
       });
       loadedIdRef.current = response.conversation_id;
       const isNew = !conversationId;
       setConversationId(response.conversation_id);
       if (isNew) setRefreshKey((k) => k + 1);
       if (response.conversation_title) setConversationTitle(response.conversation_title);
-      setMessages((items) => [...items, response.message]);
+      setMessages((items) => [
+        ...items.map((item) => (item.id === optimisticId && response.user_message ? response.user_message : item)),
+        response.message,
+      ]);
+      setPendingActions(response.pending_actions ?? []);
+      if (response.changes_applied) {
+        setPanelRefresh((n) => n + 1);
+        // Tell the sidebar, favicon, and this page about the new name/avatar/etc.
+        // - the same event Settings fires after saving.
+        void apiFetch<WorkerProfile>("/worker")
+          .then((next) => window.dispatchEvent(new CustomEvent(IDENTITY_UPDATED_EVENT, { detail: next })))
+          .catch(() => undefined);
+      }
+      if (response.connect_link) followConnection(response.connect_link, popup ?? null);
+      else popup?.close();
+      if (response.tools_used?.length) {
+        setToolsByMessage((prev) => ({ ...prev, [response.message.id]: response.tools_used }));
+      }
       setPreview(false);
-    } catch {
+    } catch (error) {
+      popup?.close();
       setPreview(true);
+      // Nothing was sent, so give the manager their files back to retry.
+      if (!structured) setStaged(stagedBefore);
+      const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
       setMessages((items) => [
         ...items,
         {
@@ -132,7 +350,7 @@ export default function WorkerAssistant() {
           conversationId: conversationId ?? "",
           senderType: "agent",
           senderName: `${profile ? displayName : "Your worker"} Assistant`,
-          body: "I can't reach the API right now, so I can't answer confidently. Please try again in a moment.",
+          body: `Sorry, I couldn't finish that${detail}. Nothing was changed, so feel free to try again in a moment.`,
           citations: [],
           createdAt: new Date().toISOString(),
         },
@@ -143,16 +361,34 @@ export default function WorkerAssistant() {
     }
   }
 
+  function sendText(text: string) {
+    return send(text);
+  }
+
+  function decide(decision: "approve" | "cancel") {
+    // Must open here, inside the click, or the browser blocks it as a popup.
+    const popup =
+      decision === "approve" && pendingActions.some((action) => action.opensSignIn)
+        ? window.open("about:blank", "aix-connect", "width=520,height=720")
+        : null;
+    void send("", { decision, popup });
+  }
+
   function startNew() {
     setConversationId(null);
     setMessages([]);
     setConversationTitle(null);
     setValue("");
+    setStaged([]);
+    setPendingActions([]);
+    setAttachError(null);
     inputRef.current?.focus();
   }
 
   const managerName = profile?.managerName;
   const isBlank = !conversationId && messages.length === 0;
+  const uploading = staged.some((item) => item.status === "uploading");
+  const hasReadyFiles = staged.some((item) => item.status === "ready");
 
   return (
     <div className="flex h-full min-h-0 flex-1 overflow-hidden">
@@ -188,26 +424,58 @@ export default function WorkerAssistant() {
           )}
 
           {isBlank && !loading ? (
-            <div className="mx-auto flex h-full max-w-lg flex-col items-center justify-center gap-3 text-center">
+            <div className="mx-auto flex min-h-full max-w-xl flex-col items-center justify-center gap-3 py-4 text-center">
               <AgentAvatar initials={avatarInitials} size="lg" accentColor={accentColor} avatarUrl={avatarUrl} />
               <p className="text-lg font-semibold text-gray-800 dark:text-white/90">
                 {greetingForHour(new Date().getHours())}
                 {managerName ? `, ${managerName}` : ""}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Ask about your conversations, check your guardrails, or search your knowledge base.
+                Ask about your conversations, change any setting, draft replies, or attach files for your
+                knowledge base.
               </p>
-              <div className="mt-2 flex flex-wrap justify-center gap-2">
-                {SUGGESTION_CHIPS.map((chip) => (
-                  <button
-                    key={chip.label}
-                    type="button"
-                    onClick={() => void sendText(chip.prompt)}
-                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:text-gray-300 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10"
+              <div className="mt-4 w-full space-y-5 text-left">
+                <section aria-labelledby="assistant-setup-shortcuts">
+                  <h2
+                    id="assistant-setup-shortcuts"
+                    className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500"
                   >
-                    {chip.label}
-                  </button>
-                ))}
+                    Your setup
+                  </h2>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {PANEL_SHORTCUTS.map(({ label, kind, icon: Icon }) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        onClick={() => void send(`Show ${label.toLowerCase()}`, { showPanel: kind })}
+                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300 dark:hover:border-gray-700 dark:hover:bg-white/[0.06]"
+                      >
+                        <Icon className="size-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                        <span className="truncate">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+                <section aria-labelledby="assistant-suggested-prompts">
+                  <h2
+                    id="assistant-suggested-prompts"
+                    className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500"
+                  >
+                    Try asking
+                  </h2>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {SUGGESTED_PROMPTS.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => void sendText(item.prompt)}
+                        className="truncate rounded-lg border border-gray-200 px-3 py-2 text-left text-sm text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800 dark:border-gray-800 dark:text-gray-400 dark:hover:border-gray-700 dark:hover:bg-white/[0.04] dark:hover:text-gray-200"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
               </div>
             </div>
           ) : (
@@ -218,17 +486,40 @@ export default function WorkerAssistant() {
                   <div key={message.id} className="flex gap-2.5">
                     <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
                     <div className="max-w-[82%] pt-1 text-sm leading-6 text-gray-700 dark:text-gray-200">
+                      {toolsByMessage[message.id]?.length ? (
+                        <p className="mb-1 text-[11px] text-gray-400 dark:text-gray-500">
+                          {toolsByMessage[message.id].join(" · ")}
+                        </p>
+                      ) : null}
                       <Markdown>{message.body}</Markdown>
+                      {(message.panels ?? []).map((kind) => (
+                        <AssistantPanel
+                          key={kind}
+                          kind={kind}
+                          refreshToken={panelRefresh}
+                          disabled={loading}
+                          onAction={(action, item) =>
+                            void send("", {
+                              uiAction: { tool: action.tool, args: action.args, label: `${action.label}: ${item.title}` },
+                            })
+                          }
+                        />
+                      ))}
                     </div>
                   </div>
                 ) : (
-                  <div key={message.id} className="flex justify-end">
+                  <div key={message.id} className="flex flex-col items-end">
+                    <SentAttachmentChips attachments={message.attachments ?? []} />
                     <p className="max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand-500 px-4 py-3 text-left text-sm leading-6 text-white">
                       {message.body}
                     </p>
                   </div>
                 );
               })}
+
+              {!loading && (
+                <AssistantApprovalCard actions={pendingActions} busy={loading} onDecide={decide} />
+              )}
 
               {loading && (
                 <div className="flex items-center gap-2.5">
@@ -250,9 +541,32 @@ export default function WorkerAssistant() {
             event.preventDefault();
             void sendText(value);
           }}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes("Files")) return;
+            event.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(event) => {
+            if (!event.dataTransfer.files.length) return;
+            event.preventDefault();
+            setDragActive(false);
+            void addFiles(event.dataTransfer.files);
+          }}
           className="mt-auto shrink-0 px-4 pb-3 sm:px-6 sm:pb-4"
         >
-          <div className="glass-surface mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl p-3.5 shadow-lg shadow-gray-900/10 outline outline-2 outline-offset-1 outline-transparent transition-[outline-color] focus-within:outline-brand-500 dark:shadow-black/30">
+          <div
+            className={`glass-surface mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl p-3.5 shadow-lg shadow-gray-900/10 outline outline-2 outline-offset-1 transition-[outline-color] focus-within:outline-brand-500 dark:shadow-black/30 ${
+              dragActive ? "outline-brand-400" : "outline-transparent"
+            }`}
+          >
+            <StagedAttachmentChips
+              attachments={staged}
+              onIntentChange={(localId, intent: AttachmentIntent) =>
+                setStaged((prev) => prev.map((item) => (item.localId === localId ? { ...item, intent } : item)))
+              }
+              onRemove={(localId) => setStaged((prev) => prev.filter((item) => item.localId !== localId))}
+            />
             <textarea
               ref={inputRef}
               value={value}
@@ -269,6 +583,28 @@ export default function WorkerAssistant() {
               className="max-h-32 min-h-9 w-full resize-none bg-transparent px-1 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
             />
             <div className="flex items-center justify-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ATTACHMENT_ACCEPT}
+                className="hidden"
+                onChange={(event) => {
+                  if (event.target.files) void addFiles(event.target.files);
+                  event.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={staged.length >= MAX_ATTACHMENTS}
+                aria-label="Add files"
+                title="Add files: PDF, Markdown, text, CSV, JSON, HTML, YAML (up to 5, 8 MB each)"
+                className="flex h-8 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-white/[0.05]"
+              >
+                <PlusIcon className="size-4" />
+                <span className="hidden sm:inline">Add files</span>
+              </button>
               <span className="mr-auto hidden items-center gap-1 rounded-md border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-400 sm:flex dark:border-gray-700 dark:text-gray-500">
                 ↵ to send
               </span>
@@ -295,7 +631,7 @@ export default function WorkerAssistant() {
               </button>
               <button
                 type="submit"
-                disabled={!value.trim() || loading}
+                disabled={(!value.trim() && !hasReadyFiles) || loading || uploading}
                 aria-label="Send message"
                 title="Send message"
                 className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
@@ -305,7 +641,9 @@ export default function WorkerAssistant() {
             </div>
           </div>
           <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-gray-500 dark:text-gray-400">
-            {voiceError ?? "Answers questions, drafts replies, and can configure or act on this worker after you confirm."}
+            {attachError ??
+              voiceError ??
+              "Answers questions, guides your setup, and drafts replies. It never changes anything without your approval."}
           </p>
         </form>
       </div>
