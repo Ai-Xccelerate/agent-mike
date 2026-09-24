@@ -221,11 +221,13 @@ export function useWorkerIdentity() {
 // cached yet. Never use this for anything that reads or writes the full
 // profile (e.g. Settings) — use useWorkerIdentity()/useWorkerProfile() there,
 // so stale cached data can never masquerade as a freshly loaded profile.
-export function useWorkerIdentityDisplay() {
+// `fallbackName` lets a page keep its own first-visit wording (e.g. "your
+// worker") instead of the sidebar's "AI Worker".
+export function useWorkerIdentityDisplay(fallbackName = "AI Worker") {
   const { profile, identitySeed } = useContext(WorkerIdentityContext);
   const source = profile ?? identitySeed;
   return {
-    displayName: source?.displayName ?? "AI Worker",
+    displayName: source?.displayName ?? fallbackName,
     avatarInitials: source?.avatarInitials ?? "AW",
     accentColor: source?.accentColor,
     avatarUrl: source?.avatarUrl ?? null,

@@ -5,6 +5,7 @@ import StatCard from "@/components/aix/StatCard";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { ChatIcon, CheckCircleIcon, DocsIcon, MailIcon, UserCircleIcon } from "@/icons";
+import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
 import { apiFetch, Conversation, KnowledgeDocument, WorkerProfile } from "@/lib/worker-api";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -24,6 +25,10 @@ export default function WorkerDashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeDocument[]>([]);
   const [connected, setConnected] = useState(false);
+  // Name/avatar come from the shared identity (cached seed until "/worker"
+  // resolves), not this page's own fetch, so a reload doesn't flash "AW".
+  const identity = useWorkerIdentityDisplay();
+  const { displayName: subtitleName } = useWorkerIdentityDisplay("this worker");
 
   useEffect(() => {
     let cancelled = false;
@@ -80,11 +85,11 @@ export default function WorkerDashboard() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 md:gap-6">
       <WorkerHero
-        displayName={profile?.displayName ?? "AI Worker"}
-        avatarInitials={profile?.avatarInitials ?? "AW"}
-        accentColor={profile?.accentColor}
-        avatarUrl={profile?.avatarUrl}
-        status={profile?.status}
+        displayName={identity.displayName}
+        avatarInitials={identity.avatarInitials}
+        accentColor={identity.accentColor}
+        avatarUrl={identity.avatarUrl}
+        status={identity.status}
         tagline={profile?.role ?? "Configure this worker's role under Settings."}
         stats={[
           { label: "Auto-resolved", value: `${stats.autoResolutionRate}%` },
@@ -113,7 +118,7 @@ export default function WorkerDashboard() {
             <div>
               <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Recent conversations</h2>
               <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                What {profile?.displayName ?? "this worker"} is handling right now.
+                What {subtitleName} is handling right now.
               </p>
             </div>
             <Link href="/inbox" className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">

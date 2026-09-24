@@ -5,6 +5,7 @@ import AssistantHistoryPanel from "@/components/worker/AssistantHistoryPanel";
 import Markdown from "@/components/worker/Markdown";
 import { ArrowUpIcon, MicrophoneIcon, PlusIcon, TimeIcon } from "@/icons";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
 import { apiFetch, AssistantChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { FormEvent, useEffect, useRef, useState } from "react";
@@ -42,6 +43,9 @@ export default function WorkerAssistant() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
+  // Name/avatar come from the shared identity (cached seed until "/worker"
+  // resolves), not this page's own fetch, so a reload doesn't flash "AW".
+  const { displayName, avatarInitials, accentColor, avatarUrl } = useWorkerIdentityDisplay("your worker");
 
   const { listening, supported: voiceSupported, toggle: toggleVoice, error: voiceError } = useVoiceInput((text) => {
     setValue((prev) => (prev ? `${prev} ` : "") + text);
@@ -127,7 +131,7 @@ export default function WorkerAssistant() {
           id: `fallback-${Date.now()}`,
           conversationId: conversationId ?? "",
           senderType: "agent",
-          senderName: `${profile?.displayName ?? "Your worker"} Assistant`,
+          senderName: `${profile ? displayName : "Your worker"} Assistant`,
           body: "I can't reach the API right now, so I can't answer confidently. Please try again in a moment.",
           citations: [],
           createdAt: new Date().toISOString(),
@@ -147,10 +151,6 @@ export default function WorkerAssistant() {
     inputRef.current?.focus();
   }
 
-  const displayName = profile?.displayName ?? "your worker";
-  const avatarInitials = profile?.avatarInitials ?? "AW";
-  const accentColor = profile?.accentColor;
-  const avatarUrl = profile?.avatarUrl;
   const managerName = profile?.managerName;
   const isBlank = !conversationId && messages.length === 0;
 
