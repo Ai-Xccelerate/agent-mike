@@ -14,6 +14,15 @@ export const metadata = {
 
 const noFlashTheme = `(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');}}catch(e){}})();`;
 
+// The tab icon is deliberately NOT a Next metadata icon (no app/icon.svg, no
+// `icons` in metadata). Next re-syncs every metadata <link rel="icon"> on each
+// client-side navigation — including query-string-only ones like
+// /assistant?c=… — which kept resetting the worker's avatar back to the robot.
+// Instead this plain, non-React <link> is the single tab icon for the whole
+// app; WorkerIdentityProvider swaps it for the worker's avatar. Nothing in
+// Next or React ever touches it.
+const defaultFavicon = `(function(){var l=document.createElement('link');l.rel='icon';l.type='image/svg+xml';l.href='/icon.svg';l.setAttribute('data-app-favicon','');document.head.appendChild(l);})();`;
+
 function parseList(value: string | undefined): string[] | undefined {
   const values = value
     ?.split(",")
@@ -36,6 +45,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: noFlashTheme }} />
+        <script dangerouslySetInnerHTML={{ __html: defaultFavicon }} />
       </head>
       <body className="font-outfit">
         <LiquidBackdrop />

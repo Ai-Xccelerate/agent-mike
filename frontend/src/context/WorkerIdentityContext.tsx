@@ -1,7 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { usePathname } from "next/navigation";
+import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { apiFetch, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 
@@ -115,6 +114,19 @@ function placeholderFaviconDataUrl(initials: string, accentColor: string): strin
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
+const DEFAULT_FAVICON_HREF = "/icon.svg";
+
+/** Replaces the app's single tab-icon <link> (created in app/layout.tsx). */
+function setAppFavicon(href: string, type: string) {
+  document.querySelectorAll("link[data-app-favicon]").forEach((link) => link.remove());
+  const link = document.createElement("link");
+  link.rel = "icon";
+  link.type = type;
+  link.href = href;
+  link.setAttribute("data-app-favicon", "");
+  document.head.appendChild(link);
+}
+
 export function WorkerIdentityProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [settled, setSettled] = useState(false);
@@ -142,92 +154,31 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
 
   // The browser tab icon: the worker's own uploaded avatar image when there
   // is one, otherwise a generated circle in the worker's own accent color
-  // and initials (matching AgentAvatar) rather than the app's generic robot
-  // icon.svg — that generic fallback is what made the favicon never match
-  // the sidebar/Identity avatar for a worker with a custom color but no
-  // uploaded image yet. defaultFaviconRef still exists purely to restore the
-  // framework's own icon.svg link on unmount (captured once so this never has
-  // to guess its URL) — never any other placeholder or stock image.
+  // and initials (matching AgentAvatar) rather than the app's generic robot.
+  //
+  // This effect is the ONLY writer of the tab icon. There is deliberately no
+  // Next metadata icon (see defaultFavicon in app/layout.tsx): Next re-syncs
+  // metadata <link rel="icon"> tags on every client-side navigation, and every
+  // earlier fix that tried to out-run that reset (re-running on pathname
+  // changes, rewriting Next's own link) missed some navigation — most
+  // recently query-string-only ones like /assistant?c=…. With no Next-managed
+  // icon there is nothing to reset, so this only has to run when the identity
+  // itself changes. Don't add a Next icon back (app/icon.svg, `icons` metadata).
   //
   // Mutating an existing <link>'s href is not enough — several browsers cache
   // the tab icon against the element itself and never repaint it just
-  // because the attribute changed. Removing and re-inserting a fresh <link>
-  // forces an actual refetch.
-  //
-  // Only ever remove/recreate the single <link> THIS effect itself created
-  // (tracked via ownLinkRef) — never Next's own default <link rel="icon">
-  // (rendered from app/icon.svg). That one is a React-managed "hoistable"
-  // head element; ripping it out via raw DOM APIs desyncs React's internal
-  // reference to it, and every navigation afterward that tries to reconcile
-  // it throws "Cannot read properties of null (reading 'removeChild')" -
-  // this crashed on every client-side route change for the rest of the tab's
-  // session once this effect had run a single time.
-  //
-  // That same per-navigation reconciliation is also why `pathname` is a
-  // dependency below even though nothing in this effect reads it: Next
-  // re-resolves and re-syncs its own <link rel="icon"> on every client-side
-  // route change, independently of this component's render, which silently
-  // overwrote our href back to the default robot on every tab switch within
-  // (admin)/layout.tsx (which never remounts between routes, so `profile`
-  // never changed and this effect never re-ran to fix it back up). Re-running
-  // on every pathname change re-applies our href right after Next resets it.
-  const pathname = usePathname();
-  const defaultFaviconRef = useRef<{ href: string; type: string } | null>(null);
-  const ownLinkRef = useRef<HTMLLinkElement | null>(null);
+  // because the attribute changed. Replacing the <link> forces a refetch.
   useEffect(() => {
     const source = profile ?? identitySeed;
     if (!source) return;
-    const frameworkLinks = Array.from(
-      document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]:not([data-worker-avatar-favicon])'),
-    );
-    if (defaultFaviconRef.current === null) {
-      const defaultLink = frameworkLinks[0];
-      defaultFaviconRef.current = {
-        href: defaultLink?.href ?? "",
-        type: defaultLink?.type ?? "",
-      };
-    }
-
     const usingAvatar = Boolean(source.avatarUrl);
     const href = usingAvatar
       ? absoluteAvatarUrl(source.avatarUrl ?? "")
       : placeholderFaviconDataUrl(source.avatarInitials, source.accentColor);
-    const type = usingAvatar ? avatarMimeType(href) : "image/svg+xml";
-
-    // Chrome can prefer Next's typed SVG icon over a later untyped link.
-    // Point the framework-managed icon at the avatar too, but never remove it:
-    // removal desynchronizes React's hoisted-head bookkeeping.
-    for (const frameworkLink of frameworkLinks) {
-      frameworkLink.href = href;
-      if (type) frameworkLink.type = type;
-      else frameworkLink.removeAttribute("type");
-    }
-
-    ownLinkRef.current?.remove();
-    if (!href) {
-      ownLinkRef.current = null;
-      return;
-    }
-
-    const link = document.createElement("link");
-    link.rel = "icon";
-    link.href = href;
-    link.type = type;
-    link.dataset.workerAvatarFavicon = "true";
-    document.head.appendChild(link);
-    ownLinkRef.current = link;
-
-    return () => {
-      link.remove();
-      if (ownLinkRef.current === link) ownLinkRef.current = null;
-      for (const frameworkLink of frameworkLinks) {
-        frameworkLink.href = defaultFaviconRef.current?.href ?? "";
-        const defaultType = defaultFaviconRef.current?.type;
-        if (defaultType) frameworkLink.type = defaultType;
-        else frameworkLink.removeAttribute("type");
-      }
-    };
-  }, [profile, identitySeed, pathname]);
+    setAppFavicon(href, usingAvatar ? avatarMimeType(href) : "image/svg+xml");
+    // Leaving the admin area (e.g. to /sign-in) goes back to the app icon.
+    return () => setAppFavicon(DEFAULT_FAVICON_HREF, "image/svg+xml");
+  }, [profile, identitySeed]);
 
   return (
     <WorkerIdentityContext.Provider value={{ profile, identitySeed, settled }}>{children}</WorkerIdentityContext.Provider>
