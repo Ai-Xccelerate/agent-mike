@@ -11,6 +11,13 @@ export type ClerkTenant = {
   orgId: string;
   userId: string;
   role: "owner" | "admin" | "member";
+  /**
+   * From the session token's custom `email` claim — only present once the
+   * Clerk instance's session token is customized with
+   * `{"email": "{{user.primary_email_address}}"}`. Null until then (and for
+   * the local dev bypass); callers must treat it as optional.
+   */
+  email: string | null;
   rawJwt: string | null;
   source: "clerk" | "dev";
 };
@@ -58,6 +65,7 @@ function localBypass(req: NextRequest): ClerkTenant | null {
     orgId: process.env.MIKE_DEV_ORG_ID || "dev-org",
     userId: process.env.MIKE_DEV_USER_ID || "dev-user",
     role: "owner",
+    email: null,
     rawJwt: null,
     source: "dev",
   };
@@ -105,6 +113,12 @@ function orgClaims(payload: JWTPayload): { orgId: string | null; role: ClerkTena
   return { orgId, role };
 }
 
+/** Optional: a malformed or absent claim is ignored rather than rejecting an otherwise-valid token. */
+export function emailClaim(payload: JWTPayload): string | null {
+  const raw = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+  return /^[^\s@]+@[^\s@]+$/.test(raw) ? raw : null;
+}
+
 async function verifyClerkToken(token: string): Promise<ClerkTenant> {
   const jwksUrl = (process.env.CLERK_JWKS_URL || "").trim();
   const issuer = (process.env.CLERK_ISSUER || "").trim();
@@ -144,7 +158,7 @@ async function verifyClerkToken(token: string): Promise<ClerkTenant> {
       code: "missing_org_claims",
     });
   }
-  return { orgId, userId, role, rawJwt: token, source: "clerk" };
+  return { orgId, userId, role, email: emailClaim(payload), rawJwt: token, source: "clerk" };
 }
 
 async function requireCoreAccess(tenant: ClerkTenant): Promise<void> {

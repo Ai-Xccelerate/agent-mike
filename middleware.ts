@@ -74,9 +74,11 @@ export async function middleware(req: NextRequest) {
     requestHeaders.delete("x-aix-verified-org-id");
     requestHeaders.delete("x-aix-verified-user-id");
     requestHeaders.delete("x-aix-verified-role");
+    requestHeaders.delete("x-aix-verified-email");
     requestHeaders.set("x-aix-verified-org-id", tenant.orgId);
     requestHeaders.set("x-aix-verified-user-id", tenant.userId);
     requestHeaders.set("x-aix-verified-role", tenant.role);
+    if (tenant.email) requestHeaders.set("x-aix-verified-email", tenant.email);
     return withCors(NextResponse.next({ request: { headers: requestHeaders } }), headers);
   } catch (error) {
     // Every known auth-rejection reason (bad/expired JWT, azp not allowed,
