@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { workerUsers } from "@/db/schema";
 import { ensureOrganization } from "@/lib/bootstrap";
+import { isUniqueViolation } from "@/lib/worker-patch";
 import { StandaloneIdentityAdapter, type IdentityAdapter, type TenantContext } from "@/lib/identity";
 
 type Role = TenantContext["role"];
@@ -18,17 +19,21 @@ function normalizeRole(raw: string | null): Role {
  * this one — ever runs, so there is nothing left to re-verify here: this is
  * purely "does a local row exist for this already-trusted tenant yet".
  *
- * There is no email claim in the verified headers middleware forwards (Mike
- * only gets org id / user id / role from the Clerk JWT, see
- * lib/clerk-core-auth.ts), so a freshly provisioned row is seeded with a
- * placeholder `${clerkUserId}@clerk.local` address rather than a real one.
- * That placeholder is only ever used as a uniqueness key for the legacy
- * `(organizationId, email)` index — nothing sends mail to it. A real email
- * should be backfilled once one is available (e.g. by widening the Clerk JWT
- * template, or calling Clerk's Backend API) rather than treating this as a
- * finished integration.
+ * The real email comes from the session token's optional `email` claim
+ * (forwarded by middleware as `x-aix-verified-email`, see
+ * lib/clerk-core-auth.ts). Until the Clerk instance's session token is
+ * customized to include it, `email` is null and a new row is seeded with a
+ * placeholder `${clerkUserId}@clerk.local` address — only ever a uniqueness
+ * key for the `(organizationId, email)` index, nothing sends mail to it. Once
+ * the claim arrives, the next request replaces the placeholder in place.
  */
-export async function ensureWorkerUser(orgId: string, clerkUserId: string, role: Role) {
+export async function ensureWorkerUser(
+  orgId: string,
+  clerkUserId: string,
+  role: Role,
+  email: string | null = null,
+) {
+  const placeholderEmail = `${clerkUserId}@clerk.local`;
   const [byClerkId] = await db
     .select()
     .from(workerUsers)
@@ -36,7 +41,23 @@ export async function ensureWorkerUser(orgId: string, clerkUserId: string, role:
     .limit(1);
 
   if (byClerkId) {
-    if (byClerkId.role !== role) {
+    const changes: Partial<typeof workerUsers.$inferInsert> = {};
+    if (byClerkId.role !== role) changes.role = role;
+    if (email && byClerkId.email !== email) changes.email = email;
+    if (Object.keys(changes).length === 0) return byClerkId;
+    try {
+      const [updated] = await db
+        .update(workerUsers)
+        .set(changes)
+        .where(eq(workerUsers.id, byClerkId.id))
+        .returning();
+      return updated;
+    } catch (error) {
+      // Another row in this org already holds that email (e.g. a hand-made
+      // row for the same person) — keep the current email rather than fail
+      // the request; the role change still applies.
+      if (!isUniqueViolation(error) || !changes.email) throw error;
+      if (!changes.role) return byClerkId;
       const [updated] = await db
         .update(workerUsers)
         .set({ role })
@@ -44,39 +65,46 @@ export async function ensureWorkerUser(orgId: string, clerkUserId: string, role:
         .returning();
       return updated;
     }
-    return byClerkId;
   }
 
   // A row may already exist for this person if it was created by hand (or by
   // some other flow) before their Clerk account was linked — match it by the
-  // placeholder/real email so we backfill clerkUserId onto it instead of
-  // creating a duplicate person under the same org.
-  const placeholderEmail = `${clerkUserId}@clerk.local`;
-  const [byEmail] = await db
-    .select()
-    .from(workerUsers)
-    .where(and(eq(workerUsers.organizationId, orgId), eq(workerUsers.email, placeholderEmail)))
-    .limit(1);
-
-  if (byEmail) {
-    const [updated] = await db
-      .update(workerUsers)
-      .set({ clerkUserId, role })
-      .where(eq(workerUsers.id, byEmail.id))
-      .returning();
-    return updated;
+  // real email, or the placeholder, so we backfill clerkUserId onto it
+  // instead of creating a duplicate person under the same org. A row already
+  // linked to a different Clerk user is never taken over.
+  for (const candidate of email ? [email, placeholderEmail] : [placeholderEmail]) {
+    const [byEmail] = await db
+      .select()
+      .from(workerUsers)
+      .where(and(eq(workerUsers.organizationId, orgId), eq(workerUsers.email, candidate)))
+      .limit(1);
+    if (byEmail && !byEmail.clerkUserId) {
+      const [updated] = await db
+        .update(workerUsers)
+        .set({ clerkUserId, role, ...(email ? { email } : {}) })
+        .where(eq(workerUsers.id, byEmail.id))
+        .returning();
+      return updated;
+    }
   }
 
-  const [created] = await db
-    .insert(workerUsers)
-    .values({
-      organizationId: orgId,
-      clerkUserId,
-      email: placeholderEmail,
-      role,
-    })
-    .returning();
-  return created;
+  const values = { organizationId: orgId, clerkUserId, role };
+  try {
+    const [created] = await db
+      .insert(workerUsers)
+      .values({ ...values, email: email ?? placeholderEmail })
+      .returning();
+    return created;
+  } catch (error) {
+    // The real email is held by a row linked to another Clerk user — still
+    // provision this person, under the placeholder.
+    if (!isUniqueViolation(error) || !email) throw error;
+    const [created] = await db
+      .insert(workerUsers)
+      .values({ ...values, email: placeholderEmail })
+      .returning();
+    return created;
+  }
 }
 
 /**
@@ -97,12 +125,13 @@ export class ClerkIdentityAdapter implements IdentityAdapter {
     const orgId = (req.headers.get("x-aix-verified-org-id") || "").trim();
     const userId = (req.headers.get("x-aix-verified-user-id") || "").trim();
     const role = normalizeRole(req.headers.get("x-aix-verified-role"));
+    const email = (req.headers.get("x-aix-verified-email") || "").trim() || null;
     if (!orgId || !userId) {
       throw new Error("Verified Clerk tenant context is missing");
     }
 
     await ensureOrganization(orgId);
-    await ensureWorkerUser(orgId, userId, role);
+    await ensureWorkerUser(orgId, userId, role, email);
 
     return { orgId, userId, role, source: "clerk" };
   }
