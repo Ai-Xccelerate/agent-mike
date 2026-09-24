@@ -1575,3 +1575,52 @@ describe("agent instructions — customer vs admin audience", () => {
     expect(instructions).toContain("[[ESCALATE]]");
   });
 });
+
+
+describe("agent instructions — KB grounding", () => {
+  const baseProfile = {
+    displayName: "Mike",
+    role: "Technical support",
+    tone: "Warm.",
+    systemPromptTemplate: "Be helpful.",
+    model: "gpt-5.6-luna",
+    maxAgentTurns: 3,
+    confidenceThreshold: 0.72,
+    managerName: "Charan",
+  };
+
+  it("forbids general-knowledge support answers and requires a handoff when no KB matched", async () => {
+    const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
+    expect(instructions).toContain("No matching reference material was found for this question.");
+    expect(instructions).toContain("do not answer it from general knowledge");
+    expect(instructions).toContain("Grounding rule (overrides helpfulness and general knowledge)");
+    expect(instructions).toContain("do not invent steps, settings, timelines, or policies");
+    expect(instructions).toMatch(/does not\s+cover the question.*\[\[ESCALATE\]\]/s);
+  });
+
+  it("still lets greetings and small talk through without reference material", async () => {
+    const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
+    expect(instructions).toContain(
+      "Greetings, thanks, small talk, and short clarifying questions do not need reference material",
+    );
+  });
+
+  it("keeps the grounding rule when reference material is supplied", async () => {
+    const instructions = await buildInstructions(
+      baseProfile,
+      "AI Xccelerate",
+      [{ title: "Sign-in codes", heading: null, content: "Codes expire after 10 minutes." } as never],
+      "org-1",
+      "chat",
+    );
+    expect(instructions).toContain("### Sign-in codes");
+    expect(instructions).toContain("answer only from the reference material above");
+    expect(instructions).not.toContain("No matching reference material was found");
+  });
+
+  it("does not escalate a KB-answered question just because the article says to contact support", async () => {
+    const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
+    expect(instructions).toContain("When the reference material does answer it, give that answer and end with");
+    expect(instructions).toContain('like "contact support" is part of the answer');
+  });
+});
