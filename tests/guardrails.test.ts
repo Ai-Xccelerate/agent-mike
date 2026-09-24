@@ -494,3 +494,86 @@ describe("SDK guardrail wrappers", () => {
     expect((result.outputInfo as { action: string }).action).toBe("continue_intake");
   });
 });
+
+
+describe("classifyCustomerOutput — KB grounding", () => {
+  beforeEach(() => {
+    process.env.DEMO_MODE = "false";
+    process.env.OPENAI_API_KEY = "sk-test";
+    runMock.mockReset();
+    runMock.mockResolvedValue({
+      finalOutput: { action: "block", confidence: 0.1, reason: "ungrounded support steps" },
+    });
+  });
+
+  afterEach(() => {
+    if (previousDemo === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = previousDemo;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  });
+
+  const baseArgs = {
+    reply: "Please check your spam/junk folder and request a new code. [[FOLLOWUP]]",
+    escalationTerms: [],
+    recentHistory: [],
+    summary: null,
+    role: "Technical support",
+    jobDescription: null,
+  };
+
+  function classifierInstructions(): string {
+    return (runMock.mock.calls[0]?.[0] as { instructions: string }).instructions;
+  }
+
+  it("tells the classifier to block general-knowledge support answers when no KB was retrieved", async () => {
+    const result = await classifyCustomerOutput({ ...baseArgs, referenceMaterialFound: false });
+    expect(result.action).toBe("block");
+    expect(classifierInstructions()).toContain("No approved reference material was retrieved");
+    expect(classifierInstructions()).toContain("Greetings, thanks, small talk");
+  });
+
+  it("treats a no-KB handoff as escalate so [[ESCALATE]] is not demoted to follow-up", async () => {
+    await classifyCustomerOutput({
+      ...baseArgs,
+      reply: "I'm bringing in a teammate to help with your sign-in code. [[ESCALATE]]",
+      referenceMaterialFound: false,
+    });
+    expect(classifierInstructions()).toContain("is escalate, not continue_intake");
+  });
+
+  it("keeps that handoff rule when retrieval returned material that does not cover the question", async () => {
+    await classifyCustomerOutput({
+      ...baseArgs,
+      reply: "I don't have information about promo codes. I'm bringing in a teammate. [[ESCALATE]]",
+      referenceMaterialFound: true,
+    });
+    expect(classifierInstructions()).toContain("is escalate, not continue_intake");
+  });
+
+  it("does not add the no-KB rule when reference material was retrieved or is unknown", async () => {
+    await classifyCustomerOutput({ ...baseArgs, referenceMaterialFound: true });
+    expect(classifierInstructions()).not.toContain("No approved reference material was retrieved");
+    runMock.mockClear();
+    await classifyCustomerOutput(baseArgs);
+    expect(classifierInstructions()).not.toContain("No approved reference material was retrieved");
+  });
+
+  it("output guardrail forwards referenceMaterialFound from the run context", async () => {
+    const guardrail = buildCustomerOutputGuardrail();
+    await guardrail.execute({
+      agent: {} as never,
+      agentOutput: baseArgs.reply,
+      context: new RunContext({
+        escalationTerms: [],
+        confidenceThreshold: 0.72,
+        recentHistory: [],
+        summary: null,
+        role: "Technical support",
+        jobDescription: null,
+        referenceMaterialFound: false,
+      }),
+    });
+    expect(classifierInstructions()).toContain("No approved reference material was retrieved");
+  });
+});

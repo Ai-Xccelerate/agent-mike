@@ -261,3 +261,87 @@ describe("runAgent guardrail tripwires", () => {
     expect(agent.outputGuardrails[0]?.name).toBe("Customer reply guardrail");
   });
 });
+
+
+describe("runAgent KB grounding", () => {
+  const signInQuestion = "My sign-in code never arrived";
+  const genericDraft =
+    "Please check your spam/junk folder and confirm the email address or phone number is correct. " +
+    "Then request a new code and wait a few minutes before retrying. [[FOLLOWUP]]";
+
+  function replyPolicy(action: "continue_intake" | "escalate" | "block", reason: string) {
+    return [
+      {
+        guardrail: { name: "Customer reply guardrail" },
+        output: { tripwireTriggered: false, outputInfo: { action, confidence: 0.9, reason } },
+      },
+    ];
+  }
+
+  it("tells the run there is no KB material, so guardrails can enforce grounding", async () => {
+    runTracedAgentMock.mockResolvedValue({ finalOutput: "Hi! [[FOLLOWUP]]", inputGuardrailResults: [] });
+    await runAgent(profile, "Acme", signInQuestion, [], "org-1");
+    const agent = runTracedAgentMock.mock.calls[0]?.[2] as { instructions: string };
+    const options = runTracedAgentMock.mock.calls[0]?.[4] as { context: { referenceMaterialFound?: boolean } };
+    expect(agent.instructions).toContain("Grounding rule");
+    expect(options.context.referenceMaterialFound).toBe(false);
+  });
+
+  it("marks reference material as found when retrieval returned a match", async () => {
+    runTracedAgentMock.mockResolvedValue({ finalOutput: "Codes expire in 10 minutes. [[FOLLOWUP]]", inputGuardrailResults: [] });
+    await runAgent(
+      profile,
+      "Acme",
+      signInQuestion,
+      [{ title: "Sign-in codes", heading: null, content: "Codes expire after 10 minutes." } as never],
+      "org-1",
+    );
+    const options = runTracedAgentMock.mock.calls[0]?.[4] as { context: { referenceMaterialFound?: boolean } };
+    expect(options.context.referenceMaterialFound).toBe(true);
+  });
+
+  it("replaces an ungrounded sign-in-code answer with a handoff when the KB has no match", async () => {
+    runTracedAgentMock
+      .mockResolvedValueOnce({
+        finalOutput: genericDraft,
+        inputGuardrailResults: [],
+        outputGuardrailResults: replyPolicy("block", "answers a support question from general knowledge"),
+      })
+      .mockResolvedValueOnce({
+        finalOutput: "I don't want to guess on this one, so I'm bringing in a teammate who can check your account. [[ESCALATE]]",
+        inputGuardrailResults: [],
+        outputGuardrailResults: replyPolicy("escalate", "hands off to a human"),
+      });
+
+    const result = await runAgent(profile, "Acme", signInQuestion, [], "org-1");
+    expect(result.escalate).toBe(true);
+    expect(result.answer).toContain("teammate");
+    expect(result.answer).not.toMatch(/spam|junk|request a new code/i);
+    const repairInput = runTracedAgentMock.mock.calls[1]?.[3] as string;
+    expect(repairInput).toContain("answers a support question from general knowledge");
+  });
+
+  it("falls back to the manager handoff if the repaired sign-in answer is still ungrounded", async () => {
+    runTracedAgentMock.mockResolvedValue({
+      finalOutput: genericDraft,
+      inputGuardrailResults: [],
+      outputGuardrailResults: replyPolicy("block", "answers a support question from general knowledge"),
+    });
+
+    const result = await runAgent(profile, "Acme", signInQuestion, [], "org-1");
+    expect(result).toEqual(handoffToManager(profile));
+  });
+
+  it("still answers a greeting normally with no KB match", async () => {
+    runTracedAgentMock.mockResolvedValue({
+      finalOutput: "Hi there! What can I help you with today? [[FOLLOWUP]]",
+      inputGuardrailResults: [],
+      outputGuardrailResults: replyPolicy("continue_intake", "greeting, no support claims"),
+    });
+
+    const result = await runAgent(profile, "Acme", "hi", [], "org-1");
+    expect(result.escalate).toBe(false);
+    expect(result.answer).toBe("Hi there! What can I help you with today?");
+    expect(runTracedAgentMock).toHaveBeenCalledTimes(1);
+  });
+});
