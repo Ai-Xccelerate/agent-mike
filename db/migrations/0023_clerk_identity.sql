@@ -10,7 +10,9 @@
 -- provisions a worker_users row per (organizationId, Clerk user id). Nullable
 -- and non-unique-per-null: existing rows created before this adapter existed
 -- have no Clerk user id and are unaffected.
-ALTER TABLE "worker_users" ADD COLUMN "clerk_user_id" text;
+-- IF NOT EXISTS: this entry's journal timestamp was once lower than 0022's,
+-- so some databases recorded it out of order; safe to run again either way.
+ALTER TABLE "worker_users" ADD COLUMN IF NOT EXISTS "clerk_user_id" text;
 --> statement-breakpoint
-CREATE UNIQUE INDEX "worker_users_org_clerk_user_unique"
+CREATE UNIQUE INDEX IF NOT EXISTS "worker_users_org_clerk_user_unique"
   ON "worker_users" ("organization_id", "clerk_user_id");
