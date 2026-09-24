@@ -1542,6 +1542,7 @@ describe("agent instructions — email signature is channel-specific", () => {
       expect(instructions).not.toContain("Email sign-off:");
       expect(instructions).not.toContain("Best,\nMike");
       expect(instructions).toContain("Timezone: UTC.");
+      expect(instructions).toContain("no sign-off, signature");
     }
   });
 
@@ -1549,6 +1550,7 @@ describe("agent instructions — email signature is channel-specific", () => {
     const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1", "email");
     expect(instructions).toContain("Email sign-off:");
     expect(instructions).toContain("Best,\nMike\nAI Xccelerate Technical Support");
+    expect(instructions).not.toContain("This is a live chat");
   });
 });
 

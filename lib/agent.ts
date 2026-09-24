@@ -1051,6 +1051,9 @@ export async function buildInstructions(
     includeEmailSignature && profile.emailSignature
       ? `Email sign-off:\n${profile.emailSignature}`
       : "",
+    // Leaving the signature out wasn't enough on its own: the model still
+    // closed chat replies with "Best, ..." by habit.
+    includeEmailSignature ? "" : "This is a live chat. Reply like a chat message: no sign-off, signature, or \"Best,\" closing.",
   ]
     .filter(Boolean)
     .join("\n");

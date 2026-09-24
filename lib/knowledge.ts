@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import matter from "gray-matter";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { knowledgeChunks, knowledgeDocuments } from "@/db/schema";
 import { splitMarkdown } from "@/lib/knowledge-split";
@@ -142,7 +142,21 @@ export async function retrieve(
   query: string,
   limit = 5,
 ): Promise<KnowledgeMatch[]> {
-  const tsQuery = sql`websearch_to_tsquery('english', ${query})`;
+  // websearch_to_tsquery ANDs every word, so a natural question ("what's our
+  // refund window?") finds nothing whenever one word ("window") isn't in the
+  // article. Strict first, for precision; only when that finds nothing, retry
+  // with the same lexemes ORed together and let ts_rank_cd put the chunks
+  // covering the most words first.
+  const strict = await searchChunks(organizationId, sql`websearch_to_tsquery('english', ${query})`, limit);
+  if (strict.length > 0) return strict;
+  return searchChunks(
+    organizationId,
+    sql`nullif(replace(plainto_tsquery('english', ${query})::text, ' & ', ' | '), '')::tsquery`,
+    limit,
+  );
+}
+
+async function searchChunks(organizationId: string, tsQuery: SQL, limit: number): Promise<KnowledgeMatch[]> {
   const rows = await db.execute<{
     document_id: string;
     title: string;
@@ -167,4 +181,64 @@ export async function retrieve(
     content: row.content,
     rank: Number(row.rank),
   }));
+}
+
+const OVERLAP_STOPWORDS = new Set(
+  (
+    "the and for are but not you all any can had her was one our out has have this that with from they will " +
+    "your what when which their there been more also into than then them some such only other about after " +
+    "within should would could must may each per its it's who how where why does did just very over under " +
+    "customer customers please note"
+  ).split(" "),
+);
+
+/** Crude but dependency-free normalisation: lowercase, strip common suffixes. */
+function keywordStem(word: string): string {
+  return word.replace(/(ing|ed|es|s)$/, "");
+}
+
+function keywordSet(text: string, limit: number): string[] {
+  const counts = new Map<string, number>();
+  for (const raw of text.toLowerCase().match(/[a-z][a-z-]{2,}/g) ?? []) {
+    if (OVERLAP_STOPWORDS.has(raw)) continue;
+    const stem = keywordStem(raw);
+    if (stem.length < 3) continue;
+    counts.set(stem, (counts.get(stem) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([word]) => word);
+}
+
+export type OverlappingDocument = { conceptId: string; title: string; sharedKeywords: string[]; excerpt: string };
+
+/**
+ * Existing articles that cover much the same ground as `text` - used before
+ * adding new knowledge so an updated policy lands as an update to the old
+ * article instead of a second, contradicting one (the worker would then
+ * cite whichever ranks higher). Keyword overlap rather than full-text
+ * search, since the question is "same topic?", not "matches this query?".
+ */
+export async function findOverlappingDocuments(organizationId: string, text: string): Promise<OverlappingDocument[]> {
+  const keywords = keywordSet(text, 15);
+  if (keywords.length < 4) return [];
+  const docs = await db
+    .select({ conceptId: knowledgeDocuments.conceptId, title: knowledgeDocuments.title, body: knowledgeDocuments.body })
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.organizationId, organizationId));
+  const overlaps: OverlappingDocument[] = [];
+  for (const doc of docs) {
+    const present = new Set(keywordSet(`${doc.title} ${doc.body}`, 400));
+    const shared = keywords.filter((word) => present.has(word));
+    if (shared.length >= 4 && shared.length / keywords.length >= 0.3) {
+      overlaps.push({
+        conceptId: doc.conceptId,
+        title: doc.title,
+        sharedKeywords: shared,
+        excerpt: doc.body.length > 1200 ? `${doc.body.slice(0, 1200)}…` : doc.body,
+      });
+    }
+  }
+  return overlaps.sort((a, b) => b.sharedKeywords.length - a.sharedKeywords.length).slice(0, 3);
 }

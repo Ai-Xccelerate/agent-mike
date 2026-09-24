@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { conversations, emailDomains, messages } from "@/db/schema";
+import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { evaluateMessage } from "@/lib/guardrails";
-import { approvedDomains } from "@/lib/email-domains";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent } from "@/lib/agent";
 import {
@@ -121,16 +120,16 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const domainRows = await db
-    .select({ status: emailDomains.status, domain: emailDomains.domain })
-    .from(emailDomains)
-    .where(eq(emailDomains.organizationId, tenant.orgId));
-
+  // The sender allowlist is the Guardrails page's own "Allowed email domains"
+  // (empty = anyone may write in). Settings > Email domains is a different
+  // list - where the worker may *send* email - and must never gate inbound
+  // chat: widget visitors have no email on record, so using it here escalated
+  // every chat message the moment any outbound domain was approved.
   const guardrail = evaluateMessage({
     message,
     senderEmail: conversation.customerEmail,
     escalationTerms: profile.escalationTerms,
-    allowedDomains: approvedDomains(domainRows),
+    allowedDomains: profile.allowedDomains,
     requireUserVerification: profile.requireUserVerification,
   });
 
