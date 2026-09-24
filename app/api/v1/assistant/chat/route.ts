@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { publicAppUrl } from "@/lib/env";
+import { isPanelKind, type PanelKind } from "@/lib/assistant-panels";
 import type { NextRequest } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
@@ -9,9 +11,20 @@ import {
   runAssistantAgent,
   maybeRefreshAssistantSummary,
   generateAssistantTitle,
+  livePendingApprovals,
+  toPendingActionView,
   REPLAY_MESSAGE_LIMIT,
+  type AssistantDecision,
+  type AssistantUiAction,
   type AssistantHistoryTurn,
 } from "@/lib/assistant-agent";
+import {
+  ATTACHMENT_MAX_FILES,
+  attachmentFilenames,
+  bindAttachments,
+  isAttachmentIntent,
+  type AssistantAttachmentIntent,
+} from "@/lib/assistant-attachments";
 
 /** Matches the customer-facing chat route's cap — same reasoning, same limit. */
 const MAX_MESSAGE_LENGTH = 10000;
@@ -35,9 +48,61 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-  const message = body?.message as string | undefined;
   const conversationId = body?.conversation_id as string | undefined;
-  if (!message || typeof message !== "string") {
+
+  const rawAttachments = Array.isArray(body?.attachments) ? (body.attachments as unknown[]) : [];
+  const attachmentRefs: { id: string; intent: AssistantAttachmentIntent }[] = [];
+  for (const entry of rawAttachments) {
+    const ref = entry as { id?: unknown; intent?: unknown } | null;
+    if (!ref || typeof ref.id !== "string" || !isAttachmentIntent(ref.intent)) {
+      return NextResponse.json({ error: "Each attachment needs an id and an intent (context, knowledge, or skill)" }, { status: 400 });
+    }
+    attachmentRefs.push({ id: ref.id, intent: ref.intent });
+  }
+  if (attachmentRefs.length > ATTACHMENT_MAX_FILES) {
+    return NextResponse.json({ error: `Attach up to ${ATTACHMENT_MAX_FILES} files per message.` }, { status: 422 });
+  }
+
+  const rawDecision = body?.approval_decision as { decision?: unknown; approval_ids?: unknown } | undefined;
+  let decision: AssistantDecision | undefined;
+  if (rawDecision) {
+    const ids = rawDecision.approval_ids;
+    if (
+      (rawDecision.decision !== "approve" && rawDecision.decision !== "cancel") ||
+      !Array.isArray(ids) ||
+      ids.length === 0 ||
+      !ids.every((id) => typeof id === "string")
+    ) {
+      return NextResponse.json({ error: "approval_decision needs decision (approve|cancel) and approval_ids" }, { status: 400 });
+    }
+    if (!conversationId) {
+      return NextResponse.json({ error: "approval_decision needs a conversation_id" }, { status: 400 });
+    }
+    decision = { decision: rawDecision.decision, approvalIds: ids as string[] };
+  }
+
+  // A panel button: which proposal tool, with what arguments. The run
+  // whitelists the tool and re-validates the arguments like any proposal.
+  const rawUiAction = body?.ui_action as { tool?: unknown; args?: unknown; label?: unknown } | undefined;
+  let uiAction: AssistantUiAction | undefined;
+  if (rawUiAction) {
+    if (typeof rawUiAction.tool !== "string" || !rawUiAction.args || typeof rawUiAction.args !== "object") {
+      return NextResponse.json({ error: "ui_action needs tool and args" }, { status: 400 });
+    }
+    uiAction = { tool: rawUiAction.tool, args: rawUiAction.args as Record<string, unknown> };
+  }
+  let showPanel: PanelKind | undefined;
+  if (body?.show_panel !== undefined) {
+    if (!isPanelKind(body.show_panel)) return NextResponse.json({ error: "Unknown panel" }, { status: 400 });
+    showPanel = body.show_panel;
+  }
+
+  // A card click carries no typed text; record it as what the manager did.
+  let message = typeof body?.message === "string" ? body.message.trim() : "";
+  if (!message && decision) message = decision.decision === "approve" ? "Approve" : "Cancel";
+  if (!message && attachmentRefs.length > 0) message = "(Attached files)";
+  if (!message && uiAction) message = typeof rawUiAction?.label === "string" ? rawUiAction.label : "Panel action";
+  if (!message) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
   }
   if (message.length > MAX_MESSAGE_LENGTH) {
@@ -56,11 +121,22 @@ export async function POST(req: NextRequest) {
 
   let conversation;
   if (conversationId) {
+    // Scoped to this org's own assistant threads: an id from another org, or
+    // a real customer conversation, must never be written into from here.
     [conversation] = await db
       .select()
       .from(conversations)
-      .where(eq(conversations.id, conversationId))
+      .where(
+        and(
+          eq(conversations.id, conversationId),
+          eq(conversations.organizationId, tenant.orgId),
+          eq(conversations.channel, "assistant"),
+        ),
+      )
       .limit(1);
+    if (!conversation) {
+      return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+    }
   }
 
   const priorMessages = conversation
@@ -72,7 +148,12 @@ export async function POST(req: NextRequest) {
       db.execute<{ next_ticket: number }>(
         sql`select coalesce(max(ticket_number), 1000) + 1 as next_ticket from conversations where organization_id = ${tenant.orgId}`,
       ),
-      generateAssistantTitle(profile, message),
+      // A files-only first message has no words to title from; use the file names.
+      typeof body?.message === "string" && body.message.trim()
+        ? generateAssistantTitle(profile, message)
+        : attachmentFilenames(tenant.orgId, attachmentRefs.map((ref) => ref.id)).then(
+            (names) => (names.length ? names.join(", ") : message).slice(0, 120),
+          ),
     ]);
     const nextTicket = Number(ticketResult.rows[0]?.next_ticket ?? 1001);
 
@@ -88,6 +169,14 @@ export async function POST(req: NextRequest) {
       .returning();
   }
 
+  const attachments = await bindAttachments(tenant.orgId, conversation.id, attachmentRefs);
+  if (attachments.length !== attachmentRefs.length) {
+    return NextResponse.json(
+      { error: "One or more attached files couldn't be found. Remove them and attach again." },
+      { status: 422 },
+    );
+  }
+
   const [userMessage] = await db
     .insert(messages)
     .values({
@@ -95,6 +184,7 @@ export async function POST(req: NextRequest) {
       senderType: "manager",
       senderName: profile.managerName,
       body: message,
+      attachments: attachments.map((file) => ({ id: file.id, filename: file.filename, intent: file.intent })),
     })
     .returning();
 
@@ -109,7 +199,14 @@ export async function POST(req: NextRequest) {
 
   let result;
   try {
-    result = await runAssistantAgent(profile, tenant.orgId, conversation.id, message, recentHistory, conversation.summary);
+    result = await runAssistantAgent(profile, tenant.orgId, conversation.id, message, recentHistory, conversation.summary, {
+      attachments,
+      decision,
+      uiAction,
+      showPanel,
+      appOrigin: publicAppUrl() || req.nextUrl.origin,
+      userId: tenant.userId,
+    });
   } catch (error) {
     // A raw agent-run failure (e.g. MaxTurnsExceededError from a longer
     // propose-then-confirm exchange) shouldn't surface as an unhandled 500 -
@@ -130,6 +227,7 @@ export async function POST(req: NextRequest) {
       senderType: "agent",
       senderName: `${profile.displayName} Assistant`,
       body: result.answer,
+      panels: result.panels ?? [],
     })
     .returning();
 
@@ -157,9 +255,18 @@ export async function POST(req: NextRequest) {
     })
     .where(eq(conversations.id, conversation.id));
 
+  // Recomputed rather than trusting result.pendingActions: after a failed
+  // run it's absent, but a proposal may still have been recorded.
+  const pendingActions = result.pendingActions ?? (await livePendingApprovals(tenant.orgId, conversation.id)).map(toPendingActionView);
+
   return NextResponse.json({
     conversation_id: conversation.id,
     message: reply,
+    user_message: userMessage,
     conversation_title: conversation.subject,
+    pending_actions: pendingActions,
+    tools_used: result.toolsUsed ?? [],
+    changes_applied: Boolean(result.changesApplied),
+    connect_link: result.connectLink ?? null,
   });
 }

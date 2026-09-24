@@ -82,7 +82,7 @@ describe("assistant propose/confirm tool logging", () => {
     const tools = buildAssistantTools(profile(), "org-1", "conv-1");
 
     const result = await invokeTool(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
-    expect(result).toContain("nothing pending");
+    expect(result).toContain("nothing waiting for your approval");
     expect(logToolCallMock).toHaveBeenCalledWith(
       expect.objectContaining({
         toolId: CONFIRM_PENDING_CHANGE_TOOL_NAME,

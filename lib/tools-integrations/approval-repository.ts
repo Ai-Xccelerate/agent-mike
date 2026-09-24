@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { toolApprovals } from "@/db/schema";
 
@@ -84,4 +84,19 @@ export async function recordApprovalResult(
       updatedAt: new Date(),
     })
     .where(eq(toolApprovals.id, id));
+}
+
+/**
+ * Retires pending proposals without applying them - used when a newer
+ * proposal replaces them, or they've sat unconfirmed too long - so a later
+ * "yes" can only ever apply what the manager was most recently shown.
+ * `reason` lands in decidedBy (e.g. "system:superseded") to keep these
+ * distinguishable from a manager's own rejection.
+ */
+export async function retirePendingApprovals(ids: string[], reason: string): Promise<void> {
+  if (ids.length === 0) return;
+  await db
+    .update(toolApprovals)
+    .set({ status: "rejected", decidedBy: reason, decidedAt: new Date(), updatedAt: new Date() })
+    .where(and(inArray(toolApprovals.id, ids), eq(toolApprovals.status, "pending")));
 }

@@ -6,6 +6,7 @@ import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { withNormalizedCitations } from "@/lib/citations";
+import { livePendingApprovals, toPendingActionView } from "@/lib/assistant-agent";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -22,7 +23,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (!conversation) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const msgs = await db.select().from(messages).where(eq(messages.conversationId, conversation.id)).orderBy(messages.createdAt);
-  return NextResponse.json({ ...conversation, messages: msgs.map(withNormalizedCitations) });
+  // Reopening an assistant thread from History should bring back its
+  // Approve / Cancel card, not leave a proposal pending invisibly.
+  const pendingActions =
+    conversation.channel === "assistant"
+      ? (await livePendingApprovals(tenant.orgId, conversation.id)).map(toPendingActionView)
+      : [];
+  return NextResponse.json({ ...conversation, messages: msgs.map(withNormalizedCitations), pendingActions });
 }
 
 const VALID_STATUSES = ["open", "needs_human", "resolved", "closed"] as const;

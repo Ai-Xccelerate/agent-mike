@@ -194,10 +194,60 @@ export const messages = pgTable(
     senderName: text("sender_name").notNull(),
     body: text("body").notNull(),
     citations: jsonb("citations").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // Files the manager attached to this message in the admin Assistant
+    // (lightweight refs only - the extracted text lives in
+    // assistant_attachments). Always empty for customer/agent messages.
+    attachments: jsonb("attachments")
+      .$type<{ id: string; filename: string; intent: AssistantAttachmentIntent }[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // Interactive panels (skills, knowledge, integrations, ...) an admin
+    // Assistant reply showed. Only the kinds are stored; the panel reads live
+    // data when rendered, so it never shows stale state after a change.
+    panels: jsonb("panels").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     conversationIdx: index("messages_conversation_idx").on(table.conversationId),
+  }),
+);
+
+/**
+ * What the manager wants done with a file dropped into the admin Assistant:
+ * read it as context for this chat only, or turn it into knowledge-base
+ * content or a custom skill (both of which go through the Assistant's usual
+ * propose -> confirm approval before anything is written).
+ */
+export type AssistantAttachmentIntent = "context" | "knowledge" | "skill";
+
+/**
+ * Files uploaded into the admin Assistant. Only the extracted text is kept -
+ * never the original bytes - since every use (chat context, knowledge
+ * ingest, skill drafting) works from text. conversationId is null between
+ * upload and the message that sends it (a brand-new chat has no
+ * conversation yet); the chat route links it on send.
+ */
+export const assistantAttachments = pgTable(
+  "assistant_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type"),
+    sizeBytes: integer("size_bytes").notNull(),
+    intent: text("intent").$type<AssistantAttachmentIntent>().notNull().default("context"),
+    extractedText: text("extracted_text").notNull(),
+    // Set when the extracted text was cut at the storage cap, so the
+    // Assistant can say it only read part of the file.
+    truncated: boolean("truncated").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("assistant_attachments_org_idx").on(table.organizationId),
+    conversationIdx: index("assistant_attachments_conversation_idx").on(table.conversationId),
   }),
 );
 
