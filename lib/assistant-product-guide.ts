@@ -115,7 +115,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "- Articles can be viewed, edited in place (id, description and tags are kept), or deleted from the page.",
     "- Answers are grounded in this knowledge plus any active Parchment / Scribe / Agent Wiki source. With none of those, the worker has nothing to cite and will escalate or hedge.",
     "- From this Assistant: attach a file and choose 'Add to knowledge base' to add or update an article (same rules), or ask to change wording in an article (edited in place). Always with your confirmation.",
-    "- An external knowledge-base connector is not available yet.",
+    "- An external knowledge base can be connected under Settings > Integrations > Knowledge base (Confluence).",
   ].join("\n"),
 
   integrations: [
@@ -125,6 +125,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "- Project management (Linear): issue search.",
     "- Email (Gmail or Outlook): look up messages; Gmail can also send/reply, queued for approval.",
     "- Calendar (Google Calendar): event search.",
+    "- Knowledge base (Confluence): finds pages by title and reads them, to ground answers. Read-only. Search matches page titles, not page text.",
     "- Ticketing is listed internally but has no connector yet.",
   ].join("\n"),
 
@@ -156,7 +157,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "- Escalation notifications by email (Manager email is stored but unused).",
     "- Pausing the worker (Status is stored but not enforced), Automatic replies toggle, Locale, Short bio, Browser use tool.",
     "- AgentDB and Agent Artifacts in the worker's own answers.",
-    "- External knowledge-base connector; Ticketing integration.",
+    "- Ticketing integration.",
     "- In this Assistant: .docx/.pptx/.xlsx uploads, OCR of scanned PDFs, image understanding, editing Settings it has no tool for.",
   ].join("\n"),
 };

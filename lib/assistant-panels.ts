@@ -70,6 +70,7 @@ const SYSTEM_LABELS: Record<string, string> = {
   gmail: "Gmail",
   outlook: "Outlook",
   googlecalendar: "Google Calendar",
+  confluence: "Confluence",
 };
 
 export function systemLabel(system: string): string {

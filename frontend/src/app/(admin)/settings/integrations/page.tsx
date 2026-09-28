@@ -2,6 +2,7 @@ import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader"
 import IntegrationCategorySection from "@/components/worker/settings/IntegrationCategorySection";
 import { GmailIcon, GoogleCalendarIcon, JiraIcon, LinearLogoIcon, OutlookIcon, ZohoIcon } from "@/icons";
 import type { Metadata } from "next";
+import Image from "next/image";
 
 // Never let this page get stuck as stale prerendered/cached HTML across deploys.
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export default function IntegrationsSettingsPage() {
     <>
       <SettingsPageHeader
         title="Integrations"
-        description="Business systems, project management, email, and calendar this worker can connect to."
+        description="Business systems, project management, email, calendar, and knowledge base this worker can connect to."
       />
 
       <IntegrationCategorySection
@@ -50,6 +51,18 @@ export default function IntegrationsSettingsPage() {
         vendors={[{ system: "googlecalendar", label: "Google Calendar", icon: <GoogleCalendarIcon className={iconClass} /> }]}
         title="Calendar"
         description="Search events on the connected calendar."
+      />
+      <IntegrationCategorySection
+        integrationType="knowledge_base"
+        vendors={[
+          {
+            system: "confluence",
+            label: "Confluence",
+            icon: <Image src="/images/integrations/confluence.png" alt="" width={24} height={24} className={iconClass} />,
+          },
+        ]}
+        title="Knowledge base"
+        description="Pages the worker can find by title and read to ground its answers."
       />
     </>
   );

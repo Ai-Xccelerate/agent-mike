@@ -5,6 +5,7 @@ const AUTH_CONFIG_ENV: Record<string, string> = {
   outlook: "COMPOSIO_OUTLOOK_AUTH_CONFIG_ID",
   googlecalendar: "COMPOSIO_GOOGLECALENDAR_AUTH_CONFIG_ID",
   jira: "COMPOSIO_JIRA_AUTH_CONFIG_ID",
+  confluence: "COMPOSIO_CONFLUENCE_AUTH_CONFIG_ID",
 };
 
 export function getAuthConfigId(system: string): string {

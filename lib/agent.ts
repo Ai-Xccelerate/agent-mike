@@ -782,6 +782,114 @@ export async function executeJiraSearch(
   return JSON.stringify(result);
 }
 
+export const CONFLUENCE_SEARCH_SLUG = "CONFLUENCE_SEARCH_CONTENT";
+export const CONFLUENCE_GET_PAGE_SLUG = "CONFLUENCE_GET_PAGE_BY_ID";
+/** Toolkit version from composio.toolkits.get("confluence") (Version: 20260915_00). */
+export const CONFLUENCE_TOOLKIT_VERSION = "20260915_00";
+export const CONFLUENCE_SEARCH_TOOL_NAME = "search_confluence";
+export const CONFLUENCE_READ_TOOL_NAME = "read_confluence_page";
+export const CONFLUENCE_FAILURE_MESSAGE =
+  "Confluence lookup failed after retry (authentication or connectivity issue). Don't answer from memory instead: if the answer depends on it, end your reply with [[ESCALATE]].";
+/** How much of one page's text goes back to the model. */
+export const CONFLUENCE_PAGE_TEXT_LIMIT = 8000;
+const CONFLUENCE_SEARCH_LIMIT = 10;
+
+/** Confluence storage format (HTML) to plain text for the model: block tags become line breaks, entities decoded. */
+export function confluenceStorageToText(html: string): string {
+  return html
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|tr|table|blockquote|pre)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n\n")
+    .trim();
+}
+
+/** One read-only Composio call, retried once, logged either way. Null means it failed twice. */
+async function runReadTool(
+  toolName: string,
+  slug: string,
+  args: Record<string, unknown>,
+  organizationId: string,
+  connectedAccountId: string,
+  version: string,
+): Promise<unknown | null> {
+  const run = () => executeTool(slug, args, { connectedAccountId, userId: organizationId, version });
+  let result: unknown;
+  try {
+    result = await run();
+  } catch {
+    await sleep(JIRA_LOOKUP_RETRY_BACKOFF_MS);
+    try {
+      result = await run();
+    } catch (retryError) {
+      await logToolCall({
+        organizationId,
+        toolId: toolName,
+        input: args,
+        output: null,
+        status: "error",
+        errorMessage: retryError instanceof Error ? retryError.message : String(retryError),
+      });
+      return null;
+    }
+  }
+  await logToolCall({ organizationId, toolId: toolName, input: args, output: toLogOutput(result), status: "success" });
+  return result;
+}
+
+export async function executeConfluenceSearch(query: string, organizationId: string, connectedAccountId: string) {
+  const result = await runReadTool(
+    CONFLUENCE_SEARCH_TOOL_NAME,
+    CONFLUENCE_SEARCH_SLUG,
+    { query, limit: CONFLUENCE_SEARCH_LIMIT },
+    organizationId,
+    connectedAccountId,
+    CONFLUENCE_TOOLKIT_VERSION,
+  );
+  return result === null ? CONFLUENCE_FAILURE_MESSAGE : JSON.stringify(result);
+}
+
+/**
+ * One page's text. `onReferenceMaterial` fires when real page text comes
+ * back, so the reply check knows this turn's answer can be grounded in it.
+ */
+export async function executeConfluencePageRead(
+  pageId: string,
+  organizationId: string,
+  connectedAccountId: string,
+  onReferenceMaterial?: () => void,
+) {
+  const result = (await runReadTool(
+    CONFLUENCE_READ_TOOL_NAME,
+    CONFLUENCE_GET_PAGE_SLUG,
+    { id: pageId },
+    organizationId,
+    connectedAccountId,
+    CONFLUENCE_TOOLKIT_VERSION,
+  )) as { data?: { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } } } | null;
+  if (result === null) return CONFLUENCE_FAILURE_MESSAGE;
+  const page = result.data ?? {};
+  const text = confluenceStorageToText(page.body?.storage?.value ?? "");
+  if (!text) return JSON.stringify({ id: page.id ?? pageId, title: page.title ?? null, text: "", note: "This page has no readable text." });
+  onReferenceMaterial?.();
+  return JSON.stringify({
+    id: page.id ?? pageId,
+    title: page.title ?? null,
+    link: page._links?.webui ?? null,
+    text: text.slice(0, CONFLUENCE_PAGE_TEXT_LIMIT),
+    truncated: text.length > CONFLUENCE_PAGE_TEXT_LIMIT,
+  });
+}
+
 export async function buildAgentTools(
   profile: Pick<
     WorkerProfileLike,
@@ -789,6 +897,8 @@ export async function buildAgentTools(
   >,
   organizationId: string,
   conversationId?: string | null,
+  /** Called when a knowledge tool (Confluence) returned real reference material this turn. */
+  onReferenceMaterial?: () => void,
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
@@ -997,6 +1107,35 @@ export async function buildAgentTools(
         }),
         execute: async ({ query }) =>
           executeJiraSearch(query, organizationId, connectedAccountId),
+      }),
+    );
+  }
+
+  const knowledgeConnection = await getConnectionForOrg(organizationId, "knowledge_base");
+  if (
+    knowledgeConnection?.status === "active" &&
+    knowledgeConnection.composioConnectedAccountId &&
+    knowledgeConnection.system === "confluence"
+  ) {
+    const connectedAccountId = knowledgeConnection.composioConnectedAccountId;
+    tools.push(
+      tool({
+        name: CONFLUENCE_SEARCH_TOOL_NAME,
+        description:
+          "Find pages in the organization's connected Confluence by title. Returns page ids and titles; " +
+          "matches page titles only, so try the likely page name or key words. Then read a page with " +
+          `${CONFLUENCE_READ_TOOL_NAME}. Read-only.`,
+        parameters: z.object({ query: z.string().describe("Words likely to be in the page title") }),
+        execute: async ({ query }) => executeConfluenceSearch(query, organizationId, connectedAccountId),
+      }),
+      tool({
+        name: CONFLUENCE_READ_TOOL_NAME,
+        description:
+          "Read one Confluence page's text by its id (from search_confluence). The text is the organization's " +
+          "approved reference material: you may answer from it and cite it by page title. Read-only.",
+        parameters: z.object({ pageId: z.string().describe("The page id from search_confluence") }),
+        execute: async ({ pageId }) =>
+          executeConfluencePageRead(pageId, organizationId, connectedAccountId, onReferenceMaterial),
       }),
     );
   }
@@ -1219,7 +1358,11 @@ export async function runAgent(
     organizationId,
     channel,
   );
-  const tools = await buildAgentTools(profile, organizationId, conversationId);
+  // A Confluence page read mid-turn is approved reference material too, so the
+  // reply check mustn't treat an answer grounded in it as general knowledge.
+  const tools = await buildAgentTools(profile, organizationId, conversationId, () => {
+    guardrailContext.referenceMaterialFound = true;
+  });
   const maxTurns = Math.max(1, profile.maxAgentTurns || 3);
 
   const agent = new Agent({
