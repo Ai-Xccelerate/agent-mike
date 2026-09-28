@@ -36,6 +36,7 @@ const INTEGRATION_TYPE_OPTIONS = [
   { value: "project_management", label: "Project management" },
   { value: "email", label: "Email" },
   { value: "calendar", label: "Calendar" },
+  { value: "knowledge_base", label: "Knowledge base" },
 ];
 
 const emptyForm: CustomSkillInput = { name: "", description: "", requires: [], body: "" };
