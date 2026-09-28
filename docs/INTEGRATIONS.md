@@ -17,6 +17,23 @@ without credentials never calls out, whatever the toggle says. `PATCH` refuses
 to set `enabled: true` while the server is unconfigured, so the UI can never
 show an "on" toggle that cannot do anything.
 
+## Confluence (Knowledge base)
+
+Connected per org under Settings > Integrations > Knowledge base, through
+Composio (OAuth). The Composio auth config id goes in
+`COMPOSIO_CONFLUENCE_AUTH_CONFIG_ID` (e.g. `ac_...` from the Composio
+dashboard). Once a connection is active the agent gets two read-only tools:
+
+- `search_confluence`: `CONFLUENCE_SEARCH_CONTENT`. Matches **page titles
+  only** (a Composio limitation), so the agent searches by likely page names.
+- `read_confluence_page`: `CONFLUENCE_GET_PAGE_BY_ID`, returned as plain text
+  (storage HTML stripped, capped at 8,000 characters).
+
+Page text the agent reads counts as approved reference material for the
+reply check (lib/guardrails.ts), so an answer grounded in a Confluence page
+isn't blocked as general knowledge. Toolkit version pinned in
+`CONFLUENCE_TOOLKIT_VERSION` (lib/agent.ts).
+
 ## Parchment
 
 Grounds the worker's answers in the organization's Parchment knowledge base.

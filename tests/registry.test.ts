@@ -38,6 +38,7 @@ describe("tools/integrations registry", () => {
       "project_management",
       "email",
       "calendar",
+      "knowledge_base",
     ]);
     expect(getIntegrationType("crm")).toEqual({ type: "crm", name: "CRM" });
     expect(getIntegrationType("project_management")).toEqual({

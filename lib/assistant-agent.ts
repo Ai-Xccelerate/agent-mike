@@ -859,7 +859,7 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
       name: PROPOSE_CONNECT_INTEGRATION_TOOL_NAME,
       description:
         "Propose connecting a business system: crm (zoho), helpdesk (jira), project_management (linear), email " +
-        "(gmail or outlook), calendar (googlecalendar). After approval a sign-in window opens for the manager; " +
+        "(gmail or outlook), calendar (googlecalendar), knowledge_base (confluence). After approval a sign-in window opens for the manager; " +
         "the connection is only made once they finish signing in. Does not apply anything.",
       parameters: z.object({ integrationType: z.string(), system: z.string(), reason: z.string() }),
       execute: async ({ integrationType, system, reason }) =>
@@ -1112,7 +1112,7 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
         "of when to use it, and a body of clear step-by-step instructions (at most " +
         SKILL_BODY_MAX_LENGTH.toLocaleString() +
         " characters) using only procedures stated in the file. requires: integration types the procedure depends " +
-        "on (crm, helpdesk, ticketing, project_management, email, calendar), else []. enable: true also turns it on " +
+        "on (crm, helpdesk, ticketing, project_management, email, calendar, knowledge_base), else []. enable: true also turns it on " +
         "(only if the manager asked, and only possible once those integrations are connected). Does not apply anything.",
       parameters: z.object({
         attachmentId: z.string(),

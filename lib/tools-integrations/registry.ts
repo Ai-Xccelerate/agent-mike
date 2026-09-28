@@ -30,6 +30,7 @@ export const INTEGRATION_TYPES: IntegrationTypeDefinition[] = [
   { type: "project_management", name: "Project Management" },
   { type: "email", name: "Email" },
   { type: "calendar", name: "Calendar" },
+  { type: "knowledge_base", name: "Knowledge base" },
 ];
 
 export const INTEGRATIONS: IntegrationDefinition[] = [
@@ -49,6 +50,12 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     requiresAuth: true,
   },
   { id: "helpdesk_jira", integrationType: "helpdesk", system: "jira", requiresAuth: true },
+  {
+    id: "knowledge_base_confluence",
+    integrationType: "knowledge_base",
+    system: "confluence",
+    requiresAuth: true,
+  },
 ];
 
 export function getTool(toolId: string): ToolDefinition | undefined {
