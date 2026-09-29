@@ -399,6 +399,17 @@ async function applyPendingChange(
   const currentProfile = async () =>
     (await db.select().from(workerProfiles).where(eq(workerProfiles.organizationId, organizationId)).limit(1))[0];
 
+  // Actions (send a reply, change a ticket, publish an article) need the
+  // Guardrails switch on at the moment they're applied, not only when they
+  // were proposed: an approved proposal can wait up to 24h, and turning the
+  // switch off must stop it.
+  if (ACTION_TOOL_IDS.has(toolId) && !(await currentProfile())?.assistantActionsEnabled) {
+    return {
+      error:
+        'Actions were turned off in Settings > Guardrails since this was proposed, so nothing was done. Turn on "Let the Assistant take actions" and propose it again.',
+    };
+  }
+
   if (toolId === TOOL_CONFIGURE_ROLE) {
     return saveProfile({ role: input.newValue }, { role: input.newValue });
   }
@@ -1396,6 +1407,7 @@ function buildConfirmationTools(
   conversationId: string,
   priorPendingIds: string[],
   ctx?: ApplyContext,
+  managerMessage = "",
 ): Tool[] {
   const seenByManager = async () =>
     (await livePendingApprovals(organizationId, conversationId)).filter((approval) => priorPendingIds.includes(approval.id));
@@ -1410,7 +1422,9 @@ function buildConfirmationTools(
       parameters: z.object({}),
       execute: async () =>
         loggedAssistantTool(organizationId, CONFIRM_PENDING_CHANGE_TOOL_NAME, {}, async () =>
-          approveBatch(organizationId, managerName, await seenByManager(), ctx),
+          managerSaidYes(managerMessage)
+            ? approveBatch(organizationId, managerName, await seenByManager(), ctx)
+            : "Not applied: the manager's message isn't an explicit yes. Ask them to confirm, or to use Approve on the card.",
         ),
     }),
     tool({
@@ -1437,6 +1451,8 @@ export type BuildAssistantToolsOptions = {
   onPanel?: (kind: PanelKind) => void;
   /** A member without owner/admin rights: read tools only, nothing that proposes or applies a change. */
   readOnly?: boolean;
+  /** The manager's own typed message this turn: confirm_pending_change applies only when it's an explicit yes. */
+  managerMessage?: string;
 };
 
 /**
@@ -1686,7 +1702,7 @@ export function buildAssistantTools(
       : [
           ...buildConfigureTools(organizationId, conversationId, propose),
           ...buildActionTools(profile, organizationId, propose),
-          ...buildConfirmationTools(organizationId, profile.managerName, conversationId, priorPendingIds, options.ctx),
+          ...buildConfirmationTools(organizationId, profile.managerName, conversationId, priorPendingIds, options.ctx, options.managerMessage),
         ]),
   ];
 }
@@ -1956,6 +1972,22 @@ function classifyPendingReply(message: string): "confirm" | "cancel" | null {
 }
 
 /**
+ * Whether the manager's own typed message this turn is an explicit yes. The
+ * confirm tool checks this itself rather than trusting the model's judgement:
+ * text the model read this turn (a customer conversation, a knowledge
+ * article, an attached file) can tell it to confirm, but can't change what
+ * the manager typed. Whole-word matches, so "yesterday" isn't a yes.
+ */
+export function managerSaidYes(message: string): boolean {
+  const norm = message.trim().toLowerCase().replace(/[,]/g, "").replace(/[.!]+$/g, "").replace(/\s+/g, " ").trim();
+  if (!norm) return false;
+  if (CONFIRM_EXACT_REPLIES.has(norm)) return true;
+  const has = (signals: readonly string[]) =>
+    signals.some((signal) => new RegExp(`(^|\\W)${signal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\W|$)`).test(norm));
+  return has(CONFIRM_SUBSTRING_SIGNALS) && !has(CANCEL_SUBSTRING_SIGNALS) && !CANCEL_EXACT_REPLIES.has(norm);
+}
+
+/**
  * An Approve / Cancel click on the approval card. `approvalIds` is exactly
  * what the card showed, so a click can only ever decide those items: if the
  * pending set has changed since (replaced by a newer proposal, expired,
@@ -1991,7 +2023,7 @@ export type RunAssistantOptions = {
   /** Where OAuth sign-ins return to, and who is acting. */
   appOrigin?: string;
   userId?: string;
-  /** False for members without owner/admin rights: they can ask and read, never change. */
+  /** True only for owners/admins. Anything else (including unset) can ask and read, never change. */
   canChange?: boolean;
 };
 
@@ -2051,7 +2083,8 @@ export async function runAssistantAgent(
     ...extra,
   });
 
-  const readOnly = options.canChange === false;
+  // Fail closed: only an explicit canChange: true (owner/admin) may change anything.
+  const readOnly = options.canChange !== true;
   if (readOnly && (options.decision || options.uiAction)) {
     return finish(READ_ONLY_REPLY);
   }
@@ -2131,6 +2164,7 @@ export async function runAssistantAgent(
       ctx,
       onPanel: (kind) => panels.add(kind),
       readOnly,
+      managerMessage: message,
     }),
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
   });
