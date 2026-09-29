@@ -1455,7 +1455,9 @@ describe("agent instructions — job description", () => {
 
   it("omits the job description block when it is unset", async () => {
     const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1");
-    expect(instructions).not.toContain("Job description");
+    // The scope boundary always names "Job description" as a concept; what must
+    // be absent is the block itself.
+    expect(instructions).not.toContain("Job description (additional detail on this role)");
   });
 
   it("omits the job description block when it is null", async () => {
@@ -1465,7 +1467,9 @@ describe("agent instructions — job description", () => {
       [],
       "org-1",
     );
-    expect(instructions).not.toContain("Job description");
+    // The scope boundary always names "Job description" as a concept; what must
+    // be absent is the block itself.
+    expect(instructions).not.toContain("Job description (additional detail on this role)");
   });
 });
 
