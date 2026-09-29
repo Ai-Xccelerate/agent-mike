@@ -65,7 +65,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
 
   guardrails: [
     "Settings > Guardrails (/settings/guardrails).",
-    "- Minimum confidence (0.5-0.95, default 0.72): answers below it are handed to the human manager instead of sent.",
+    "- Minimum confidence (0.5-0.95, default 0.72): tunes how cautious the check on each incoming customer message is. Only a message that check is very unsure about (well below this value) goes straight to the human manager. The worker's answers are not scored against it.",
     "- Escalation phrases: topics that should go to a human (refund, chargeback, lawyer…). These feed a semantic intent check; they are not exact keyword matches, despite the helper text.",
     "- Require user verification: tells the worker to ask for the customer's email and check it against the CRM, via the verify-customer skill. Needs an active CRM integration (Zoho) and turning it on adds that skill. It's an instruction the worker follows, not a hard gate.",
     "- Let the Assistant take actions: lets this Assistant propose sending replies, changing ticket status, and publishing knowledge articles (always with your confirmation). Only the manager can switch this on, in Settings.",
@@ -82,7 +82,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   channels: [
     "Settings > Channels (/settings/channels).",
     "- Chat: Playground and the embeddable website widget. When on, the page offers 'Open playground' and 'Copy widget snippet'. Note: turning it off does not currently stop the widget from answering.",
-    "- Email: lets the worker send email. Needs a connected mailbox (Settings > Tools > External tools > Mailbox), and every recipient's domain must be approved under Settings > Email domains. Inbound email (the worker reading a support inbox on its own) is not built yet.",
+    "- Email: lets the worker send email from its connected mailbox (Settings > Tools > External tools > Mailbox), and every recipient's domain must be approved under Settings > Email domains. Emails sent through the Gmail integration are separate: each one waits in the approval queue for an owner or admin, and this switch and Email domains don't apply to them. Inbound email (the worker reading a support inbox on its own) is not built yet.",
     "- Voice: coming soon; the switch is disabled.",
   ].join("\n"),
 
@@ -132,7 +132,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   email_domains: [
     "Settings > Email domains (/settings/email-domains).",
     "- Outbound email may only go to approved domains (exact match). Anything not approved is refused.",
-    "- This list only controls where the worker may send email. It does not affect who can chat with the worker (that's Guardrails > Allowed email domains).",
+    "- This list only controls where the worker may send email from its mailbox. It does not affect who can chat with the worker (that's Guardrails > Allowed email domains), and Gmail integration sends are approved one by one in the approval queue instead.",
   ].join("\n"),
 
   team: [

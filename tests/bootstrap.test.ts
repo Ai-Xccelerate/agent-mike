@@ -6,6 +6,21 @@ import { organizations, workerProfiles } from "@/db/schema";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 
 describe("getOrCreateProfile", () => {
+  it("survives concurrent first requests for a brand-new org", async () => {
+    // The console fires several requests at once on a company's first visit;
+    // a select-then-insert let them race and the losers failed on
+    // organizations_pkey / worker_profiles_org_unique.
+    const orgId = `org_${randomUUID().replace(/-/g, "")}`;
+    const profiles = await Promise.all(Array.from({ length: 8 }, () => getOrCreateProfile(orgId)));
+
+    expect(new Set(profiles.map((p) => p.id)).size).toBe(1);
+    const rows = await db.select().from(workerProfiles).where(eq(workerProfiles.organizationId, orgId));
+    expect(rows).toHaveLength(1);
+
+    await db.delete(workerProfiles).where(eq(workerProfiles.organizationId, orgId));
+    await db.delete(organizations).where(eq(organizations.id, orgId));
+  });
+
   it("lets two different orgs share the default slug, since uniqueness is per-org", async () => {
     // orgId is deliberately too long to pass slugSchema (> 32 chars), so it
     // isn't seeded as the slug and both orgs fall back to the schema default
@@ -47,7 +62,9 @@ describe("getOrCreateProfile", () => {
     // would reject it the moment they edited any other identity field.
     expect(reserved.slug).not.toBe("settings");
     expect(reserved.slug).toBe("worker");
-    expect(reserved.displayName).toBe("Settings");
+    // Not slug-shaped, so it isn't title-cased into a name: it gets this
+    // deployment's own name instead (f13a937; a Clerk org id is the real case).
+    expect(reserved.displayName).toBe("Mike");
 
     await db.delete(workerProfiles).where(eq(workerProfiles.organizationId, goodOrgId));
     await db.delete(workerProfiles).where(eq(workerProfiles.organizationId, reservedOrgId));
