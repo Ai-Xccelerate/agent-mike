@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { applyEmailWriteApproval, GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID, GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID } from "@/lib/agent";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import {
   decideApproval,
   getApproval,
@@ -25,6 +26,11 @@ const EMAIL_WRITE_TOOL_IDS = new Set([
  */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  // Approving sends real email on the org's behalf, and deciding an Assistant
+  // proposal changes (or discards) a settings change: owner/admin only.
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
 
   const approval = await getApproval(params.id);
   if (!approval || approval.organizationId !== tenant.orgId) {

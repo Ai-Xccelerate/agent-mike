@@ -58,7 +58,7 @@ describe("assistant propose/confirm tool logging", () => {
 
   it("logs propose_role_change when the assistant records a pending change", async () => {
     createPendingApprovalMock.mockResolvedValue({ id: "appr-1" } as Awaited<ReturnType<typeof createPendingApproval>>);
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
 
     const result = await invokeTool(tools, PROPOSE_ROLE_CHANGE_TOOL_NAME, {
       newValue: "Triage only",
@@ -79,7 +79,7 @@ describe("assistant propose/confirm tool logging", () => {
 
   it("logs confirm_pending_change when nothing is waiting", async () => {
     listPendingApprovalsMock.mockResolvedValue([]);
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
 
     const result = await invokeTool(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
     expect(result).toContain("nothing waiting for your approval");
@@ -94,7 +94,7 @@ describe("assistant propose/confirm tool logging", () => {
 
   it("logs cancel_pending_change and the disabled propose_action stub", async () => {
     listPendingApprovalsMock.mockResolvedValue([]);
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
 
     await invokeTool(tools, CANCEL_PENDING_CHANGE_TOOL_NAME, {});
     await invokeTool(tools, PROPOSE_ACTION_TOOL_NAME, { actionType: "reply", details: "hi" });

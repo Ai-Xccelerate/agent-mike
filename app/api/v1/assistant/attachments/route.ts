@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import {
+  ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_FILES,
   AttachmentRejected,
   createAttachment,
@@ -28,6 +29,17 @@ type UploadedFile = {
  */
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+
+  // Refuse an oversized body before reading it into memory: formData() buffers
+  // everything, so the per-file limit alone can't stop one huge request. The
+  // cap is the most a full batch can legitimately be, plus multipart overhead.
+  const declared = Number(req.headers.get("content-length") || "0");
+  if (declared > ATTACHMENT_MAX_FILES * ATTACHMENT_MAX_BYTES + 1024 * 1024) {
+    return NextResponse.json(
+      { error: `That upload is too large. Attach up to ${ATTACHMENT_MAX_FILES} files of up to ${ATTACHMENT_MAX_BYTES / 1024 / 1024} MB each.` },
+      { status: 413 },
+    );
+  }
 
   const form = await req.formData().catch(() => null);
   // Same cast as knowledge/ingest-files: FormData's File doesn't match

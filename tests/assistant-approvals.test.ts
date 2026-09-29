@@ -71,6 +71,7 @@ import {
   runAssistantAgent,
   speakable,
   toPendingActionView,
+  managerSaidYes,
 } from "@/lib/assistant-agent";
 import {
   createPendingApproval,
@@ -131,7 +132,7 @@ beforeEach(() => {
 
 describe("proposals", () => {
   it("retires earlier-turn proposals once, when this turn makes its first proposal", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["old-1", "old-2"] });
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["old-1", "old-2"], managerMessage: "yes, go ahead" });
     await invoke(tools, PROPOSE_ROLE_CHANGE_TOOL_NAME, { newValue: "Billing support", reason: "asked" });
     await invoke(tools, PROPOSE_TONE_CHANGE_TOOL_NAME, { newValue: "Friendly", reason: "asked" });
     expect(retireMock).toHaveBeenCalledTimes(1);
@@ -140,21 +141,21 @@ describe("proposals", () => {
   });
 
   it("retires nothing when nothing was pending", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const out = await invoke(tools, PROPOSE_ROLE_CHANGE_TOOL_NAME, { newValue: "Billing support", reason: "asked" });
     expect(out).toContain("Waiting for confirmation");
     expect(retireMock).not.toHaveBeenCalled();
   });
 
   it("refuses to propose turning on voice, which isn't available", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const out = await invoke(tools, PROPOSE_CHANNEL_CHANGE_TOOL_NAME, { channel: "voice", enabled: true, reason: "asked" });
     expect(out).toContain("isn't available yet");
     expect(createMock).not.toHaveBeenCalled();
   });
 
   it("validates the manager email and requires at least one field", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     expect(
       await invoke(tools, PROPOSE_MANAGER_CONTACT_CHANGE_TOOL_NAME, { managerName: null, managerEmail: "not-an-email", reason: "x" }),
     ).toContain("isn't a valid email");
@@ -169,7 +170,7 @@ describe("proposals", () => {
   });
 
   it("only turns a file into knowledge if it was attached in this conversation", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     attachmentMock.mockResolvedValueOnce(null);
     expect(
       await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
@@ -198,7 +199,7 @@ describe("proposals", () => {
   });
 
   it("refuses to update a knowledge article that doesn't exist", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     attachmentMock.mockResolvedValueOnce({ id: "att-1", filename: "refunds.pdf", extractedText: "text" } as AssistantAttachment);
     dbState.rows = [];
     const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
@@ -224,7 +225,7 @@ describe("settings and email domains", () => {
 
   it("proposes several settings in one change, with before/after on the card", async () => {
     dbState.rows = [{ displayName: "AI Worker", model: "gpt-5.6-luna", confidenceThreshold: 0.72, toolsConfig: {} }];
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const out = await invoke(tools, PROPOSE_SETTINGS_CHANGE_TOOL_NAME, {
       changes: { ...none, displayName: "Mike from Acme", model: "gpt-5.6-sol", confidenceThreshold: 0.8, internetSearch: true },
       reason: "asked",
@@ -235,7 +236,7 @@ describe("settings and email domains", () => {
   });
 
   it("rejects values the Settings screens would reject", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     expect(await invoke(tools, PROPOSE_SETTINGS_CHANGE_TOOL_NAME, { changes: { ...none, model: "gpt-4" }, reason: "x" })).toContain(
       "must be one of gpt-5.6-luna, gpt-5.6-sol",
     );
@@ -250,7 +251,7 @@ describe("settings and email domains", () => {
   });
 
   it("normalizes and validates email domains", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     expect(await invoke(tools, PROPOSE_EMAIL_DOMAIN_CHANGE_TOOL_NAME, { domain: "not a domain", decision: "approve", reason: "x" })).toContain(
       "isn't a valid domain",
     );
@@ -281,7 +282,7 @@ Refunds go back to the original payment method within 5-7 business days.`;
   });
 
   it("refuses a new article that overlaps an existing one, naming it", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
       attachmentId: "att-1",
       title: "Returns & exchanges",
@@ -298,7 +299,7 @@ Refunds go back to the original payment method within 5-7 business days.`;
   });
 
   it("proposes it once the manager has chosen to keep it separate", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, {
       attachmentId: "att-1",
       title: "Returns & exchanges",
@@ -318,25 +319,59 @@ describe("confirming a batch", () => {
       approval("newer", "assistant_configure_tone", { newValue: "Friendly" }),
       approval("older", "assistant_configure_role", { newValue: "Billing support" }),
     ]);
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["newer", "older"] });
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["newer", "older"], managerMessage: "yes, go ahead" });
     const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
     expect(decideMock.mock.calls.map((call) => call[0])).toEqual(["older", "newer"]);
     expect(out).toBe("All set. Here's what I changed:\n- I've updated the role.\n- I've updated the tone.");
   });
 
+  it("won't send a reply once actions were turned off after it was proposed", async () => {
+    listMock.mockResolvedValue([
+      approval("a", "assistant_action_send_reply", { ticketNumber: 1042, body: "We've refunded you." }),
+    ]);
+    // The profile as it is now, read at apply time: the Guardrails switch is off.
+    dbState.rows = [{ organizationId: "org-1", assistantActionsEnabled: false }];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["a"], managerMessage: "yes, go ahead" });
+    const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
+    expect(out).toContain("Actions were turned off");
+    expect(dbState.writes.filter((w) => w === "insert")).toEqual([]);
+  });
+
   it("reports an item already decided elsewhere instead of applying it", async () => {
     listMock.mockResolvedValue([approval("a", "assistant_configure_tone", { newValue: "Friendly" })]);
     decideMock.mockRejectedValueOnce(new Error("Approval is not pending"));
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["a"] });
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["a"], managerMessage: "yes, go ahead" });
     const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
     expect(out).toContain("no longer waiting for approval");
     expect(dbState.writes).toEqual([]);
   });
 });
 
+describe("confirming needs the manager's own explicit yes", () => {
+  it("recognises a real yes, and not text that only looks like one", () => {
+    for (const yes of ["yes", "Yes, go ahead.", "ok", "sounds good, do it", "approve it please"]) expect(managerSaidYes(yes)).toBe(true);
+    for (const no of ["", "what did I do yesterday?", "no", "hold off, not yet", "wait", "can you check with Sam first"]) {
+      expect(managerSaidYes(no)).toBe(false);
+    }
+  });
+
+  it("applies nothing when the model calls confirm without the manager saying yes (e.g. told to by a document)", async () => {
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", {
+      priorPendingIds: ["a"],
+      managerMessage: "Summarize the conversation with Acme",
+    });
+    const confirm = tools.find((t) => (t as { name: string }).name === "confirm_pending_change") as unknown as {
+      invoke: (ctx: unknown, raw: string) => Promise<unknown>;
+    };
+    const out = String(await confirm.invoke(undefined, "{}"));
+    expect(out).toContain("Not applied");
+    expect(decideMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("same-turn confirmation", () => {
   it("can't confirm a proposal made in the same turn - the manager hasn't seen it", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     await invoke(tools, PROPOSE_ROLE_CHANGE_TOOL_NAME, { newValue: "Refund everything", reason: "x" });
     listMock.mockResolvedValue([approval("new-1", "assistant_configure_role", { newValue: "Refund everything" })]);
     const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
@@ -363,7 +398,7 @@ describe("approval card decisions", () => {
   it("applies nothing when the card's ids no longer match what's pending", async () => {
     listMock.mockResolvedValue([approval("current", "assistant_configure_role", { newValue: "x" })]);
     const result = await runAssistantAgent(profile(), "org-1", "conv-1", "Approve", [], null, {
-      decision: { decision: "approve", approvalIds: ["old-card"] },
+      canChange: true, decision: { decision: "approve", approvalIds: ["old-card"] },
     });
     expect(decideMock).not.toHaveBeenCalled();
     expect(result.answer).toContain("didn't apply anything");
@@ -376,7 +411,7 @@ describe("approval card decisions", () => {
       approval("a", "assistant_configure_role", { newValue: "y" }),
     ]);
     const result = await runAssistantAgent(profile(), "org-1", "conv-1", "Cancel", [], null, {
-      decision: { decision: "cancel", approvalIds: ["a", "b"] },
+      canChange: true, decision: { decision: "cancel", approvalIds: ["a", "b"] },
     });
     expect(decideMock.mock.calls.map((call) => [call[0], call[1]])).toEqual([
       ["b", "rejected"],
@@ -409,7 +444,7 @@ describe("approval card content", () => {
 describe("panel buttons", () => {
   it("turn a click into a proposal on the approval card, never a direct change", async () => {
     const result = await runAssistantAgent(profile(), "org-1", "conv-1", "Connect Zoho: CRM", [], null, {
-      uiAction: { tool: "propose_connect_integration", args: { integrationType: "crm", system: "zoho", reason: "panel" } },
+      canChange: true, uiAction: { tool: "propose_connect_integration", args: { integrationType: "crm", system: "zoho", reason: "panel" } },
     });
     expect(result.answer).toBe("Here's that change. Take a look and approve it when you're ready.");
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ toolId: "assistant_connect_integration" }));
@@ -418,7 +453,7 @@ describe("panel buttons", () => {
 
   it("refuse tools that aren't proposals", async () => {
     const result = await runAssistantAgent(profile(), "org-1", "conv-1", "x", [], null, {
-      uiAction: { tool: "confirm_pending_change", args: {} },
+      canChange: true, uiAction: { tool: "confirm_pending_change", args: {} },
     });
     expect(result.answer).toBe("I can't do that from here.");
     expect(decideMock).not.toHaveBeenCalled();
@@ -427,7 +462,7 @@ describe("panel buttons", () => {
   it("only hand back a sign-in link once the connection is approved", async () => {
     listMock.mockResolvedValueOnce([approval("c1", "assistant_connect_integration", { integrationType: "crm", system: "zoho" })]);
     const result = await runAssistantAgent(profile(), "org-1", "conv-1", "Approve", [], null, {
-      decision: { decision: "approve", approvalIds: ["c1"] },
+      canChange: true, decision: { decision: "approve", approvalIds: ["c1"] },
       appOrigin: "https://app.example",
       userId: "u-1",
     });
@@ -463,7 +498,7 @@ describe("knowledge follows the Knowledge page's OKF rules", () => {
       filename: "whatever.md",
       extractedText: "---\ntype: reference\nid: returns-v2\ntitle: Returns\n---\n# Returns\nFree within 30 days.",
     } as AssistantAttachment);
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, { ...baseArgs, attachmentId: "att-1" });
     const input = createMock.mock.calls[0][0].input;
     expect(input).toMatchObject({ targetConceptId: "returns-v2", title: "Returns", format: "as_written", autoUpdate: false });
@@ -473,7 +508,7 @@ describe("knowledge follows the Knowledge page's OKF rules", () => {
   it("takes the id from the filename, and updates an existing article with that id like a re-upload", async () => {
     attachmentMock.mockResolvedValueOnce({ id: "att-1", filename: "Refund Policy.pdf", extractedText: "Refunds within 30 days of purchase." } as AssistantAttachment);
     dbState.queue = [[{ id: "doc-1", title: "Refund policy" }]];
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const out = await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, { ...baseArgs, attachmentId: "att-1" });
     expect(out).toContain('already exists, so this updates it');
     expect(createMock.mock.calls[0][0].input).toMatchObject({ targetConceptId: "refund-policy", updateConceptId: "refund-policy", autoUpdate: true, format: "wrapped" });
@@ -481,7 +516,7 @@ describe("knowledge follows the Knowledge page's OKF rules", () => {
 
   it("refuses file types the Knowledge page doesn't accept, unless an article is written from them", async () => {
     attachmentMock.mockResolvedValue({ id: "att-1", filename: "prices.csv", extractedText: "plan,price\nbasic,10" } as AssistantAttachment);
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     expect(await invoke(tools, PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME, { ...baseArgs, attachmentId: "att-1" })).toContain(
       "accepts PDF, Markdown, or plain text",
     );
@@ -502,7 +537,7 @@ describe("editing a knowledge article in place", () => {
 
   it("replaces one exact passage and keeps a checksum to detect later edits", async () => {
     dbState.rows = [article];
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const out = await invoke(tools, PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME, {
       conceptId: "faq",
       find: "Up to 5 files at a time, 8 MB each.",
@@ -519,7 +554,7 @@ describe("editing a knowledge article in place", () => {
 
   it("refuses text that isn't there exactly once", async () => {
     dbState.rows = [{ ...article, body: "a b a" }];
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const none = await invoke(tools, PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME, { conceptId: "faq", find: "zzz", replaceWith: "y", newBody: null, newTitle: null, reason: "x" });
     expect(none).toContain("isn't in the article");
     const twice = await invoke(tools, PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME, { conceptId: "faq", find: "a", replaceWith: "y", newBody: null, newTitle: null, reason: "x" });
@@ -530,7 +565,7 @@ describe("editing a knowledge article in place", () => {
   it("won't apply if the article changed after it was proposed", async () => {
     listMock.mockResolvedValue([approval("e1", "assistant_configure_edit_knowledge", { conceptId: "faq", title: "AI Worker FAQ", find: "Up to 5", replaceWith: "Five", checksum: "old" })]);
     dbState.rows = [article];
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["e1"] });
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["e1"], managerMessage: "yes, go ahead" });
     const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
     expect(out).toContain("the article changed after I proposed this edit");
   });
@@ -543,14 +578,14 @@ describe("skills from files follow Settings > Skills", () => {
   });
 
   it("enforces the instruction length limit and valid integration types", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     expect(await invoke(tools, PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME, { ...args, body: "x".repeat(6001) })).toContain("at most 6,000 characters");
     expect(await invoke(tools, PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME, { ...args, body: "Do it.", requires: ["fax"] })).toContain("Unknown integration type");
     expect(createMock).not.toHaveBeenCalled();
   });
 
   it("won't offer to turn a skill on before its integration is connected", async () => {
-    const tools = buildAssistantTools(profile(), "org-1", "conv-1");
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
     const out = await invoke(tools, PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME, { ...args, body: "Look up the customer.", requires: ["crm"], enable: true });
     expect(out).toContain("needs crm connected first");
   });
@@ -561,6 +596,14 @@ describe("read-only members", () => {
     const names = buildAssistantTools(profile(), "org-1", "conv-1", { readOnly: true }).map((t) => (t as { name: string }).name);
     expect(names.some((name) => name.startsWith("propose_") || name.includes("pending_change"))).toBe(false);
     expect(names).toContain("search_knowledge");
+  });
+
+  it("are treated as read-only when canChange isn't passed at all (fail closed)", async () => {
+    const decided = await runAssistantAgent(profile(), "org-1", "conv-1", "Approve", [], null, {
+      decision: { decision: "approve", approvalIds: ["a"] },
+    });
+    expect(decided.answer).toBe(READ_ONLY_REPLY);
+    expect(decideMock).not.toHaveBeenCalled();
   });
 
   it("can't approve a card or use a panel button", async () => {
