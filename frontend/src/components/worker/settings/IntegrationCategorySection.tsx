@@ -28,6 +28,9 @@ type IntegrationCategorySectionProps = {
  * the connected one shows Disconnect, the rest show Unavailable rather than
  * a second "Connect" that would silently replace the active one.
  */
+/** How long a connection may sit in "pending" before the card offers a retry. */
+const STUCK_AFTER_MS = 20_000;
+
 export default function IntegrationCategorySection({
   integrationType,
   vendors,
@@ -47,8 +50,8 @@ export default function IntegrationCategorySection({
   // (calling connect again supersedes/expires whatever attempt was stuck), so
   // offer it once enough time has passed that this clearly isn't still the
   // few-seconds-normal OAuth round trip.
-  const [pendingSince, setPendingSince] = useState<number | null>(null);
-  const STUCK_AFTER_MS = 20_000;
+  const [stuckPending, setStuckPending] = useState(false);
+  const isPending = connection?.status === "pending";
 
   useEffect(() => {
     getIntegrationConnection(integrationType)
@@ -67,13 +70,17 @@ export default function IntegrationCategorySection({
     return () => clearInterval(interval);
   }, [connection?.status, integrationType, title]);
 
+  // Keyed on entering/leaving "pending", not on each poll tick that still
+  // returns "pending" — otherwise every poll would restart the clock and
+  // "stuck" could never be reached.
   useEffect(() => {
-    setPendingSince(connection?.status === "pending" ? Date.now() : null);
-    // Only the transition into/out of "pending" should reset the clock, not
-    // every poll tick that still returns "pending" — otherwise "stuck" could
-    // never be reached, since each poll would restart the timer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connection?.status === "pending"]);
+    if (!isPending) return;
+    const timer = setTimeout(() => setStuckPending(true), STUCK_AFTER_MS);
+    return () => {
+      clearTimeout(timer);
+      setStuckPending(false);
+    };
+  }, [isPending]);
 
   async function handleConnect(vendor: VendorOption) {
     setError("");
@@ -112,7 +119,6 @@ export default function IntegrationCategorySection({
   }
 
   const activeSystem = connection?.status === "active" || connection?.status === "pending" ? connection.system : null;
-  const stuckPending = pendingSince !== null && Date.now() - pendingSince > STUCK_AFTER_MS;
 
   return (
     <section>
