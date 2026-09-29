@@ -1,16 +1,17 @@
-import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { organizations, workerProfiles } from "@/db/schema";
 import { DEFAULT_ORG_ID, DEFAULT_ORG_NAME } from "@/lib/env";
-import { isUniqueViolation } from "@/lib/worker-patch";
 import { slugSchema } from "@/lib/identity-fields";
 
+// Insert-if-absent, then read. A select-then-insert let parallel requests for
+// a brand-new org (the console fires several on first load, and Clerk orgs are
+// created on first use) all insert, and the losers failed on organizations_pkey.
 export async function ensureOrganization(orgId: string, name = orgId) {
+  const [created] = await db.insert(organizations).values({ id: orgId, name }).onConflictDoNothing().returning();
+  if (created) return created;
   const [existing] = await db.select().from(organizations).where(eq(organizations.id, orgId)).limit(1);
-  if (existing) return existing;
-  const [created] = await db.insert(organizations).values({ id: orgId, name }).returning();
-  return created;
+  return existing;
 }
 
 /**
@@ -56,29 +57,27 @@ export async function getOrCreateProfile(orgId: string) {
   // instead of a real one — fall back to this deployment's own name.
   const seededDisplayName = seededSlug ? titleCase(seededSlug) : "Mike";
 
-  try {
-    const [created] = await db
-      .insert(workerProfiles)
-      .values({
-        organizationId: orgId,
-        ...(orgId === DEFAULT_ORG_ID
-          ? {}
-          : { ...(seededSlug ? { slug: seededSlug } : {}), displayName: seededDisplayName }),
-      })
-      .returning();
-    return created;
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
-    const [created] = await db
-      .insert(workerProfiles)
-      .values({
-        organizationId: orgId,
-        slug: `worker-${randomUUID()}`,
-        ...(orgId === DEFAULT_ORG_ID ? {} : { displayName: seededDisplayName }),
-      })
-      .returning();
-    return created;
-  }
+  // One profile per org and slug unique per org, so a conflict can only be a
+  // concurrent request creating this same org's profile: skip, then read the
+  // row that won (the old random-slug retry then failed on the org index).
+  const [created] = await db
+    .insert(workerProfiles)
+    .values({
+      organizationId: orgId,
+      ...(orgId === DEFAULT_ORG_ID
+        ? {}
+        : { ...(seededSlug ? { slug: seededSlug } : {}), displayName: seededDisplayName }),
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (created) return created;
+
+  const [winner] = await db
+    .select()
+    .from(workerProfiles)
+    .where(eq(workerProfiles.organizationId, orgId))
+    .limit(1);
+  return winner;
 }
 
 /** "agent-george" -> "Agent George". Only used to seed a new agent's name. */
