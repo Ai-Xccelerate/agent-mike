@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import {
   ATTACHMENT_MAX_BYTES,
   ATTACHMENT_MAX_FILES,
@@ -29,6 +30,9 @@ type UploadedFile = {
  */
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
 
   // Refuse an oversized body before reading it into memory: formData() buffers
   // everything, so the per-file limit alone can't stop one huge request. The

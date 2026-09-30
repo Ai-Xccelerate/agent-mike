@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
@@ -67,7 +67,15 @@ export async function POST(req: NextRequest) {
 
   let conversation;
   if (conversationId) {
-    [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    // Scoped to the caller's org: a widget token for one org must never read
+    // or append to another org's conversation. A foreign id is treated the
+    // same as an unknown one (a new conversation starts), so the response
+    // doesn't reveal whether the id exists elsewhere.
+    [conversation] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, tenant.orgId)))
+      .limit(1);
   }
 
   // Load prior turns before inserting the current message so the latest user

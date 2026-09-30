@@ -42,6 +42,9 @@ const VALID_STATUSES = ["open", "needs_human", "resolved", "closed"] as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const conversation = await loadOwned(params.id, tenant.orgId);
   if (!conversation) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -88,6 +91,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const conversation = await loadOwned(params.id, tenant.orgId);
   if (!conversation) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
