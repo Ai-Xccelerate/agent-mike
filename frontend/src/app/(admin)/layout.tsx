@@ -6,6 +6,7 @@ import AppHeader from "@/layout/AppHeader";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
 import GrabWidget from "@/components/common/GrabWidget";
+import AccessGate from "@/components/AccessGate";
 import { usePathname } from "next/navigation";
 import React from "react";
 
@@ -26,6 +27,7 @@ export default function AdminLayout({
 
   return (
     <WorkerIdentityProvider>
+      <AccessGate>
       <div className="h-dvh overflow-hidden xl:flex">
         <AppSidebar />
         <Backdrop />
@@ -52,6 +54,7 @@ export default function AdminLayout({
         must not appear there.
       */}
       <GrabWidget />
+      </AccessGate>
     </WorkerIdentityProvider>
   );
 }

@@ -1,3 +1,4 @@
+import { accessProblemFrom, reportAccessProblem } from "@/lib/access-state";
 import { getManagerToken } from "@/lib/manager-auth";
 
 export type Message = {
@@ -489,9 +490,19 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
     let message = `Request failed with ${response.status}`;
     if (response.headers.get("content-type")?.includes("application/json")) {
       try {
-        const parsed = JSON.parse(detail) as { error?: string; errors?: Record<string, string> };
+        const parsed = JSON.parse(detail) as {
+          error?: string;
+          errors?: Record<string, string>;
+          detail?: { message?: string };
+        };
         if (parsed?.errors && typeof parsed.errors === "object") errors = parsed.errors;
         if (typeof parsed?.error === "string") message = parsed.error;
+        else if (typeof parsed?.detail?.message === "string") message = parsed.detail.message;
+        // AIX Core said no (or couldn't be asked): switch the whole console to
+        // the no-access screen (components/AccessGate.tsx). Widget requests
+        // use a site token and never go through Core.
+        const problem = init?.widgetSiteToken ? null : accessProblemFrom(response.status, parsed);
+        if (problem) reportAccessProblem(problem);
       } catch {
         /* keep the generic status message */
       }
