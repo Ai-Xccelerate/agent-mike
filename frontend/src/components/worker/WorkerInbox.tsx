@@ -126,7 +126,18 @@ export default function WorkerInbox() {
     window.addEventListener("storage", syncRead);
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
     apiFetch<Conversation[]>("/conversations")
-      .then((data) => setConversations(data))
+      .then((data) => {
+        setConversations(data);
+        // Opened from a link (e.g. a handoff email): /inbox?conversation=<id>
+        // lands on that conversation, under whichever filter shows it.
+        const wanted = new URLSearchParams(window.location.search).get("conversation");
+        const hit = wanted ? data.find((item) => item.id === wanted) : undefined;
+        if (hit) {
+          setFilter(hit.status === "needs_human" ? "needs_human" : ACTIVE_HIDDEN.has(hit.status) ? "closed" : "active");
+          setSelectedId(hit.id);
+          setMobileView("thread");
+        }
+      })
       .catch(() => undefined);
     return () => {
       window.removeEventListener(CONVERSATION_READ_EVENT, syncRead);

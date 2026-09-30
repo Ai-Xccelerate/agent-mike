@@ -210,11 +210,21 @@ describe("answering an email", () => {
     expect(conversation.status).toBe("needs_human");
   });
 
-  it("emails the manager when it hands over", async () => {
+  it("emails the manager a brief of the ticket when it hands over", async () => {
+    process.env.PUBLIC_APP_URL = "https://console.example.com";
     runAgentMock.mockResolvedValue({ answer: "Bringing in a teammate.", confidence: 0.4, escalate: true, citations: [] });
-    await processInboundEmail(await storedEmail());
+    const stored = await storedEmail();
+    await processInboundEmail(stored);
+    delete process.env.PUBLIC_APP_URL;
+
     expect(sendMock).toHaveBeenCalledTimes(2);
-    expect(sendMock.mock.calls[1][0].to).toEqual([{ email: "boss@aixccelerate.com", name: "Manager" }]);
+    const handoff = sendMock.mock.calls[1][0] as { to: unknown; subject: string; body: string };
+    expect(handoff.to).toEqual([{ email: "boss@aixccelerate.com", name: "Manager" }]);
+    expect(handoff.subject).toMatch(/^Needs you: TCK-\d+ Can't log in$/);
+    expect(handoff.body).toContain("Customer: Anna Customer <anna@customer.com>");
+    expect(handoff.body).toContain("What the customer wrote:\nMy password reset link never arrives.");
+    expect(handoff.body).toContain("replied:\nBringing in a teammate.");
+    expect(handoff.body).toContain(`https://console.example.com/inbox?conversation=${stored.conversationId}`);
   });
 
   it("marks the conversation for a human when the reply can't be sent", async () => {
