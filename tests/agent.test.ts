@@ -54,6 +54,8 @@ import {
   ZOHO_TOOLKIT_VERSION,
 } from "@/lib/agent";
 import { ensureOrganization } from "@/lib/bootstrap";
+import { db } from "@/lib/db";
+import { conversations } from "@/db/schema";
 import { listPendingApprovals } from "@/lib/tools-integrations/approval-repository";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import type { IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
@@ -866,13 +868,19 @@ describe("Gmail send/reply tools: wiring, write-approval gating, and direct exec
     expect(pending[0].toolId).toBe(GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID);
   });
 
-  it("sends immediately, with no approval, when requireWriteApproval is explicitly false", async () => {
+  it("with requireWriteApproval off, sends straight away to this conversation's own customer", async () => {
+    const orgId = `org-${crypto.randomUUID()}`;
+    await ensureOrganization(orgId, "Gmail no-approval org");
+    const [conversation] = await db
+      .insert(conversations)
+      .values({ organizationId: orgId, ticketNumber: 1001, channel: "email", customerEmail: "Customer@Example.com" })
+      .returning();
     getConnectionForOrgMock.mockImplementation(async (_org, type) =>
-      type === "email" ? activeGmailConnection() : null,
+      type === "email" ? activeGmailConnection({ organizationId: orgId }) : null,
     );
     executeToolMock.mockResolvedValueOnce({ data: { id: "sent1" }, error: null, successful: true });
 
-    const tools = await buildAgentTools({ toolsConfig: {}, requireWriteApproval: false }, "org-1", null);
+    const tools = await buildAgentTools({ toolsConfig: {}, requireWriteApproval: false }, orgId, conversation.id);
     const reply = await invokeToolByName(tools, GMAIL_SEND_EMAIL_TOOL_NAME, {
       to: "customer@example.com",
       body: "Sent without approval.",
@@ -882,11 +890,32 @@ describe("Gmail send/reply tools: wiring, write-approval gating, and direct exec
     expect(executeToolMock).toHaveBeenCalledWith(
       GMAIL_SEND_EMAIL_SLUG,
       { recipient_email: "customer@example.com", subject: null, body: "Sent without approval.", cc: [] },
-      { connectedAccountId: "ca_gmail_test", userId: "org-1", version: GMAIL_TOOLKIT_VERSION },
+      { connectedAccountId: "ca_gmail_test", userId: orgId, version: GMAIL_TOOLKIT_VERSION },
+    );
+    expect(await listPendingApprovals(orgId, null)).toHaveLength(0);
+  });
+
+  it("with requireWriteApproval off, still queues email to anyone who isn't this conversation's customer", async () => {
+    const orgId = `org-${crypto.randomUUID()}`;
+    await ensureOrganization(orgId, "Gmail new-recipient org");
+    const [conversation] = await db
+      .insert(conversations)
+      .values({ organizationId: orgId, ticketNumber: 1001, channel: "email", customerEmail: "customer@example.com" })
+      .returning();
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection({ organizationId: orgId }) : null,
     );
 
-    const pending = await listPendingApprovals("org-1", null);
-    expect(pending).toHaveLength(0);
+    const tools = await buildAgentTools({ toolsConfig: {}, requireWriteApproval: false }, orgId, conversation.id);
+    const reply = await invokeToolByName(tools, GMAIL_SEND_EMAIL_TOOL_NAME, {
+      to: "customer@example.com",
+      cc: ["someone-else@example.org"],
+      body: "Looping in a stranger.",
+    });
+
+    expect(reply).toContain("Queued for manager approval");
+    expect(executeToolMock).not.toHaveBeenCalled();
+    expect(await listPendingApprovals(orgId, null)).toHaveLength(1);
   });
 });
 

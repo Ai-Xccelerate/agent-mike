@@ -21,7 +21,16 @@ import {
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
+import { decideAction } from "@/lib/tools-integrations/action-policy";
 import { createPendingApproval } from "@/lib/tools-integrations/approval-repository";
+import {
+  connectedToolkits,
+  customerEmailFor,
+  executeRunAction,
+  executeSearchActions,
+  RUN_ACTION_TOOL_NAME,
+  SEARCH_ACTIONS_TOOL_NAME,
+} from "@/lib/tools-integrations/composio-actions";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
 import {
   getSkillForOrg,
@@ -1008,13 +1017,18 @@ export async function buildAgentTools(
       );
 
       const requireApproval = profile.requireWriteApproval !== false;
+      const customerEmail = await customerEmailFor(organizationId, conversationId);
+      // Same rule as run_integration_action: with approval off, only mail to
+      // this conversation's own customer goes out without a manager.
+      const needsApproval = (args: { to: string; cc?: string[] }) =>
+        !decideAction({ tier: "email", requireWriteApproval: requireApproval, args, customerEmail }).run;
 
       tools.push(
         tool({
           name: GMAIL_SEND_EMAIL_TOOL_NAME,
           description: requireApproval
             ? "Propose sending a new email through the connected Gmail account. Does not send anything — queues it for a human manager to approve first."
-            : "Send a new email through the connected Gmail account. This actually sends — use it deliberately.",
+            : "Send a new email through the connected Gmail account. Sends straight away only when the recipient is this conversation's customer; anyone else is queued for a manager to approve. The result says which.",
           parameters: z.object({
             to: z.string().describe("Recipient email address"),
             subject: z.string().optional().describe("Subject line"),
@@ -1022,7 +1036,7 @@ export async function buildAgentTools(
             cc: z.array(z.string()).optional().describe("Additional CC recipient email addresses"),
           }),
           execute: async (input) => {
-            if (requireApproval) {
+            if (needsApproval(input)) {
               const approval = await createPendingApproval({
                 organizationId,
                 conversationId,
@@ -1041,7 +1055,7 @@ export async function buildAgentTools(
           name: GMAIL_REPLY_TO_THREAD_TOOL_NAME,
           description: requireApproval
             ? "Propose replying, in the same Gmail thread, to a message found via lookup_email. Does not send anything — queues it for a human manager to approve first."
-            : "Reply, in the same Gmail thread, to a message found via lookup_email. This actually sends — use it deliberately.",
+            : "Reply, in the same Gmail thread, to a message found via lookup_email. Sends straight away only when the recipient is this conversation's customer; anyone else is queued for a manager to approve. The result says which.",
           parameters: z.object({
             threadId: z.string().describe("The Gmail thread id to reply within (from lookup_email or get_email_details)"),
             to: z.string().describe("Recipient email address"),
@@ -1049,7 +1063,7 @@ export async function buildAgentTools(
             cc: z.array(z.string()).optional().describe("Additional CC recipient email addresses"),
           }),
           execute: async (input) => {
-            if (requireApproval) {
+            if (needsApproval(input)) {
               const approval = await createPendingApproval({
                 organizationId,
                 conversationId,
@@ -1136,6 +1150,51 @@ export async function buildAgentTools(
         parameters: z.object({ pageId: z.string().describe("The page id from search_confluence") }),
         execute: async ({ pageId }) =>
           executeConfluencePageRead(pageId, organizationId, connectedAccountId, onReferenceMaterial),
+      }),
+    );
+  }
+
+  // Everything else the connected apps can do (create/update tickets,
+  // comments, contacts, events, email…), behind one search tool and one run
+  // tool. The run tool applies the approval policy per action.
+  const toolkits = await connectedToolkits(organizationId);
+  if (toolkits.length > 0) {
+    const apps = toolkits.map((entry) => entry.toolkit).join(", ");
+    const requireWriteApproval = profile.requireWriteApproval !== false;
+    tools.push(
+      tool({
+        name: SEARCH_ACTIONS_TOOL_NAME,
+        description:
+          `Find an action in a connected app (${apps}) when the dedicated lookup tools above don't cover it: ` +
+          "creating or updating a ticket, adding a comment, marking something resolved, updating a contact, " +
+          "creating a calendar event, and so on. Returns action names, what each needs, and whether a manager " +
+          `must approve it. Then run one with ${RUN_ACTION_TOOL_NAME}.`,
+        parameters: z.object({
+          query: z.string().describe("What you want to do, e.g. \"add a comment to a Jira issue\""),
+          app: z
+            .string()
+            .nullable()
+            .describe(`Limit the search to one connected app (${apps}), or null to search all of them`),
+        }),
+        execute: async ({ query, app }) => executeSearchActions(query, app ?? undefined, organizationId),
+      }),
+      tool({
+        name: RUN_ACTION_TOOL_NAME,
+        description:
+          `Run one action found with ${SEARCH_ACTIONS_TOOL_NAME}. Lookups run straight away. Changes may run ` +
+          "straight away or be queued for a manager, depending on the action; the result says which. Never " +
+          "tell the customer something was done when the result says it was queued.",
+        parameters: z.object({
+          action: z.string().describe(`The exact action name from ${SEARCH_ACTIONS_TOOL_NAME}, e.g. JIRA_ADD_COMMENT`),
+          arguments_json: z
+            .string()
+            .describe("The action's arguments as a JSON object string, using the parameter names it listed"),
+        }),
+        execute: async ({ action, arguments_json }) =>
+          executeRunAction(
+            { action, argumentsJson: arguments_json },
+            { organizationId, conversationId: conversationId ?? null, requireWriteApproval },
+          ),
       }),
     );
   }

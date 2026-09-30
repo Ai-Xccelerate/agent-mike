@@ -90,6 +90,8 @@ export type WorkerProfile = {
   escalationTerms: string[];
   allowedDomains: string[];
   requireUserVerification: boolean;
+  /** On: every change in a connected app waits for a manager. Off: routine changes run on their own. */
+  requireWriteApproval: boolean;
   assistantActionsEnabled: boolean;
   managerName: string;
   managerEmail: string | null;
@@ -111,6 +113,29 @@ export type SkillCatalogEntry = {
   enabled: boolean;
   source: "catalog" | "custom";
 };
+
+/** A change the customer-facing agent queued for a manager (tool_approvals row). */
+export type QueuedApproval = {
+  id: string;
+  toolId: string;
+  input: Record<string, unknown>;
+  status: "pending" | "approved" | "rejected";
+  conversationId: string | null;
+  createdAt: string;
+};
+
+export type ApprovalDecisionResult = QueuedApproval & { applied?: { ok: boolean; output: string } };
+
+export function listPendingApprovals(conversationId: string): Promise<QueuedApproval[]> {
+  return apiFetch<QueuedApproval[]>(`/approvals?conversationId=${encodeURIComponent(conversationId)}`);
+}
+
+export function decideQueuedApproval(id: string, decision: "approved" | "rejected"): Promise<ApprovalDecisionResult> {
+  return apiFetch<ApprovalDecisionResult>(`/approvals/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ decision }),
+  });
+}
 
 export function getSkillsCatalog(): Promise<SkillCatalogEntry[]> {
   return apiFetch<SkillCatalogEntry[]>("/skills");

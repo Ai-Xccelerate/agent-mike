@@ -59,3 +59,50 @@ export async function findActiveConnectedAccount(
   });
   return accounts.items[0]?.id ?? null;
 }
+
+export type ComposioActionSchema = {
+  slug: string;
+  name: string;
+  description?: string;
+  toolkit: string;
+  version?: string;
+  tags: string[];
+  isDeprecated: boolean;
+  inputParameters?: {
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+};
+
+function toActionSchema(raw: {
+  slug: string;
+  name: string;
+  description?: string;
+  toolkit?: { slug?: string };
+  version?: string;
+  tags?: string[];
+  isDeprecated?: boolean;
+  inputParameters?: { properties?: Record<string, unknown>; required?: string[] };
+}): ComposioActionSchema {
+  return {
+    slug: raw.slug,
+    name: raw.name,
+    description: raw.description,
+    toolkit: (raw.toolkit?.slug ?? "").toLowerCase(),
+    version: raw.version,
+    tags: raw.tags ?? [],
+    isDeprecated: raw.isDeprecated === true,
+    inputParameters: raw.inputParameters,
+  };
+}
+
+/** Actions in the given toolkits matching a free-text search, as Composio describes them. */
+export async function searchActions(toolkits: string[], search: string, limit: number): Promise<ComposioActionSchema[]> {
+  const tools = await getComposioClient().tools.getRawComposioTools({ toolkits, search, limit });
+  return tools.map(toActionSchema);
+}
+
+/** One action's current schema, including the toolkit version to execute it with. */
+export async function getActionSchema(slug: string): Promise<ComposioActionSchema> {
+  return toActionSchema(await getComposioClient().tools.getRawComposioToolBySlug(slug));
+}

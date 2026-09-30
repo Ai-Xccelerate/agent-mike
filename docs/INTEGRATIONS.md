@@ -17,6 +17,49 @@ without credentials never calls out, whatever the toggle says. `PATCH` refuses
 to set `enabled: true` while the server is unconfigured, so the UI can never
 show an "on" toggle that cannot do anything.
 
+## Every other action a connected app offers
+
+Beyond the hand-wired lookups below (`lookup_jira_issue`, `search_confluence`,
+`lookup_crm_contact`…), the agent can use any Composio action of a connected
+app: create or update a Jira/Linear issue, add a comment, transition it, update
+a Zoho record, create a calendar event, send email and so on. It gets two tools
+rather than hundreds, because a single model request can't carry every action
+Jira alone offers:
+
+- `search_integration_actions`: searches the connected toolkits' actions
+  (`getRawComposioTools`) and returns each one's name, parameters and whether
+  it needs approval.
+- `run_integration_action`: runs one by slug. Code in
+  `lib/tools-integrations/composio-actions.ts`.
+
+Every run goes through `lib/tools-integrations/action-policy.ts`, which sorts
+the action by its slug (and Composio's read-only/destructive hints) into a tier:
+
+| Tier | Examples | Runs on its own? |
+|---|---|---|
+| read | `JIRA_GET_ISSUE`, `GMAIL_FETCH_EMAILS` | Always |
+| routine | `JIRA_CREATE_ISSUE`, `JIRA_ADD_COMMENT`, `JIRA_TRANSITION_ISSUE`, `ZOHO_UPDATE_RECORD` | Only when "A manager approves every change" (`requireWriteApproval`, Guardrails) is off |
+| email | `GMAIL_SEND_EMAIL`, `GMAIL_REPLY_TO_THREAD`, `OUTLOOK_SEND_EMAIL` | Only with that switch off **and** every recipient is the conversation's `customerEmail` |
+| risky | assign, bulk/batch, share, move, forward, anything touching users, roles or priority, and anything unrecognised | Never |
+| delete | delete, remove, trash, purge | Never |
+
+Anything that doesn't run is queued in `tool_approvals` as `composio_action`
+(slug, app, toolkit version, arguments) and shown on that conversation in the
+Inbox with Approve / Reject. Approving runs it against the app's current
+connection (`applyComposioActionApproval`); if the app was disconnected
+meanwhile, it fails rather than running elsewhere. Every run, queue and failure
+is logged in `tool_calls` as `run_integration_action`.
+
+Limits worth knowing:
+
+- The tier comes from the action's name, not its arguments. `JIRA_EDIT_ISSUE`
+  is routine even if its fields change the assignee or priority. Keep the
+  approval switch on until that's acceptable for the deployment.
+- `customerEmail` isn't set by any channel yet (inbound email will set it), so
+  today every email action waits for a manager.
+- Settings > Email domains doesn't apply to these sends; the recipient rule
+  above does.
+
 ## Confluence (Knowledge base)
 
 Connected per org under Settings > Integrations > Knowledge base, through

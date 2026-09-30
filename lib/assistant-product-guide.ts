@@ -70,7 +70,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "- Require user verification: tells the worker to ask for the customer's email and check it against the CRM, via the verify-customer skill. Needs an active CRM integration (Zoho) and turning it on adds that skill. It's an instruction the worker follows, not a hard gate.",
     "- Let the Assistant take actions: lets this Assistant propose sending replies, changing ticket status, and publishing knowledge articles (always with your confirmation). Only the manager can switch this on, in Settings.",
     "- Allowed email domains: restricts who may message the worker (empty = anyone). A message from a sender whose email domain isn't listed, or whose email isn't known (anonymous website/Playground chat visitors), is handed to the human manager. So only set this if every customer writes in with a known email.",
-    "- Email writes through Gmail wait for approval by default (no UI toggle for that yet).",
+    "- A manager approves every change (on by default): every change the worker makes in a connected app waits in the Inbox for an owner or admin. Off: routine changes run on their own; deletes, reassignments, bulk changes and emails to anyone but the customer still wait.",
   ].join("\n"),
 
   manager: [
@@ -119,13 +119,15 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   ].join("\n"),
 
   integrations: [
-    "Settings > Integrations (/settings/integrations). One connection per type, via OAuth. All read-only unless noted:",
+    "Settings > Integrations (/settings/integrations). One connection per type, via OAuth.",
     "- CRM (Zoho): contact lookup; required by the verify-customer skill.",
     "- Helpdesk (Jira): issue search.",
     "- Project management (Linear): issue search.",
-    "- Email (Gmail or Outlook): look up messages; Gmail can also send/reply, queued for approval.",
+    "- Email (Gmail or Outlook): look up messages; Gmail can also send/reply.",
     "- Calendar (Google Calendar): event search.",
-    "- Knowledge base (Confluence): finds pages by title and reads them, to ground answers. Read-only. Search matches page titles, not page text.",
+    "- Knowledge base (Confluence): finds pages by title and reads them, to ground answers. Search matches page titles, not page text.",
+    "- Beyond those lookups, the worker can use any other action a connected app offers (create or update a ticket, add a comment, mark it resolved, update a contact, create an event, send email…) through search_integration_actions / run_integration_action.",
+    "- Which of those run on their own: lookups always. Routine changes only when Guardrails > 'A manager approves every change' is off (it's on by default). Deletes, reassignments, bulk changes and emails to anyone other than the conversation's customer always wait for an owner or admin to approve in the Inbox, on that conversation.",
     "- Ticketing is listed internally but has no connector yet.",
   ].join("\n"),
 

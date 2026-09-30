@@ -2,6 +2,7 @@
 
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
+import InboxApprovals from "@/components/worker/InboxApprovals";
 import Markdown from "@/components/worker/Markdown";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
@@ -559,6 +560,7 @@ export default function WorkerInbox() {
                   </article>
                 );
               })}
+              <InboxApprovals key={selected.id} conversationId={selected.id} refreshKey={selected.messages.length} />
             </div>
 
             <div className="shrink-0 border-t border-gray-200 p-4 dark:border-gray-800 md:p-5">

@@ -16,7 +16,14 @@ export default function GuardrailsSettings() {
         title="Guardrails"
         description="Checks that run before the model responds. Low-confidence answers are never sent automatically."
         onSave={() =>
-          save(["confidenceThreshold", "escalationTerms", "allowedDomains", "requireUserVerification", "assistantActionsEnabled"])
+          save([
+            "confidenceThreshold",
+            "escalationTerms",
+            "allowedDomains",
+            "requireUserVerification",
+            "requireWriteApproval",
+            "assistantActionsEnabled",
+          ])
         }
         onDiscard={discard}
         dirty={dirty}
@@ -78,6 +85,23 @@ export default function GuardrailsSettings() {
           checked={profile.requireUserVerification}
           onChange={(next) => update("requireUserVerification", next)}
         />
+      </section>
+
+      <section className={cardClass}>
+        <h2 className={sectionTitleClass}>Changes in connected apps</h2>
+        <p className={sectionHintClass}>
+          What this worker may change on its own in Jira, Linear, your CRM, email and calendar while it talks to
+          customers. Lookups always run. Deletes, reassignments, bulk changes and emails to anyone but the customer
+          always wait in the Inbox for a manager.
+        </p>
+        <div className="mt-5">
+          <SettingsToggleRow
+            title="A manager approves every change"
+            description="On by default. Turn off to let the worker make routine changes itself: create a ticket, add a comment, mark it resolved, update a contact, create an event, or reply to the customer."
+            checked={profile.requireWriteApproval}
+            onChange={() => update("requireWriteApproval", !profile.requireWriteApproval)}
+          />
+        </div>
       </section>
 
       <section className={cardClass}>
