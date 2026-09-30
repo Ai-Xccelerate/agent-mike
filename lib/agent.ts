@@ -1254,18 +1254,18 @@ export async function buildInstructions(
     "not a reason to escalate. Greetings, thanks, small talk, and short clarifying questions do not need " +
     "reference material — reply to those naturally.";
 
-  // Chat/widget must not get the email sign-off — that made Mike append
-  // "Best, Mike…" to every website reply. Email channel still gets it in
-  // the prompt; outbound also appends it deterministically on send.
-  const includeEmailSignature = channel === "email";
+  // No channel gets the signature in the prompt. Chat/widget must never
+  // sign ("Best, Mike…" on every website reply), and email replies get it
+  // appended deterministically on send (lib/outbound.ts) — when the model
+  // also wrote it, customers got the signature twice.
+  const isEmail = channel === "email";
   const contactBlock = [
     profile.timezone ? `Timezone: ${profile.timezone}.` : "",
-    includeEmailSignature && profile.emailSignature
-      ? `Email sign-off:\n${profile.emailSignature}`
-      : "",
-    // Leaving the signature out wasn't enough on its own: the model still
-    // closed chat replies with "Best, ..." by habit.
-    includeEmailSignature ? "" : "This is a live chat. Reply like a chat message: no sign-off, signature, or \"Best,\" closing.",
+    isEmail
+      ? "This is an email reply. Don't end it with a sign-off or signature: yours is added automatically when it's sent."
+      : // Leaving the signature out wasn't enough on its own: the model still
+        // closed chat replies with "Best, ..." by habit.
+        "This is a live chat. Reply like a chat message: no sign-off, signature, or \"Best,\" closing.",
   ]
     .filter(Boolean)
     .join("\n");

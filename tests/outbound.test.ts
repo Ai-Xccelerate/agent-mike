@@ -164,6 +164,11 @@ describe("outbound policy (db)", () => {
 });
 
 describe("applyEmailSignature", () => {
+  it("doesn't add the signature again when the body already ends with it, spacing aside", () => {
+    const body = "Thanks.\n\nBest,\r\nMike \nSupport Operations Executive\nAIXccelerate.com\n";
+    expect(applyEmailSignature(body, "Best,\nMike\nSupport Operations Executive\nAIXccelerate.com")).toBe(body.trimEnd());
+  });
+
   it("appends a signature under the body", () => {
     expect(applyEmailSignature("Thanks for writing in.", "Best,\nMike")).toBe(
       "Thanks for writing in.\n\nBest,\nMike",

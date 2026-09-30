@@ -1579,10 +1579,10 @@ describe("agent instructions — email signature is channel-specific", () => {
     }
   });
 
-  it("includes the email sign-off only for the email channel", async () => {
+  it("tells email replies not to sign, since the signature is appended on send", async () => {
     const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1", "email");
-    expect(instructions).toContain("Email sign-off:");
-    expect(instructions).toContain("Best,\nMike\nAI Xccelerate Technical Support");
+    expect(instructions).toContain("Don't end it with a sign-off or signature");
+    expect(instructions).not.toContain("Best,\nMike\nAI Xccelerate Technical Support");
     expect(instructions).not.toContain("This is a live chat");
   });
 });

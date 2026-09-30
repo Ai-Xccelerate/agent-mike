@@ -98,7 +98,11 @@ export function applyEmailSignature(body: string, signature: string | null | und
   if (!sig) return body;
   const trimmed = body.replace(/\s+$/, "");
   if (!trimmed) return sig;
-  if (trimmed.endsWith(sig)) return trimmed;
+  // Compared with whitespace flattened: a model or a person retyping the
+  // signature rarely matches its line endings and spacing exactly, and an
+  // exact comparison let "Best, Mike" go out twice.
+  const flat = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+  if (flat(trimmed).endsWith(flat(sig))) return trimmed;
   return `${trimmed}\n\n${sig}`;
 }
 

@@ -156,7 +156,10 @@ async function markNeedsHuman(conversationId: string, assignedTo: string) {
 
 async function notifyManager(conversation: ConversationRow, organizationId: string, reason: string) {
   const profile = await getOrCreateProfile(organizationId);
-  if (!profile.managerEmail) return;
+  if (!profile.managerEmail) {
+    console.info(`[email-channel] no manager email set, so nobody was notified about conversation ${conversation.id}`);
+    return;
+  }
   const link = publicAppUrl() ? `\n\nOpen it in the Inbox: ${publicAppUrl()}/inbox` : "";
   try {
     await sendAsWorker({
@@ -239,6 +242,9 @@ export async function processInboundEmail(stored: Extract<InboundOutcome, { kind
     return;
   }
 
+  console.info(
+    `[email-channel] replied on conversation ${conversation.id}; handoff: ${turn.result.escalate ? "yes" : "no"}`,
+  );
   if (turn.result.escalate) {
     await notifyManager(conversation, organizationId, `${profile.displayName} handed an email conversation to you.`);
   }

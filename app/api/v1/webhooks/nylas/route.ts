@@ -30,7 +30,11 @@ export async function POST(req: NextRequest) {
     console.warn(`[webhooks/nylas] rejected: ${outcome.reason}`);
     return NextResponse.json({ error: "Invalid webhook delivery" }, { status: 401 });
   }
+  if (outcome.kind === "ignored") {
+    console.info(`[webhooks/nylas] ignored: ${outcome.reason}`);
+  }
   if (outcome.kind === "stored") {
+    console.info(`[webhooks/nylas] stored email for org ${outcome.organizationId}, conversation ${outcome.conversationId}`);
     // Answered after the response: Nylas retries slow deliveries, and an
     // agent turn can take several seconds. The stored message's unique
     // external id already makes any retry a no-op.
