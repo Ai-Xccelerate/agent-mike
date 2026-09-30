@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { getIdentityAdapter } from "@/lib/identity";
+import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { fieldErrors } from "@/lib/identity-fields";
 import { NylasError } from "@/lib/nylas";
@@ -29,6 +30,9 @@ const sendSchema = z.object({
  */
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
   const profile = await getOrCreateProfile(tenant.orgId);
 
   // The email channel is the switch that says this worker is allowed to use
