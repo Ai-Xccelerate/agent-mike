@@ -46,6 +46,8 @@ function publicRequest(req: NextRequest): boolean {
   if (path === "/api/health") return true;
   if (path.startsWith("/api/v1/uploads/avatars/")) return true;
   if (path === "/api/v1/mailbox/callback") return true;
+  // Verified by each organization's Nylas webhook secret, not a session.
+  if (path === "/api/v1/webhooks/nylas") return true;
   if (
     hasWidgetToken(req) &&
     (path === "/api/v1/chat" || path === "/api/v1/worker")

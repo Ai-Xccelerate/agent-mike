@@ -58,9 +58,12 @@ export async function GET(req: NextRequest) {
     // than guessed by the screen, which knows its own origin but not this
     // service's, and would print Nylas's host if it guessed from api_url.
     callback_uri: callbackUri(publicAppUrl() || req.nextUrl.origin),
+    // Where this organization's Nylas application should send its
+    // message.created webhook for inbound email. Same host as the callback.
+    webhook_url: new URL("/api/v1/webhooks/nylas", callbackUri(publicAppUrl() || req.nextUrl.origin)).toString(),
     unavailableReason: available
       ? null
-      : "Add a Nylas client ID and API key for this agent, or set them fleet-wide on the API service.",
+      : "Add a Nylas client ID and API key for this organization below, or set them for every organization on the API service.",
   };
 
   if (!mailbox) {

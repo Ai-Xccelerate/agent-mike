@@ -236,8 +236,8 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
     add({
       severity: "tip",
       area: "Human manager",
-      issue: "No manager email is set. Note that escalation emails aren't sent yet even when it is set; escalations appear in Inbox as 'needs human'.",
-      fix: "I can record it (propose_manager_contact_change) so it's ready when notifications ship.",
+      issue: "No manager email is set, so nobody is emailed when the worker hands an email conversation over; it only appears in Inbox as 'needs human'.",
+      fix: "I can record it (propose_manager_contact_change).",
     });
   }
   if (profile.allowedDomains.length > 0 && profile.channelsConfig.chat) {

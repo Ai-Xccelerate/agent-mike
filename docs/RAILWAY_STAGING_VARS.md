@@ -18,8 +18,10 @@ Secrets stay in Railway variables and must never be committed.
 - Core entitlement: `AIX_CORE_API_URL`, `AIX_CORE_AGENT_SLUG=mike`
 - Composio: `COMPOSIO_API_KEY` and each
   `COMPOSIO_*_AUTH_CONFIG_ID`
-- Nylas: client/API/callback/state variables (`NYLAS_WEBHOOK_SECRET` is
-  reserved for future Foundation webhook support)
+- Nylas: client/API/callback/state variables, and `NYLAS_WEBHOOK_SECRET`
+  (the shared application's webhook secret, for inbound email). All are the
+  fallback for organizations that haven't saved their own Nylas application
+  under Settings > Tools. See docs/INTEGRATIONS.md > Email channel.
 - provider encryption: `ENCRYPTION_KEY`
 - optional Foundation integration credentials
 

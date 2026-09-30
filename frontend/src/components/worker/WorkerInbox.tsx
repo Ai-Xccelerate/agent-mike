@@ -24,7 +24,7 @@ import {
   markConversationRead,
   type ConversationReadMap,
 } from "@/lib/conversation-read-state";
-import { apiFetch, Conversation, WorkerProfile } from "@/lib/worker-api";
+import { apiFetch, Conversation, WorkerApiError, WorkerProfile } from "@/lib/worker-api";
 import { useEffect, useMemo, useState } from "react";
 
 const REPLY_MAX_LENGTH = 4000;
@@ -251,8 +251,9 @@ export default function WorkerInbox() {
       });
       setConversations((items) => items.map((item) => (item.id === result.conversation.id ? result.conversation : item)));
       setReply("");
-    } catch {
-      setNotice("Could not send the reply. Check that the API is running and try again.");
+    } catch (error) {
+      // An email that couldn't be sent says why (no mailbox, a blocked domain).
+      setNotice(error instanceof WorkerApiError ? error.message : "Could not send the reply. Try again.");
     } finally {
       setUpdating(false);
     }

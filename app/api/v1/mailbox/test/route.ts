@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!resolved) {
     return NextResponse.json({
       ...empty,
-      error: "No Nylas application is configured for this agent.",
+      error: "No Nylas application is configured for this organization.",
       errorKind: "unconfigured",
     });
   }

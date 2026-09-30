@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { emailDomains, nylasMailboxes, organizations } from "@/db/schema";
+import { emailDomains, nylasMailboxes, organizations, workerProfiles } from "@/db/schema";
+import { getOrCreateProfile } from "@/lib/bootstrap";
 import { OutboundBlocked, applyEmailSignature, blockedRecipients, sendAsWorker } from "@/lib/outbound";
 
 /**
@@ -22,6 +23,10 @@ describe("outbound policy (db)", () => {
     await db.insert(organizations).values({ id: ORG, name: "Outbound Test" }).onConflictDoNothing();
     await db.delete(emailDomains).where(eq(emailDomains.organizationId, ORG));
     await db.delete(nylasMailboxes).where(eq(nylasMailboxes.organizationId, ORG));
+    // These assert the approved-domains rule, which only applies when
+    // Settings > Email domains is switched on.
+    await getOrCreateProfile(ORG);
+    await db.update(workerProfiles).set({ restrictEmailDomains: true }).where(eq(workerProfiles.organizationId, ORG));
   });
 
   afterEach(async () => {
@@ -54,6 +59,15 @@ describe("outbound policy (db)", () => {
       body: "Body",
     });
   }
+
+  describe("with Settings > Email domains switched off (the default)", () => {
+    it("lets the worker email any domain", async () => {
+      await db.update(workerProfiles).set({ restrictEmailDomains: false }).where(eq(workerProfiles.organizationId, ORG));
+      expect(await blockedRecipients(ORG, ["a@acme.com", "b@gmail.com"])).toEqual([]);
+      await connectMailbox();
+      await expect(send(["b@gmail.com"])).resolves.toMatchObject({ demo: true, to: ["b@gmail.com"] });
+    });
+  });
 
   describe("recipient screening", () => {
     it("blocks everything when nothing is approved — an empty list means nobody", async () => {

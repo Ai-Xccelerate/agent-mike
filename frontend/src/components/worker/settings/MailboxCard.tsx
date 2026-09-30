@@ -60,6 +60,10 @@ export default function MailboxCard() {
   const [clientId, setClientId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiUri, setApiUri] = useState("https://api.us.nylas.com");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [grantId, setGrantId] = useState("");
+  const [attaching, setAttaching] = useState(false);
+  const [attachError, setAttachError] = useState("");
   const [savingCreds, setSavingCreds] = useState<"idle" | "saving" | "error">("idle");
   const [credsError, setCredsError] = useState("");
 
@@ -106,11 +110,17 @@ export default function MailboxCard() {
     try {
       await apiFetch("/mailbox/credentials", {
         method: "PUT",
-        body: JSON.stringify({ clientId: clientId.trim(), apiKey: apiKey.trim(), apiUri }),
+        body: JSON.stringify({
+          clientId: clientId.trim(),
+          apiKey: apiKey.trim(),
+          apiUri,
+          ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
+        }),
       });
       // Never keep the secret in component state once it is stored.
       setClientId("");
       setApiKey("");
+      setWebhookSecret("");
       setSavingCreds("idle");
       setSetupOverride(false);
       await load();
@@ -139,6 +149,28 @@ export default function MailboxCard() {
     } catch {
       setSavingCreds("error");
       setCredsError("Could not clear. Check that the API is running.");
+    }
+  }
+
+  async function attachExisting() {
+    setAttaching(true);
+    setAttachError("");
+    setNotice("");
+    try {
+      const result = await apiFetch<{ email: string }>("/mailbox/attach", {
+        method: "POST",
+        body: JSON.stringify({ grantId: grantId.trim() }),
+      });
+      setGrantId("");
+      await load();
+      setNoticeError(false);
+      setNotice(`Connected ${result.email}.`);
+    } catch (error) {
+      setAttachError(
+        error instanceof WorkerApiError ? (error.errors?.grantId ?? error.message) : "Could not connect. Try again.",
+      );
+    } finally {
+      setAttaching(false);
     }
   }
 
@@ -280,7 +312,7 @@ export default function MailboxCard() {
             {!setupOpen && (
               <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
                 {status.credentials.source === "org"
-                  ? "This agent has its own."
+                  ? "This organization has its own."
                   : status.credentials.source === "env"
                     ? "Using the shared application."
                     : "Not set up yet."}
@@ -303,9 +335,9 @@ export default function MailboxCard() {
           <div className="border-t border-gray-100 p-4 dark:border-gray-800">
             <p className="text-xs leading-5 text-gray-500 dark:text-gray-400">
                 {status.credentials.source === "env"
-                  ? "Using your organization's shared app. Enter values below to give this agent its own instead."
+                  ? "Using the shared application. Enter values below to give this organization its own instead."
                   : status.credentials.source === "org"
-                    ? "This agent has its own application. Clear it to fall back to the shared one."
+                    ? "This organization has its own application. Clear it to fall back to the shared one."
                     : "Paste the client ID and API key from your Nylas dashboard."}
             </p>
 
@@ -345,6 +377,24 @@ export default function MailboxCard() {
               <span className="mt-1.5 block font-normal text-gray-500">
                 Separate data residencies. Changing this after mailboxes are connected orphans
                 every one of them.
+              </span>
+            </label>
+            <label className="text-xs font-medium text-gray-600 dark:text-gray-400 sm:col-span-2">
+              Webhook secret (optional)
+              <input
+                type="password"
+                value={webhookSecret}
+                onChange={(event) => setWebhookSecret(event.target.value)}
+                placeholder={
+                  status.credentials.present.includes("webhookSecret") ? "•••••••• (set)" : "Needed to receive email"
+                }
+                autoComplete="new-password"
+                className="mt-1.5 h-10 w-full rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+              />
+              <span className="mt-1.5 block font-normal text-gray-500">
+                To receive email, create a webhook on this Nylas application pointing at{" "}
+                <code className="break-all font-mono text-[11px]">{status.webhook_url}</code> with only
+                the message.created trigger and compression off. Nylas shows its secret once. Paste it here.
               </span>
             </label>
           </div>
@@ -419,6 +469,31 @@ export default function MailboxCard() {
                 <Button size="sm" variant="outline" onClick={() => setSetupOverride(true)}>
                   Change application
                 </Button>
+                <div className="w-full">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Or use an existing Nylas mailbox
+                    <span className="mt-1.5 flex flex-wrap gap-2">
+                      <input
+                        value={grantId}
+                        onChange={(event) => setGrantId(event.target.value)}
+                        placeholder="Grant ID from Nylas (Grants)"
+                        className="h-9 min-w-0 flex-1 rounded-lg border border-gray-300 bg-transparent px-3 font-mono text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:text-white/90"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        loading={attaching}
+                        disabled={!grantId.trim() || attaching}
+                        onClick={() => void attachExisting()}
+                      >
+                        Use this mailbox
+                      </Button>
+                    </span>
+                  </label>
+                  {attachError && (
+                    <p className="mt-1.5 text-xs font-medium text-error-600 dark:text-error-400">{attachError}</p>
+                  )}
+                </div>
               </>
             ) : (
               <>

@@ -41,6 +41,13 @@ const credentialsSchema = z.object({
     .optional()
     .or(z.literal(""))
     .transform((value) => (value ? value : undefined)),
+  // Optional: the secret Nylas shows when this application's webhook is
+  // created. Inbound email from this org's mailbox is verified with it.
+  webhookSecret: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => (value ? value : undefined)),
 });
 
 export async function GET(req: NextRequest) {

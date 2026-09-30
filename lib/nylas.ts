@@ -93,6 +93,11 @@ export type NylasCredentials = {
   clientId: string;
   apiKey: string;
   apiUri: string;
+  /**
+   * Signs this application's webhook deliveries (inbound email). Optional:
+   * only needed once the org's application has a webhook pointing at us.
+   */
+  webhookSecret?: string;
 };
 
 export const NYLAS_PROVIDER = "nylas";
@@ -105,6 +110,7 @@ export function envNylasCredentials(): NylasCredentials {
     clientId: (process.env.NYLAS_CLIENT_ID || "").trim(),
     apiKey: (process.env.NYLAS_API_KEY || "").trim(),
     apiUri: (process.env.NYLAS_API_URI || DEFAULT_API_URI).trim().replace(/\/+$/, ""),
+    webhookSecret: (process.env.NYLAS_WEBHOOK_SECRET || "").trim(),
   };
 }
 
@@ -118,6 +124,7 @@ export function normalizeNylasCredentials(values: Partial<NylasCredentials>): Ny
     clientId: (values.clientId || "").trim(),
     apiKey: (values.apiKey || "").trim(),
     apiUri: (values.apiUri || DEFAULT_API_URI).trim().replace(/\/+$/, ""),
+    webhookSecret: (values.webhookSecret || "").trim(),
   };
 }
 
@@ -257,7 +264,7 @@ export function buildAuthUrl(options: {
   scopes?: string[];
 }): string {
   if (!isCompleteNylasCredentials(options.credentials)) {
-    throw new NylasError("No Nylas application is configured for this agent", null, "unconfigured");
+    throw new NylasError("No Nylas application is configured for this organization", null, "unconfigured");
   }
 
   const url = new URL(`${options.credentials.apiUri}/v3/connect/auth`);
@@ -339,7 +346,7 @@ async function nylasFetch(
   options: FetchOptions = {},
 ): Promise<unknown> {
   if (!isCompleteNylasCredentials(credentials)) {
-    throw new NylasError("No Nylas application is configured for this agent", null, "unconfigured");
+    throw new NylasError("No Nylas application is configured for this organization", null, "unconfigured");
   }
 
   const url = new URL(`${credentials.apiUri}${path}`);
@@ -386,7 +393,7 @@ async function nylasFetch(
   if (!res.ok) {
     const detail = text.slice(0, 300);
     if (res.status === 401) {
-      throw new NylasError("Nylas rejected the API key for this agent", 401, "auth");
+      throw new NylasError("Nylas rejected the API key for this organization", 401, "auth");
     }
     // A revoked or expired grant is the one failure a manager can fix
     // themselves, by reconnecting — so it must not read as a server fault.
@@ -585,4 +592,78 @@ export async function checkNylasConnection(
       errorKind: known ? error.kind : null,
     };
   }
+}
+
+export interface NylasParticipant {
+  email: string;
+  name: string;
+}
+
+/** One email as the inbound channel needs it. */
+export interface NylasMessage {
+  id: string;
+  grantId: string;
+  threadId: string;
+  subject: string;
+  from: NylasParticipant[];
+  to: NylasParticipant[];
+  /** HTML as Nylas returns it; the channel turns it into text. */
+  body: string;
+  snippet: string;
+  folders: string[];
+}
+
+function participants(value: unknown): NylasParticipant[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const entry = (item ?? {}) as Record<string, unknown>;
+      return { email: str(entry.email).trim().toLowerCase(), name: str(entry.name).trim() };
+    })
+    .filter((entry) => entry.email);
+}
+
+/** Maps a raw Nylas message object (API response or webhook payload). */
+export function toNylasMessage(raw: unknown): NylasMessage {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  return {
+    id: str(data.id),
+    grantId: str(data.grant_id),
+    threadId: str(data.thread_id),
+    subject: str(data.subject),
+    from: participants(data.from),
+    to: participants(data.to),
+    body: str(data.body),
+    snippet: str(data.snippet),
+    folders: Array.isArray(data.folders) ? data.folders.map((folder) => str(folder)) : [],
+  };
+}
+
+/** The full message, for webhook deliveries that arrive truncated or without a body. */
+export async function getMessage(
+  credentials: NylasCredentials,
+  grantId: string,
+  messageId: string,
+  timeoutMs?: number,
+): Promise<NylasMessage> {
+  const data = (await nylasFetch(
+    credentials,
+    `/v3/grants/${encodeURIComponent(grantId)}/messages/${encodeURIComponent(messageId)}`,
+    { timeoutMs },
+  )) as Record<string, unknown>;
+  return toNylasMessage(data);
+}
+
+/**
+ * True when `signature` (the X-Nylas-Signature header) is the hex HMAC-SHA256
+ * of the raw request body under the webhook's secret. Compared in constant
+ * time; an empty secret or signature is never valid.
+ */
+export function verifyWebhookSignature(rawBody: Buffer | string, signature: string | null, secret: string): boolean {
+  const given = (signature || "").trim().toLowerCase();
+  if (!given || !secret) return false;
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const a = Buffer.from(given, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
 }

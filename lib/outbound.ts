@@ -11,6 +11,7 @@ import {
   type SendMessageInput,
 } from "@/lib/nylas";
 import { getMailbox } from "@/lib/mailbox-repository";
+import { textToEmailHtml } from "@/lib/email-text";
 
 /**
  * The only way the worker sends mail.
@@ -20,9 +21,11 @@ import { getMailbox } from "@/lib/mailbox-repository";
  * the agent invokes) gets the allow-list for free instead of having to remember
  * it, and there is exactly one place to audit.
  *
- * The rule: every recipient's domain must be `approved` in `email_domains`.
- * Not pending, not revoked, not absent. The list is an allow-list, so an empty
- * table means the worker sends to nobody outside the org — the safe failure.
+ * The rule, when Settings > Email domains is switched on
+ * (`restrictEmailDomains`): every recipient's domain must be `approved` in
+ * `email_domains`. Not pending, not revoked, not absent. The list is an
+ * allow-list, so an empty table means the worker sends to nobody outside the
+ * org. Switched off (the default), any recipient is allowed.
  *
  * A send is all-or-nothing. If one of four recipients is unapproved the whole
  * message is refused rather than quietly delivered to three, because a partial
@@ -62,6 +65,11 @@ async function approvedRows(orgId: string) {
  * writing it is worse than telling them up front.
  */
 export async function blockedRecipients(orgId: string, addresses: string[]): Promise<string[]> {
+  // The list only applies when Settings > Email domains is switched on.
+  // Off (the default), the worker may email anyone, like any support inbox.
+  const profile = await getOrCreateProfile(orgId);
+  if (!profile.restrictEmailDomains) return [];
+
   const rows = await approvedRows(orgId);
   const blocked = new Set<string>();
   for (const address of addresses) {
@@ -131,7 +139,9 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
   // Signature belongs on email only — applied here so every outbound send
   // gets it, independent of whether the body was drafted by the agent or a manager.
   const profile = await getOrCreateProfile(options.orgId);
-  const body = applyEmailSignature(options.body, profile.emailSignature);
+  // Bodies are written as plain text; Nylas sends HTML, where bare newlines
+  // collapse, so paragraphs and line breaks are turned into markup here.
+  const body = textToEmailHtml(applyEmailSignature(options.body, profile.emailSignature));
 
   const input: SendMessageInput = {
     to: recipients,
@@ -152,7 +162,7 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
   const credentials = await resolveNylasCredentials(options.orgId);
   if (!credentials) {
     throw new OutboundBlocked(
-      "No Nylas application is configured for this agent.",
+      "No Nylas application is configured for this organization.",
       [],
       "no_mailbox",
     );

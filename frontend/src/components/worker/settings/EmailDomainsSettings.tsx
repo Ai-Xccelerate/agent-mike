@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
+import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import { cardClass, sectionHintClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { CheckCircleIcon, CheckLineIcon, CloseIcon, PlusIcon, TimeIcon, TrashBinIcon } from "@/icons";
-import { apiFetch, WorkerApiError } from "@/lib/worker-api";
+import { apiFetch, WorkerApiError, type WorkerProfile } from "@/lib/worker-api";
 import type {
   EmailDomain,
   EmailDomainDecision,
@@ -149,8 +150,10 @@ export default function EmailDomainsSettings() {
     <>
       <SettingsPageHeader
         title="Email domains"
-        description="Who outside this organization the worker may share activity with. Approve a domain and the worker can reach addresses on it; anything not approved here is refused."
+        description="Optionally limit which domains the worker may email. Off by default, so it can reply to any customer."
       />
+
+      <DomainRestrictionToggle />
 
       {phase === "failed" ? (
         <section className={cardClass}>
@@ -450,6 +453,58 @@ function Group({
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+/**
+ * Whether the approved list below is enforced at all. Off (the default), the
+ * worker may email any domain, like any support inbox; on, only approved
+ * domains. Writes immediately, like the rest of this page.
+ */
+function DomainRestrictionToggle() {
+  const [restrict, setRestrict] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiFetch<WorkerProfile>("/worker")
+      .then((profile) => setRestrict(Boolean(profile.restrictEmailDomains)))
+      .catch(() => setError("Could not load this setting."));
+  }, []);
+
+  async function toggle() {
+    if (restrict === null) return;
+    const next = !restrict;
+    setSaving(true);
+    setError("");
+    try {
+      const saved = await apiFetch<WorkerProfile>("/worker", {
+        method: "PATCH",
+        body: JSON.stringify({ restrictEmailDomains: next }),
+      });
+      setRestrict(Boolean(saved.restrictEmailDomains));
+    } catch (e) {
+      setError(e instanceof WorkerApiError ? e.message : "Could not save. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className={`${cardClass} mb-5 md:mb-6`}>
+      <SettingsToggleRow
+        title="Only email approved domains"
+        description={
+          restrict
+            ? "On. The worker can only email domains approved below. Everything else is refused, including replies."
+            : "Off. The worker can email any domain. Turn on to allow only the domains approved below."
+        }
+        checked={Boolean(restrict)}
+        disabled={restrict === null || saving}
+        onChange={() => void toggle()}
+      />
+      {error && <p className="mt-2 text-xs text-warning-700 dark:text-warning-400">{error}</p>}
     </section>
   );
 }

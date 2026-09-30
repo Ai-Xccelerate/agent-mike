@@ -37,6 +37,8 @@ export const workerPatchSchema = z
     managerName: z.string().min(1),
     managerEmail: emptyToNull(z.string().email().nullable()),
     autoReply: z.boolean(),
+    // Settings > Email domains: on = only approved domains may be emailed.
+    restrictEmailDomains: z.boolean(),
     toolsConfig: z.record(z.string(), z.boolean()),
     enabledSkills: z.array(z.string()),
     channelsConfig: z.object({ email: z.boolean(), chat: z.boolean(), voice: z.boolean() }),

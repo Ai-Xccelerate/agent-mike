@@ -15,6 +15,21 @@ export async function getMailbox(orgId: string): Promise<Mailbox | null> {
 }
 
 /**
+ * The mailbox a Nylas grant belongs to. This is how an inbound webhook, which
+ * carries no session, finds its organization: grant ids are unique, and each
+ * one is only ever attached to one org.
+ */
+export async function getMailboxByGrantId(grantId: string): Promise<Mailbox | null> {
+  if (!grantId) return null;
+  const [row] = await db
+    .select()
+    .from(nylasMailboxes)
+    .where(eq(nylasMailboxes.grantId, grantId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
  * Records a freshly authorised grant.
  *
  * Upsert rather than insert: reconnecting is the normal way to fix a revoked

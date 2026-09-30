@@ -17,6 +17,45 @@ without credentials never calls out, whatever the toggle says. `PATCH` refuses
 to set `enabled: true` while the server is unconfigured, so the UI can never
 show an "on" toggle that cannot do anything.
 
+## Email channel (Nylas)
+
+Each organization answers email sent to its own connected mailbox. Everything
+is per organization and set up in the UI; Railway env values are only the
+fallback for organizations that use the shared Nylas application.
+
+Setup, per organization:
+
+1. **Nylas application**: Settings > Tools > Mailbox > Nylas application.
+   Use the shared one (`NYLAS_CLIENT_ID`, `NYLAS_API_KEY`, `NYLAS_API_URI`,
+   `NYLAS_WEBHOOK_SECRET` on the API service), or save the organization's own
+   client ID, API key and webhook secret (encrypted; needs `ENCRYPTION_KEY`).
+2. **Mailbox**: Connect mailbox (Google/Outlook sign-in), or paste the grant ID
+   of a mailbox that already exists in that Nylas application, such as a Nylas
+   agent account (`POST /api/v1/mailbox/attach`). A grant belongs to one
+   organization only.
+3. **Webhook**: on the Nylas application, create a webhook pointing at the
+   URL the Mailbox card shows (`/api/v1/webhooks/nylas`), trigger
+   `message.created` only, compression off. Save its secret in step 1.
+4. **Channels > Email** on (off by default).
+
+What happens (`lib/email-channel.ts`):
+
+- The webhook finds the organization from the delivery's grant id, verifies
+  the signature with that organization's webhook secret, and ignores the
+  mailbox's own sent mail. It answers Nylas immediately; the agent turn runs
+  after. A retried delivery is a no-op (`messages.external_message_id` is unique).
+- One email thread is one conversation (`conversations.external_thread_id`).
+  Only the new text is stored, not the quoted thread.
+- The agent turn is the same as chat (`lib/customer-turn.ts`): guardrails,
+  knowledge, handoff, summary. The reply is emailed in the same thread.
+- Handoff marks the conversation "needs human" and emails `managerEmail`.
+- Taken over (Inbox "Take over", or any manager reply): the worker stays quiet.
+  A manager reply on an email conversation is emailed to the customer in the
+  thread; if the send fails, nothing is saved and the Inbox shows why.
+- Role > Automatic replies off: replies are drafted in the Inbox, not sent.
+- Settings > Email domains > "Only email approved domains" (off by default)
+  restricts every Nylas send, replies included, to approved domains.
+
 ## Every other action a connected app offers
 
 Beyond the hand-wired lookups below (`lookup_jira_issue`, `search_confluence`,

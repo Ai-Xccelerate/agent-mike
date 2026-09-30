@@ -82,7 +82,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   channels: [
     "Settings > Channels (/settings/channels).",
     "- Chat: Playground and the embeddable website widget. When on, the page offers 'Open playground' and 'Copy widget snippet'. Note: turning it off does not currently stop the widget from answering.",
-    "- Email: lets the worker send email from its connected mailbox (Settings > Tools > External tools > Mailbox), and every recipient's domain must be approved under Settings > Email domains. Emails sent through the Gmail integration are separate: each one waits in the approval queue for an owner or admin, and this switch and Email domains don't apply to them. Inbound email (the worker reading a support inbox on its own) is not built yet.",
+    "- Email (off by default): the worker answers email sent to its connected mailbox (Settings > Tools > External tools > Mailbox). Each email thread becomes one Inbox conversation, the worker replies in the same thread, and it emails the human manager when it hands over. Once a manager replies from the Inbox (or clicks Take over), the worker stops replying on that conversation until it's handed back. With Role > Automatic replies off, the worker drafts replies in the Inbox without sending them. Receiving needs a Nylas webhook for message.created pointing at the webhook URL shown on the Mailbox card, with its secret saved there. Emails sent through the Gmail integration are separate and go through the approval queue.",
     "- Voice: coming soon; the switch is disabled.",
   ].join("\n"),
 
@@ -95,7 +95,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "  - Scribe: searches internal meeting transcripts (lookback window configurable).",
     "  - Agent Wiki: searches a wiki space (write access is stored but unused).",
     "  - AgentDB and Agent Artifacts: can be switched on but are NOT yet used by the worker.",
-    "- External tools > Mailbox (Nylas): the sending mailbox for the Email channel. States: Not configured, Not connected, Reconnect needed, Connected.",
+    "- External tools > Mailbox (Nylas): the mailbox for the Email channel, one per organization. Connect by signing in with Google/Outlook, or paste the grant ID of a mailbox that already exists in Nylas (e.g. a Nylas agent account). Each organization can use the shared Nylas application or its own (client ID, API key, optional webhook secret). States: Not configured, Not connected, Reconnect needed, Connected.",
   ].join("\n"),
 
   skills: [
@@ -133,7 +133,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
 
   email_domains: [
     "Settings > Email domains (/settings/email-domains).",
-    "- Outbound email may only go to approved domains (exact match). Anything not approved is refused.",
+    "- 'Only email approved domains' is off by default: the worker may email any domain. Turned on, outbound email (replies included) may only go to approved domains (exact match); anything else is refused.",
     "- This list only controls where the worker may send email from its mailbox. It does not affect who can chat with the worker (that's Guardrails > Allowed email domains), and Gmail integration sends are approved one by one in the approval queue instead.",
   ].join("\n"),
 
@@ -155,9 +155,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   not_available: [
     "Not built yet (say so plainly if asked, and suggest the nearest workaround):",
     "- Voice channel.",
-    "- Inbound email handling (the worker reading and answering a support inbox by itself).",
-    "- Escalation notifications by email (Manager email is stored but unused).",
-    "- Pausing the worker (Status is stored but not enforced), Automatic replies toggle, Locale, Short bio, Browser use tool.",
+    "- Pausing the worker (Status is stored but not enforced), Automatic replies for chat (it only applies to email), Locale, Short bio, Browser use tool.",
     "- AgentDB and Agent Artifacts in the worker's own answers.",
     "- Ticketing integration.",
     "- In this Assistant: .docx/.pptx/.xlsx uploads, OCR of scanned PDFs, image understanding, editing Settings it has no tool for.",

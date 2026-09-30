@@ -95,6 +95,9 @@ export const workerProfiles = pgTable(
     managerName: text("manager_name").notNull().default("Manager"),
     managerEmail: text("manager_email"),
     autoReply: boolean("auto_reply").notNull().default(true),
+    // Settings > Email domains: on = the worker may only email approved
+    // domains; off (default) = any domain.
+    restrictEmailDomains: boolean("restrict_email_domains").notNull().default(false),
 
     // Tools (settings > Tools) — toggles only; each tool is a decoupled,
     // externally-connected integration per R6, never baked into the harness.
@@ -171,11 +174,18 @@ export const conversations = pgTable(
     // Soft-delete: archived conversations are hidden by default and
     // restorable, instead of the row being gone for good.
     archived: boolean("archived").notNull().default(false),
+    // Email channel: the provider's thread id (Nylas thread_id), so a reply
+    // in the same email thread lands on the same conversation.
+    externalThreadId: text("external_thread_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     orgIdx: index("conversations_org_idx").on(table.organizationId),
+    orgExternalThreadIdx: index("conversations_org_external_thread_idx").on(
+      table.organizationId,
+      table.externalThreadId,
+    ),
     orgTicketUnique: uniqueIndex("conversations_org_ticket_unique").on(
       table.organizationId,
       table.ticketNumber,
@@ -205,10 +215,17 @@ export const messages = pgTable(
     // Assistant reply showed. Only the kinds are stored; the panel reads live
     // data when rendered, so it never shows stale state after a change.
     panels: jsonb("panels").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // Email channel: the provider's message id (Nylas message id). Unique, so
+    // a retried webhook delivery can't store (or answer) the same email twice;
+    // it is also what a reply threads under.
+    externalMessageId: text("external_message_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     conversationIdx: index("messages_conversation_idx").on(table.conversationId),
+    externalMessageUnique: uniqueIndex("messages_external_message_id_unique")
+      .on(table.externalMessageId)
+      .where(sql`${table.externalMessageId} IS NOT NULL`),
   }),
 );
 
@@ -512,6 +529,7 @@ export const nylasMailboxes = pgTable(
   },
   (table) => ({
     orgUnique: uniqueIndex("nylas_mailboxes_org_unique").on(table.organizationId),
+    grantUnique: uniqueIndex("nylas_mailboxes_grant_unique").on(table.grantId),
   }),
 );
 

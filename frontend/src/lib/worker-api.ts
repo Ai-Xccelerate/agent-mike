@@ -96,6 +96,8 @@ export type WorkerProfile = {
   managerName: string;
   managerEmail: string | null;
   autoReply: boolean;
+  /** Settings > Email domains: on = the worker may only email approved domains. */
+  restrictEmailDomains: boolean;
   toolsConfig: ToolsConfig;
   channelsConfig: ChannelsConfig;
   ticketPrefix: string;
@@ -707,6 +709,8 @@ export type MailboxStatus = {
   api_url: string | null;
   /** What must be registered as a callback URI on the Nylas application. */
   callback_uri: string;
+  /** Where to point the Nylas application's message.created webhook (inbound email). */
+  webhook_url: string;
   /** Whether this agent is on its own Nylas application or the fleet's. */
   credentials: CredentialSummary;
   unavailableReason: string | null;

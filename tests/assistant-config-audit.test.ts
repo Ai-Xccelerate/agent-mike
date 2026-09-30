@@ -124,7 +124,7 @@ describe("auditWorkerConfiguration", () => {
       }),
     );
     expect(findings.find((f) => f.area === "Identity")?.issue).toContain("isn't enforced");
-    expect(findings.find((f) => f.area === "Human manager")?.issue).toContain("aren't sent yet");
+    expect(findings.find((f) => f.area === "Human manager")?.issue).toContain("nobody is emailed");
     expect(findings.some((f) => f.issue.includes("Browser use"))).toBe(true);
   });
 
