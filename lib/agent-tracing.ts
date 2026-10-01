@@ -1,5 +1,5 @@
 import { Runner, getGlobalTraceProvider } from "@openai/agents";
-import type { Agent } from "@openai/agents";
+import type { Agent, RunStreamEvent } from "@openai/agents";
 
 export const CUSTOMER_CHAT_WORKFLOW = "Customer chat";
 export const ASSISTANT_CHAT_WORKFLOW = "Assistant chat";
@@ -39,6 +39,37 @@ export async function runTracedAgent(
       maxTurns: options.maxTurns,
       ...(options.context !== undefined ? { context: options.context } : {}),
     });
+  } finally {
+    await getGlobalTraceProvider()
+      .forceFlush()
+      .catch(() => undefined);
+  }
+}
+
+/**
+ * runTracedAgent, streamed: hands every run event to `onEvent` as it happens
+ * (text deltas, tool calls) and resolves once the run has finished, with the
+ * same result shape. A failed run throws, like the non-streamed call.
+ */
+export async function runTracedAgentStreamed(
+  workflowName: string,
+  ctx: AgentTraceContext,
+  agent: Agent,
+  input: string,
+  options: { maxTurns: number; context?: unknown },
+  onEvent: (event: RunStreamEvent) => void,
+) {
+  const runner = new Runner(agentTraceRunConfig(workflowName, ctx));
+  try {
+    const result = await runner.run(agent, input, {
+      stream: true,
+      maxTurns: options.maxTurns,
+      ...(options.context !== undefined ? { context: options.context } : {}),
+    });
+    for await (const event of result) onEvent(event);
+    await result.completed;
+    if (result.error) throw result.error;
+    return result;
   } finally {
     await getGlobalTraceProvider()
       .forceFlush()

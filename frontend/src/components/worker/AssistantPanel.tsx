@@ -60,13 +60,13 @@ export default function AssistantPanel({
 
   if (failed) {
     return (
-      <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-4 text-xs text-gray-500 dark:border-gray-800 dark:bg-white/[0.03]">
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 text-xs text-gray-500 dark:border-gray-800 dark:bg-white/[0.03]">
         Couldn&apos;t load this panel. Try again in a moment.
       </div>
     );
   }
   if (!panel) {
-    return <div className="mt-3 h-24 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />;
+    return <div className="h-24 animate-pulse rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]" />;
   }
 
   const visible = showAll ? panel.items : panel.items.slice(0, 8);
@@ -74,7 +74,7 @@ export default function AssistantPanel({
   return (
     <section
       aria-label={panel.title}
-      className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]"
+      className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]"
     >
       <header className="flex items-start justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-gray-800">
         <div className="min-w-0">

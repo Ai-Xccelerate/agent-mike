@@ -8,7 +8,8 @@ import {
   type StagedAttachment,
 } from "@/components/worker/AssistantAttachmentChips";
 import AssistantHistoryPanel from "@/components/worker/AssistantHistoryPanel";
-import AssistantPanel from "@/components/worker/AssistantPanel";
+import { AssistantCardsContext, type AssistantCardsContextValue } from "@/components/worker/assistant-cards/AssistantCards";
+import AssistantCopilot, { ASSISTANT_AGENT_ID } from "@/components/worker/assistant-cards/AssistantCopilot";
 import Markdown from "@/components/worker/Markdown";
 import {
   ArrowUpIcon,
@@ -33,6 +34,7 @@ import {
   AttachmentIntent,
   Conversation,
   Message,
+  MessageAttachment,
   uploadAssistantAttachments,
   WorkerApiError,
   WorkerProfile,
@@ -48,9 +50,12 @@ import {
   saveDraft,
   subscribeToLastConversation,
 } from "@/lib/assistant-session";
+import { toAguiMessages } from "@/lib/assistant-cards";
+import type { AbstractAgent, Message as AguiMessage, ToolMessage } from "@ag-ui/client";
+import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 const MESSAGE_MAX_LENGTH = 4000;
 const MAX_ATTACHMENTS = 5;
@@ -92,7 +97,25 @@ function greetingForHour(hour: number): string {
   return "Good evening";
 }
 
+/**
+ * The admin Assistant page. Replies stream over AG-UI through CopilotKit
+ * (components/worker/assistant-cards/AssistantCopilot.tsx): the agent holds
+ * the chat's messages, and each reply's cards are tool calls CopilotKit
+ * renders. Everything around the chat (history, attachments, approvals,
+ * panels, the address bar) is this page's own.
+ */
 export default function WorkerAssistant() {
+  return (
+    <AssistantCopilot>
+      <AssistantChat />
+    </AssistantCopilot>
+  );
+}
+
+function AssistantChat() {
+  const { agent } = useAgent({ agentId: ASSISTANT_AGENT_ID });
+  const renderToolCall = useRenderToolCall();
+  const messages = agent.messages;
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   // The open chat lives in the URL (?c=<id>), so a reload, the back button,
   // leaving for Settings, or Chrome discarding the tab all come back to it.
@@ -115,7 +138,10 @@ export default function WorkerAssistant() {
   const [awaitingReply, setAwaitingReply] = useState(false);
   const [canChange, setCanChange] = useState(true);
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  // The files each manager message carried; AG-UI messages are text only.
+  const [attachmentsByMessage, setAttachmentsByMessage] = useState<Record<string, MessageAttachment[]>>({});
+  // What the assistant is doing in the reply being written ("Looked up conversations").
+  const [activity, setActivity] = useState<string[]>([]);
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -148,6 +174,13 @@ export default function WorkerAssistant() {
     inputRef.current?.focus();
   });
 
+  function showStoredMessages(stored: Message[]) {
+    agent.setMessages(toAguiMessages(stored));
+    setAttachmentsByMessage(
+      Object.fromEntries(stored.filter((message) => message.attachments?.length).map((message) => [message.id, message.attachments!])),
+    );
+  }
+
   function openConversation(id: string | null, mode: "push" | "replace" = "push") {
     const url = id ? `/assistant?c=${id}` : "/assistant?new=1";
     if (mode === "replace") router.replace(url, { scroll: false });
@@ -175,7 +208,7 @@ export default function WorkerAssistant() {
   useEffect(() => {
     if (!conversationId) {
       loadedIdRef.current = null;
-      setMessages([]);
+      showStoredMessages([]);
       setConversationTitle(null);
       setPendingActions([]);
       setAwaitingReply(false);
@@ -188,7 +221,8 @@ export default function WorkerAssistant() {
     let timer: number | undefined;
 
     const apply = (conversation: Conversation) => {
-      setMessages(conversation.messages ?? []);
+      bindThread(agent, conversation.id);
+      showStoredMessages(conversation.messages ?? []);
       setConversationTitle(conversation.subject ?? null);
       setPendingActions(conversation.pendingActions ?? []);
       if (typeof conversation.canChange === "boolean") setCanChange(conversation.canChange);
@@ -257,7 +291,7 @@ export default function WorkerAssistant() {
             setNotice("That chat isn't available anymore, so here's a new one.");
             openConversation(null, "replace");
           } else {
-            setMessages([]);
+            showStoredMessages([]);
           }
           return;
         }
@@ -286,7 +320,7 @@ export default function WorkerAssistant() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, loading]);
+  }, [messages, loading, activity]);
 
   async function addFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList);
@@ -330,18 +364,7 @@ export default function WorkerAssistant() {
   }
 
   function addLocalAgentMessage(body: string) {
-    setMessages((items) => [
-      ...items,
-      {
-        id: `local-agent-${++localIdRef.current}`,
-        conversationId: conversationId ?? "",
-        senderType: "agent",
-        senderName: `${displayName} Assistant`,
-        body,
-        citations: [],
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+    agent.addMessage({ id: `local-agent-${++localIdRef.current}`, role: "assistant", content: body });
   }
 
   /**
@@ -403,7 +426,6 @@ export default function WorkerAssistant() {
     }
     if (!structured && staged.some((item) => item.status === "uploading")) return;
 
-    const managerName = profile?.managerName ?? "You";
     const shownText =
       trimmed ||
       (decision ? (decision === "approve" ? "Approve" : "Cancel") : uiAction ? uiAction.label : "(Attached files)");
@@ -420,19 +442,10 @@ export default function WorkerAssistant() {
     }
     setNotice(null);
     const optimisticId = `manager-local-${++localIdRef.current}`;
-    setMessages((items) => [
-      ...items,
-      {
-        id: optimisticId,
-        conversationId: conversationId ?? "",
-        senderType: "manager",
-        senderName: managerName,
-        body: shownText,
-        citations: [],
-        attachments: ready.map((item) => ({ id: item.id!, filename: item.filename, intent: item.intent })),
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+    const sentFiles = ready.map((item) => ({ id: item.id!, filename: item.filename, intent: item.intent }));
+    bindThread(agent, conversationId ?? newConversationId!);
+    agent.addMessage({ id: optimisticId, role: "user", content: shownText });
+    if (sentFiles.length) setAttachmentsByMessage((prev) => ({ ...prev, [optimisticId]: sentFiles }));
     const stagedBefore = staged;
     if (!structured) {
       setValue("");
@@ -440,35 +453,69 @@ export default function WorkerAssistant() {
       setAttachError(null);
     }
     setPendingActions([]);
+    setActivity([]);
     setLoading(true);
+    const steps: string[] = [];
     try {
-      const response = await apiFetch<AssistantChatResponse>("/assistant/chat", {
-        method: "POST",
-        body: JSON.stringify({
-          message: trimmed || (showPanel ? shownText : undefined),
-          conversation_id: conversationId ?? undefined,
-          new_conversation_id: newConversationId ?? undefined,
-          attachments: ready.length ? ready.map((item) => ({ id: item.id, intent: item.intent })) : undefined,
-          approval_decision: decision ? { decision, approval_ids: approvalIds } : undefined,
-          ui_action: uiAction ? { tool: uiAction.tool, args: uiAction.args, label: uiAction.label } : undefined,
-          show_panel: showPanel,
-        }),
-      });
-      loadedIdRef.current = response.conversation_id;
+      let response: AssistantChatResponse | null = null;
+      let failure: string | null = null;
+      await agent.runAgent(
+        {
+          forwardedProps: {
+            // What was typed; a click or a files-only send is described by
+            // the fields below, and the server words it.
+            message: trimmed || (showPanel ? shownText : null),
+            conversation_id: conversationId ?? undefined,
+            new_conversation_id: newConversationId ?? undefined,
+            attachments: ready.length ? ready.map((item) => ({ id: item.id, intent: item.intent })) : undefined,
+            approval_decision: decision ? { decision, approval_ids: approvalIds } : undefined,
+            ui_action: uiAction ? { tool: uiAction.tool, args: uiAction.args, label: uiAction.label } : undefined,
+            show_panel: showPanel,
+          },
+        },
+        {
+          onStepStartedEvent: ({ event }) => {
+            if (steps.includes(event.stepName)) return;
+            steps.push(event.stepName);
+            setActivity([...steps]);
+          },
+          onCustomEvent: ({ event }) => {
+            if (event.name === "assistant.turn") response = event.value as AssistantChatResponse;
+          },
+          onRunErrorEvent: ({ event }) => {
+            failure = event.message;
+          },
+          onRunFailed: ({ error }) => {
+            failure = error.message;
+          },
+        },
+      );
+      if (!response) throw new Error(failure ?? "No reply came back");
+      const turn: AssistantChatResponse = response;
+      loadedIdRef.current = turn.conversation_id;
       const isNew = !conversationId;
       if (newConversationId) markPendingConversation(newConversationId, false);
-      if (response.conversation_id !== (conversationId ?? newConversationId)) {
-        openConversation(response.conversation_id, "replace");
+      if (turn.conversation_id !== (conversationId ?? newConversationId)) {
+        openConversation(turn.conversation_id, "replace");
       }
-      if (typeof response.can_change === "boolean") setCanChange(response.can_change);
+      if (typeof turn.can_change === "boolean") setCanChange(turn.can_change);
       if (isNew) setRefreshKey((k) => k + 1);
-      if (response.conversation_title) setConversationTitle(response.conversation_title);
-      setMessages((items) => [
-        ...items.map((item) => (item.id === optimisticId && response.user_message ? response.user_message : item)),
-        response.message,
-      ]);
-      setPendingActions(response.pending_actions ?? []);
-      if (response.changes_applied) {
+      if (turn.conversation_title) setConversationTitle(turn.conversation_title);
+      // The stored ids and text are the record: the user message gets its
+      // server id, and the reply keeps exactly what was saved.
+      agent.setMessages(
+        agent.messages.map((item) => {
+          if (item.id === optimisticId) return { ...item, id: turn.user_message.id };
+          if (item.id === turn.message.id && item.role === "assistant") return { ...item, content: turn.message.body };
+          return item;
+        }),
+      );
+      if (!agent.messages.some((item) => item.id === turn.message.id)) {
+        agent.addMessages(toAguiMessages([turn.message]));
+      }
+      if (sentFiles.length) setAttachmentsByMessage((prev) => ({ ...prev, [turn.user_message.id]: sentFiles }));
+      setPendingActions(turn.pending_actions ?? []);
+      if (turn.changes_applied) {
         setPanelRefresh((n) => n + 1);
         // Tell the sidebar, favicon, and this page about the new name/avatar/etc.
         // - the same event Settings fires after saving.
@@ -476,10 +523,10 @@ export default function WorkerAssistant() {
           .then((next) => window.dispatchEvent(new CustomEvent(IDENTITY_UPDATED_EVENT, { detail: next })))
           .catch(() => undefined);
       }
-      if (response.connect_link) followConnection(response.connect_link, popup ?? null);
+      if (turn.connect_link) followConnection(turn.connect_link, popup ?? null);
       else popup?.close();
-      if (response.tools_used?.length) {
-        setToolsByMessage((prev) => ({ ...prev, [response.message.id]: response.tools_used }));
+      if (turn.tools_used?.length || steps.length) {
+        setToolsByMessage((prev) => ({ ...prev, [turn.message.id]: turn.tools_used?.length ? turn.tools_used : steps }));
       }
       setPreview(false);
     } catch (error) {
@@ -488,20 +535,10 @@ export default function WorkerAssistant() {
       // Nothing was sent, so give the manager their files back to retry.
       if (!structured) setStaged(stagedBefore);
       const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
-      setMessages((items) => [
-        ...items,
-        {
-          id: `fallback-${Date.now()}`,
-          conversationId: conversationId ?? "",
-          senderType: "agent",
-          senderName: `${profile ? displayName : "Your worker"} Assistant`,
-          body: `Sorry, I couldn't finish that${detail}. Nothing was changed, so feel free to try again in a moment.`,
-          citations: [],
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      addLocalAgentMessage(`Sorry, I couldn't finish that${detail}. Nothing was changed, so feel free to try again in a moment.`);
     } finally {
       setLoading(false);
+      setActivity([]);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
@@ -525,7 +562,7 @@ export default function WorkerAssistant() {
     rememberLastConversation(lastKey, null);
     setNotice(null);
     openConversation(null);
-    setMessages([]);
+    showStoredMessages([]);
     setConversationTitle(null);
     setValue("");
     setStaged([]);
@@ -533,6 +570,27 @@ export default function WorkerAssistant() {
     setAttachError(null);
     inputRef.current?.focus();
   }
+
+  // The reply being written: the assistant message after the last manager
+  // message, if it has started. Card results (role "tool") come after it, so
+  // "the last message" isn't it.
+  const lastUserIndex = messages.findLastIndex((message) => message.role === "user");
+  const liveReplyId = loading
+    ? messages.slice(lastUserIndex + 1).find((message) => message.role === "assistant")?.id ?? null
+    : null;
+
+  const toolResults = useMemo(() => {
+    const results = new Map<string, ToolMessage>();
+    for (const message of messages) if (message.role === "tool") results.set(message.toolCallId, message);
+    return results;
+  }, [messages]);
+
+  const cardsContext: AssistantCardsContextValue = {
+    busy: loading,
+    panelRefresh,
+    onPanelAction: (action, item) =>
+      void send("", { uiAction: { tool: action.tool, args: action.args, label: `${action.label}: ${item.title}` } }),
+  };
 
   const managerName = profile?.managerName;
   // Until sign-in state is known we can't tell whether a chat is about to be
@@ -542,6 +600,7 @@ export default function WorkerAssistant() {
   const hasReadyFiles = staged.some((item) => item.status === "ready");
 
   return (
+    <AssistantCardsContext.Provider value={cardsContext}>
     <div className="flex h-full min-h-0 flex-1 overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-gray-300 px-5 dark:border-white/15">
@@ -637,38 +696,34 @@ export default function WorkerAssistant() {
           ) : (
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
               {messages.map((message) => {
-                const isAgent = message.senderType === "agent";
-                return isAgent ? (
+                if (message.role === "user") {
+                  return (
+                    <div key={message.id} className="flex flex-col items-end">
+                      <SentAttachmentChips attachments={attachmentsByMessage[message.id] ?? []} />
+                      <p className="max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand-500 px-4 py-3 text-left text-sm leading-6 text-white">
+                        {textOf(message)}
+                      </p>
+                    </div>
+                  );
+                }
+                if (message.role !== "assistant") return null;
+                const text = textOf(message);
+                const toolCalls = message.toolCalls ?? [];
+                const live = message.id === liveReplyId;
+                const used = live ? activity : toolsByMessage[message.id];
+                if (!text && toolCalls.length === 0 && !live) return null;
+                return (
                   <div key={message.id} className="flex gap-2.5">
                     <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-                    <div className="max-w-[82%] pt-1 text-sm leading-6 text-gray-700 dark:text-gray-200">
-                      {toolsByMessage[message.id]?.length ? (
-                        <p className="mb-1 text-[11px] text-gray-400 dark:text-gray-500">
-                          {toolsByMessage[message.id].join(" · ")}
-                        </p>
+                    <div className="flex min-w-0 max-w-[82%] flex-1 flex-col gap-3 pt-1 text-sm leading-6 text-gray-700 dark:text-gray-200">
+                      {used?.length ? (
+                        <p className="-mb-2 text-[11px] text-gray-400 dark:text-gray-500">{used.join(" · ")}</p>
                       ) : null}
-                      <Markdown>{message.body}</Markdown>
-                      {(message.panels ?? []).map((kind) => (
-                        <AssistantPanel
-                          key={kind}
-                          kind={kind}
-                          refreshToken={panelRefresh}
-                          disabled={loading}
-                          onAction={(action, item) =>
-                            void send("", {
-                              uiAction: { tool: action.tool, args: action.args, label: `${action.label}: ${item.title}` },
-                            })
-                          }
-                        />
+                      {toolCalls.map((toolCall) => (
+                        <div key={toolCall.id}>{renderToolCall({ toolCall, toolMessage: toolResults.get(toolCall.id) })}</div>
                       ))}
+                      {text && <Markdown>{text}</Markdown>}
                     </div>
-                  </div>
-                ) : (
-                  <div key={message.id} className="flex flex-col items-end">
-                    <SentAttachmentChips attachments={message.attachments ?? []} />
-                    <p className="max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand-500 px-4 py-3 text-left text-sm leading-6 text-white">
-                      {message.body}
-                    </p>
                   </div>
                 );
               })}
@@ -684,9 +739,12 @@ export default function WorkerAssistant() {
                 </div>
               )}
 
-              {loading && (
+              {loading && !liveReplyId && (
                 <div className="flex items-center gap-2.5">
                   <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
+                  {activity.length > 0 && (
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500">{activity[activity.length - 1]}…</p>
+                  )}
                   <div className="flex gap-1 px-1 py-3">
                     <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
                     <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
@@ -819,5 +877,21 @@ export default function WorkerAssistant() {
         onClose={() => setHistoryOpen(false)}
       />
     </div>
+    </AssistantCardsContext.Provider>
   );
+}
+
+/** The agent's thread is the open chat, so AG-UI's threadId matches the conversation id. */
+function bindThread(agent: AbstractAgent, conversationId: string) {
+  agent.threadId = conversationId;
+}
+
+/** A message's text, whether AG-UI carries it as a string or as parts. */
+function textOf(message: AguiMessage): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((part: { type?: string; text?: string }) => (part.type === "text" ? part.text ?? "" : "")).join("");
+  }
+  return "";
 }

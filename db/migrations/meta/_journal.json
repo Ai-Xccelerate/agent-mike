@@ -197,6 +197,13 @@
       "when": 1790660000008,
       "tag": "0027_email_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790660000009,
+      "tag": "0028_assistant_message_cards",
+      "breakpoints": true
     }
   ]
 }

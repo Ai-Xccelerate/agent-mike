@@ -9,7 +9,9 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@ag-ui/client": "1.0.1",
     "@clerk/nextjs": "^7.9.4",
+    "@copilotkit/react-core": "1.76.0",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/postcss": "^4.1.17",
     "autoprefixer": "^10.4.22",
@@ -18,7 +20,8 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-markdown": "^9.1.0",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^2.6.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
