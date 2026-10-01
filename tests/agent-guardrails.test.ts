@@ -105,7 +105,8 @@ describe("runAgent guardrail tripwires", () => {
     );
     expect(result).toEqual(declineOutOfScopeReply(profile));
     expect(result.escalate).toBe(false);
-    expect(result.answer).toContain("outside what I cover");
+    expect(result.answer).toContain("outside what I can help with");
+    expect(result.answer).not.toContain("—");
   });
 
   it("maps OutputGuardrailTripwireTriggered to the manager handoff", async () => {

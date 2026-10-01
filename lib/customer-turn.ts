@@ -30,6 +30,37 @@ export async function nextTicketNumber(organizationId: string): Promise<number> 
   return Number(result.rows[0]?.next_ticket ?? 1001);
 }
 
+/**
+ * Insert a new conversation with the org's next ticket number. Two
+ * conversations started at the same moment (two website visitors, an email
+ * arriving during a chat) read the same max(ticket_number), and the second
+ * insert used to fail on conversations_org_ticket_unique with a 500. A taken
+ * number is skipped and the next one tried instead.
+ */
+export async function insertConversationWithTicket(
+  values: Omit<typeof conversations.$inferInsert, "ticketNumber">,
+): Promise<typeof conversations.$inferSelect> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const ticketNumber = (await nextTicketNumber(values.organizationId)) + attempt;
+    const [row] = await db
+      .insert(conversations)
+      .values({ ...values, ticketNumber })
+      .onConflictDoNothing({ target: [conversations.organizationId, conversations.ticketNumber] })
+      .returning();
+    if (row) return row;
+  }
+  throw new Error("Couldn't allocate a ticket number for the new conversation");
+}
+
+/**
+ * What the conversation already says about who the customer is: an email's
+ * sender address and name. The website widget's placeholder name isn't one.
+ */
+function knownCustomerOf(conversation: { customerName: string; customerEmail: string | null }) {
+  const name = conversation.customerName && conversation.customerName !== "Website visitor" ? conversation.customerName : null;
+  return { name, email: conversation.customerEmail };
+}
+
 export interface CustomerTurn {
   reply: MessageRow;
   result: RunAgentResult;
@@ -86,6 +117,7 @@ export async function runCustomerTurn(input: {
         conversation.summary,
         speakerName,
         conversation.channel,
+        knownCustomerOf(conversation),
       );
     } catch {
       // A model/runtime failure (MaxTurnsExceededError, provider outage) must

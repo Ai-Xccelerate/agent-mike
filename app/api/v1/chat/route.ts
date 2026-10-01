@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
-import { nextTicketNumber, runCustomerTurn } from "@/lib/customer-turn";
+import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 
 /** Roughly 2,500 words — a long email thread, not a pasted document. */
 const MAX_MESSAGE_LENGTH = 10000;
@@ -73,17 +73,11 @@ export async function POST(req: NextRequest) {
     : [];
 
   if (!conversation) {
-    const nextTicket = await nextTicketNumber(tenant.orgId);
-
-    [conversation] = await db
-      .insert(conversations)
-      .values({
-        organizationId: tenant.orgId,
-        ticketNumber: nextTicket,
-        channel: tenant.source === "widget" ? "widget" : "chat",
-        subject: message.slice(0, 120),
-      })
-      .returning();
+    conversation = await insertConversationWithTicket({
+      organizationId: tenant.orgId,
+      channel: tenant.source === "widget" ? "widget" : "chat",
+      subject: message.slice(0, 120),
+    });
   }
 
   const speakerName = tenant.source === "widget" ? conversation.customerName : "Manager";

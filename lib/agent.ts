@@ -1227,6 +1227,8 @@ export function buildIdentityBlock(
   return `You are ${displayName}, an AI worker for ${organizationName}.\nRole: ${role}\nTone: ${tone}`;
 }
 
+export type KnownCustomer = { name?: string | null; email?: string | null };
+
 export async function buildInstructions(
   profile: WorkerProfileLike,
   organizationName: string,
@@ -1234,6 +1236,8 @@ export async function buildInstructions(
   organizationId: string,
   /** Conversation channel — email signature is only for email replies. */
   channel: string = "chat",
+  /** Contact details the conversation already holds (an email's sender), so the worker never asks for them. */
+  knownCustomer?: KnownCustomer,
 ): Promise<string> {
   const identityLine = buildIdentityBlock(profile.displayName, organizationName, profile.role, profile.tone);
 
@@ -1279,6 +1283,17 @@ export async function buildInstructions(
     .filter(Boolean)
     .join("\n");
 
+  const knownLines = [
+    knownCustomer?.email ? `- Email: ${knownCustomer.email} (this conversation is with that address)` : "",
+    knownCustomer?.name ? `- Name: ${knownCustomer.name}` : "",
+  ].filter(Boolean);
+  // Without this, collect-before-escalate asked an emailer for the email
+  // address they had just written from, and the handoff stalled on it.
+  const knownCustomerBlock = knownLines.length
+    ? "\n\nWhat you already know about this customer (use it in any handoff summary and never ask for it again):\n" +
+      knownLines.join("\n")
+    : "";
+
   const jobDescriptionBlock = profile.jobDescription
     ? `\n\nJob description (additional detail on this role):\n${profile.jobDescription}`
     : "";
@@ -1305,6 +1320,7 @@ export async function buildInstructions(
     additionalInstructionsBlock +
     jobDescriptionBlock +
     (contactBlock ? `\n\n${contactBlock}` : "") +
+    knownCustomerBlock +
     knowledgeBlock +
     groundingRule +
     audienceBoundary +
@@ -1400,6 +1416,7 @@ export async function runAgent(
   summary: string | null = null,
   currentSpeaker = "Customer",
   channel: string = "chat",
+  knownCustomer?: KnownCustomer,
 ): Promise<RunAgentResult> {
   const unavailable = modelUnavailabilityReason();
   if (unavailable === "demo_mode") {
@@ -1425,6 +1442,7 @@ export async function runAgent(
     knowledge,
     organizationId,
     channel,
+    knownCustomer,
   );
   // A Confluence page read mid-turn is approved reference material too, so the
   // reply check mustn't treat an answer grounded in it as general knowledge.

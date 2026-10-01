@@ -396,11 +396,12 @@ export function declineOutOfScopeReply(
 ): { answer: string; confidence: number; escalate: boolean; citations: string[] } {
   const roleFocus = profile.role.split(/[.\n]/)[0]?.trim() || profile.role.trim();
   return {
+    // Role-neutral: workers aren't all product support, and customer-facing
+    // copy never uses an em dash.
     answer:
-      `That request is outside what I cover here` +
-      (roleFocus ? ` (${roleFocus})` : "") +
-      `. I help with product support using our approved knowledge — if you have a question ` +
-      `about using the product or your account, send that and I'll help.`,
+      `That's outside what I can help with here.` +
+      (roleFocus ? ` My role: ${roleFocus.charAt(0).toLowerCase()}${roleFocus.slice(1)}.` : "") +
+      ` If you have a question about that, send it and I'll help.`,
     confidence: Math.min(0.55, profile.confidenceThreshold),
     escalate: false,
     citations: [],

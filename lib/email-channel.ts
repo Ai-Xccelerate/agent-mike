@@ -2,7 +2,7 @@ import { and, asc, desc, eq, isNotNull, lt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getOrCreateProfile } from "@/lib/bootstrap";
-import { nextTicketNumber, runCustomerTurn } from "@/lib/customer-turn";
+import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 import { inboundEmailText, replySubject } from "@/lib/email-text";
 import { publicAppUrl } from "@/lib/env";
 import { getMailboxByGrantId } from "@/lib/mailbox-repository";
@@ -118,18 +118,14 @@ async function storeInboundEmail(email: InboundEmail): Promise<InboundOutcome> {
     .limit(1);
 
   if (!conversation) {
-    [conversation] = await db
-      .insert(conversations)
-      .values({
-        organizationId,
-        ticketNumber: await nextTicketNumber(organizationId),
-        channel: "email",
-        customerName: customerNameFor(email.senderName, email.senderEmail),
-        customerEmail: email.senderEmail,
-        subject: (email.subject || email.text).slice(0, 120),
-        externalThreadId: threadId,
-      })
-      .returning();
+    conversation = await insertConversationWithTicket({
+      organizationId,
+      channel: "email",
+      customerName: customerNameFor(email.senderName, email.senderEmail),
+      customerEmail: email.senderEmail,
+      subject: (email.subject || email.text).slice(0, 120),
+      externalThreadId: threadId,
+    });
   }
 
   try {
