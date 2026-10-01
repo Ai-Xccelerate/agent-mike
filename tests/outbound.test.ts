@@ -1,7 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
+
+const sendWithGmailMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/composio-email", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/composio-email")>();
+  return { ...actual, sendWithGmail: sendWithGmailMock };
+});
+
 import { db } from "@/lib/db";
-import { emailDomains, nylasMailboxes, organizations, workerProfiles } from "@/db/schema";
+import { emailDomains, integrationConnections, nylasMailboxes, organizations, workerProfiles } from "@/db/schema";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { OutboundBlocked, applyEmailSignature, blockedRecipients, sendAsWorker } from "@/lib/outbound";
 
@@ -183,5 +190,70 @@ describe("applyEmailSignature", () => {
   it("leaves the body alone when no signature is configured", () => {
     expect(applyEmailSignature("Thanks.", "")).toBe("Thanks.");
     expect(applyEmailSignature("Thanks.", null)).toBe("Thanks.");
+  });
+});
+
+describe("which mailbox sends (db)", () => {
+  const GMAIL_ORG = "outbound-gmail-test-org";
+  let demo: string | undefined;
+
+  beforeEach(async () => {
+    demo = process.env.DEMO_MODE;
+    process.env.DEMO_MODE = "false";
+    sendWithGmailMock.mockReset();
+    sendWithGmailMock.mockResolvedValue({ id: "gmail-sent-1" });
+    await db.insert(organizations).values({ id: GMAIL_ORG, name: "Gmail Outbound Test" }).onConflictDoNothing();
+    await getOrCreateProfile(GMAIL_ORG);
+    await db.update(workerProfiles).set({ emailSignature: "" }).where(eq(workerProfiles.organizationId, GMAIL_ORG));
+    await db.insert(integrationConnections).values({
+      organizationId: GMAIL_ORG,
+      integrationType: "email",
+      system: "gmail",
+      composioAuthConfigId: "ac_test",
+      composioConnectedAccountId: "ca_outbound",
+      status: "active",
+    });
+  });
+
+  afterEach(async () => {
+    await db.delete(organizations).where(eq(organizations.id, GMAIL_ORG));
+    if (demo === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = demo;
+  });
+
+  it("sends through the connected Gmail, in the thread, when there is no Nylas mailbox", async () => {
+    const sent = await sendAsWorker({
+      orgId: GMAIL_ORG,
+      to: [{ email: "anna@customer.com" }],
+      subject: "Re: Invoice",
+      body: "Refunded.",
+      threadId: "gthread-1",
+    });
+    expect(sent).toEqual({ id: "gmail-sent-1", to: ["anna@customer.com"], demo: false });
+    expect(sendWithGmailMock).toHaveBeenCalledWith({
+      organizationId: GMAIL_ORG,
+      connectedAccountId: "ca_outbound",
+      to: "anna@customer.com",
+      subject: "Re: Invoice",
+      html: "<p>Refunded.</p>",
+      threadId: "gthread-1",
+    });
+  });
+
+  it("refuses rather than half-send to more than one recipient", async () => {
+    await expect(
+      sendAsWorker({ orgId: GMAIL_ORG, to: [{ email: "a@x.com" }, { email: "b@x.com" }], subject: "s", body: "b" }),
+    ).rejects.toBeInstanceOf(OutboundBlocked);
+    expect(sendWithGmailMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the Gmail connection is not active", async () => {
+    await db
+      .update(integrationConnections)
+      .set({ status: "pending" })
+      .where(eq(integrationConnections.organizationId, GMAIL_ORG));
+    await expect(
+      sendAsWorker({ orgId: GMAIL_ORG, to: [{ email: "a@x.com" }], subject: "s", body: "b" }),
+    ).rejects.toMatchObject({ reason: "no_mailbox" });
   });
 });

@@ -11,8 +11,15 @@ import {
   resolveNylasCredentials,
   toNylasMessage,
   verifyWebhookSignature,
-  type NylasMessage,
 } from "@/lib/nylas";
+import {
+  GMAIL_NEW_MESSAGE_TRIGGER,
+  composioWebhookSecret,
+  isAutomatedEmail,
+  toGmailInbound,
+} from "@/lib/composio-email";
+import { getComposioClient } from "@/lib/tools-integrations/composio-client";
+import { getConnectionByConnectedAccountId } from "@/lib/tools-integrations/connection-repository";
 import { OutboundBlocked, sendAsWorker } from "@/lib/outbound";
 
 /**
@@ -21,9 +28,9 @@ import { OutboundBlocked, sendAsWorker } from "@/lib/outbound";
  * human who takes over answers from the Inbox instead.
  *
  * Everything is scoped by the mailbox the email arrived at. A webhook carries
- * no session, so the Nylas grant id is the only thing that says which
- * organization it belongs to, and that organization's own Nylas application
- * (or the fleet's) is what verifies the delivery and fetches the message.
+ * no session, so the mailbox is the only thing that says which organization
+ * it belongs to: the Nylas grant id, or the Composio connected account for a
+ * Gmail account connected under Settings > Integrations.
  */
 
 type ConversationRow = typeof conversations.$inferSelect;
@@ -37,7 +44,7 @@ export type InboundOutcome =
       organizationId: string;
       conversationId: string;
       messageId: string;
-      /** The Nylas id of the customer's email, which the reply threads under. */
+      /** The provider's id of the customer's email, which the reply threads under. */
       inboundMessageId: string;
     };
 
@@ -47,10 +54,74 @@ function isUniqueViolation(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "23505");
 }
 
-function customerNameFor(message: NylasMessage): string {
-  const sender = message.from[0];
-  if (!sender) return "Email customer";
-  return sender.name || sender.email.split("@")[0] || sender.email;
+function customerNameFor(senderName: string, senderEmail: string): string {
+  return senderName || senderEmail.split("@")[0] || senderEmail || "Email customer";
+}
+
+/**
+ * One inbound email, already verified and attributed to an organization, as
+ * either provider delivers it.
+ */
+interface InboundEmail {
+  organizationId: string;
+  messageId: string;
+  threadId: string;
+  senderEmail: string;
+  senderName: string;
+  subject: string;
+  text: string;
+}
+
+/**
+ * Opens or continues the thread's conversation and stores the customer's
+ * message. The unique external message id turns a redelivery into a no-op.
+ */
+async function storeInboundEmail(email: InboundEmail): Promise<InboundOutcome> {
+  const { organizationId, threadId } = email;
+  let [conversation] = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.organizationId, organizationId), eq(conversations.externalThreadId, threadId)))
+    .limit(1);
+
+  if (!conversation) {
+    [conversation] = await db
+      .insert(conversations)
+      .values({
+        organizationId,
+        ticketNumber: await nextTicketNumber(organizationId),
+        channel: "email",
+        customerName: customerNameFor(email.senderName, email.senderEmail),
+        customerEmail: email.senderEmail,
+        subject: (email.subject || email.text).slice(0, 120),
+        externalThreadId: threadId,
+      })
+      .returning();
+  }
+
+  try {
+    const [stored] = await db
+      .insert(messages)
+      .values({
+        conversationId: conversation.id,
+        senderType: "customer",
+        senderName: conversation.customerName,
+        body: email.text,
+        externalMessageId: email.messageId,
+      })
+      .returning();
+    await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, conversation.id));
+    return {
+      kind: "stored",
+      organizationId,
+      conversationId: conversation.id,
+      messageId: stored.id,
+      inboundMessageId: email.messageId,
+    };
+  } catch (error) {
+    if (isUniqueViolation(error)) return { kind: "duplicate", conversationId: conversation.id };
+    throw error;
+  }
 }
 
 /**
@@ -100,51 +171,76 @@ export async function receiveNylasWebhook(rawBody: string, signature: string | n
   const text = inboundEmailText(message.body, message.snippet);
   if (!text) return { kind: "ignored", reason: "Email has no text" };
 
-  const threadId = message.threadId || message.id;
-  let [conversation] = await db
-    .select()
-    .from(conversations)
-    .where(and(eq(conversations.organizationId, organizationId), eq(conversations.externalThreadId, threadId)))
-    .limit(1);
+  return storeInboundEmail({
+    organizationId,
+    messageId: message.id,
+    threadId: message.threadId || message.id,
+    senderEmail: sender,
+    senderName: message.from[0]?.name ?? "",
+    subject: message.subject,
+    text,
+  });
+}
 
-  if (!conversation) {
-    [conversation] = await db
-      .insert(conversations)
-      .values({
-        organizationId,
-        ticketNumber: await nextTicketNumber(organizationId),
-        channel: "email",
-        customerName: customerNameFor(message),
-        customerEmail: sender,
-        subject: (message.subject || text).slice(0, 120),
-        externalThreadId: threadId,
-      })
-      .returning();
-  }
+/**
+ * Verifies and stores one Composio trigger delivery for a Gmail account
+ * connected under Settings > Integrations. Same contract as the Nylas
+ * receiver: fast, and the agent turn runs afterwards.
+ */
+export async function receiveComposioWebhook(request: Request): Promise<InboundOutcome> {
+  const secret = composioWebhookSecret();
+  if (!secret) return { kind: "rejected", reason: "COMPOSIO_WEBHOOK_SECRET is not set" };
 
+  let event: Awaited<ReturnType<ReturnType<typeof getComposioClient>["triggers"]["parse"]>>;
   try {
-    const [stored] = await db
-      .insert(messages)
-      .values({
-        conversationId: conversation.id,
-        senderType: "customer",
-        senderName: conversation.customerName,
-        body: text,
-        externalMessageId: message.id,
-      })
-      .returning();
-    await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, conversation.id));
-    return {
-      kind: "stored",
-      organizationId,
-      conversationId: conversation.id,
-      messageId: stored.id,
-      inboundMessageId: message.id,
-    };
+    event = await getComposioClient().triggers.parse(request, { verifySecret: secret });
   } catch (error) {
-    if (isUniqueViolation(error)) return { kind: "duplicate", conversationId: conversation.id };
-    throw error;
+    return {
+      kind: "rejected",
+      reason: `Signature or payload check failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
+
+  const { payload } = event;
+  if (payload.triggerSlug !== GMAIL_NEW_MESSAGE_TRIGGER) {
+    return { kind: "ignored", reason: `Not a new-Gmail-message trigger (${payload.triggerSlug || "none"})` };
+  }
+
+  // Which org this is for comes from the connected account alone, as with a
+  // Nylas grant. An unknown account is acknowledged and dropped.
+  const accountId = payload.metadata?.connectedAccount?.id ?? "";
+  const connection = accountId ? await getConnectionByConnectedAccountId(accountId) : null;
+  if (!connection || connection.integrationType !== "email" || connection.system !== "gmail") {
+    return { kind: "ignored", reason: "Connected account is not any organization's Gmail" };
+  }
+  if (payload.userId && payload.userId !== connection.organizationId) {
+    return { kind: "rejected", reason: "Delivery names a different organization than its connected account" };
+  }
+  if (connection.status !== "active") return { kind: "ignored", reason: "Gmail connection is not active" };
+  const organizationId = connection.organizationId;
+
+  const email = toGmailInbound(payload.payload);
+  if (!email) return { kind: "ignored", reason: "No message id or sender" };
+
+  const profile = await getOrCreateProfile(organizationId);
+  const ownAddress = (profile.email || "").trim().toLowerCase();
+  if (email.labelIds.includes("SENT") || email.labelIds.includes("DRAFT") || email.senderEmail === ownAddress) {
+    return { kind: "ignored", reason: "The worker's own outgoing email" };
+  }
+  if (isAutomatedEmail(email)) return { kind: "ignored", reason: "Automated email (bounce, auto-reply or list mail)" };
+
+  const text = inboundEmailText(email.body);
+  if (!text) return { kind: "ignored", reason: "Email has no text" };
+
+  return storeInboundEmail({
+    organizationId,
+    messageId: email.messageId,
+    threadId: email.threadId,
+    senderEmail: email.senderEmail,
+    senderName: email.senderName,
+    subject: email.subject,
+    text,
+  });
 }
 
 async function markNeedsHuman(conversationId: string, assignedTo: string) {
@@ -295,6 +391,7 @@ export async function processInboundEmail(stored: Extract<InboundOutcome, { kind
       subject: replySubject(conversation.subject),
       body: turn.reply.body,
       replyToMessageId: inboundMessageId,
+      threadId: conversation.externalThreadId,
     });
     await db.update(messages).set({ externalMessageId: sent.id }).where(eq(messages.id, turn.reply.id));
   } catch (error) {
@@ -353,6 +450,7 @@ export async function sendManagerEmailReply(conversation: ConversationRow, body:
       subject: replySubject(conversation.subject),
       body,
       replyToMessageId: lastInbound?.externalMessageId ?? null,
+      threadId: conversation.externalThreadId,
     });
     return sent.id;
   } catch (error) {

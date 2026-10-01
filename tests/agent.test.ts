@@ -818,6 +818,17 @@ describe("Gmail send/reply tools: wiring, write-approval gating, and direct exec
     expect(outlookTools.some((t) => (t as { name?: string }).name === GMAIL_REPLY_TO_THREAD_TOOL_NAME)).toBe(false);
   });
 
+  it("leaves out the Gmail write tools on an email conversation, where the channel sends the reply", async () => {
+    getConnectionForOrgMock.mockImplementation(async (_org, type) =>
+      type === "email" ? activeGmailConnection() : null,
+    );
+    const tools = await buildAgentTools({ toolsConfig: {} }, "org-1", null, undefined, "email");
+    const names = tools.map((t) => (t as { name?: string }).name);
+    expect(names).toContain(GMAIL_GET_MESSAGE_TOOL_NAME);
+    expect(names).not.toContain(GMAIL_SEND_EMAIL_TOOL_NAME);
+    expect(names).not.toContain(GMAIL_REPLY_TO_THREAD_TOOL_NAME);
+  });
+
   it("queues a pending approval instead of sending, by default (requireWriteApproval unset)", async () => {
     const orgId = `org-${crypto.randomUUID()}`;
     await ensureOrganization(orgId, "Gmail write-approval org");

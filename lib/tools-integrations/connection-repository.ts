@@ -101,6 +101,18 @@ export async function getConnectionForOrg(
   return row ?? null;
 }
 
+/** The connection a Composio connected account belongs to, for webhooks that carry no session. */
+export async function getConnectionByConnectedAccountId(
+  composioConnectedAccountId: string,
+): Promise<IntegrationConnection | null> {
+  const [row] = await db
+    .select()
+    .from(integrationConnections)
+    .where(eq(integrationConnections.composioConnectedAccountId, composioConnectedAccountId))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function deleteConnection(id: string): Promise<void> {
   await db.delete(integrationConnections).where(eq(integrationConnections.id, id));
 }

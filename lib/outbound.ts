@@ -12,6 +12,8 @@ import {
 } from "@/lib/nylas";
 import { getMailbox } from "@/lib/mailbox-repository";
 import { textToEmailHtml } from "@/lib/email-text";
+import { sendWithGmail } from "@/lib/composio-email";
+import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 
 /**
  * The only way the worker sends mail.
@@ -85,7 +87,24 @@ export interface SendOptions {
   to: Array<{ email: string; name?: string }>;
   subject: string;
   body: string;
+  /** Nylas threads a reply under the message it answers. */
   replyToMessageId?: string | null;
+  /** Gmail threads a reply into the conversation's thread. */
+  threadId?: string | null;
+}
+
+/**
+ * How this org sends: its Nylas mailbox when one is connected, else a Gmail
+ * account connected through Composio under Settings > Integrations.
+ */
+async function resolveTransport(orgId: string) {
+  const mailbox = await getMailbox(orgId);
+  if (mailbox && mailbox.status === "connected") return { kind: "nylas" as const, grantId: mailbox.grantId };
+  const gmail = await getConnectionForOrg(orgId, "email");
+  if (gmail?.system === "gmail" && gmail.status === "active" && gmail.composioConnectedAccountId) {
+    return { kind: "gmail" as const, connectedAccountId: gmail.composioConnectedAccountId };
+  }
+  return null;
 }
 
 /**
@@ -131,10 +150,10 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
     );
   }
 
-  const mailbox = await getMailbox(options.orgId);
-  if (!mailbox || mailbox.status !== "connected") {
+  const transport = await resolveTransport(options.orgId);
+  if (!transport) {
     throw new OutboundBlocked(
-      "No mailbox is connected — connect one under Settings > Identity.",
+      "No mailbox is connected. Connect Gmail under Settings > Integrations, or a Nylas mailbox under Settings > Tools.",
       [],
       "no_mailbox",
     );
@@ -161,6 +180,24 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
     return { id: `demo-${Date.now()}`, to: recipients.map((r) => r.email), demo: true };
   }
 
+  if (transport.kind === "gmail") {
+    // Gmail's send and reply tools take one primary recipient. The worker
+    // only ever writes to one (the customer, or the manager), so more is a
+    // caller bug, refused rather than half-sent.
+    if (recipients.length > 1) {
+      throw new OutboundBlocked("Gmail sends to one recipient at a time.", [], "no_mailbox");
+    }
+    const sent = await sendWithGmail({
+      organizationId: options.orgId,
+      connectedAccountId: transport.connectedAccountId,
+      to: recipients[0].email,
+      subject: options.subject,
+      html: body,
+      threadId: options.threadId ?? null,
+    });
+    return { id: sent.id, to: [recipients[0].email], demo: false };
+  }
+
   // Resolved per agent: this org's own Nylas application if it has one, the
   // fleet's otherwise.
   const credentials = await resolveNylasCredentials(options.orgId);
@@ -172,7 +209,7 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
     );
   }
 
-  const sent = await sendMessage(credentials.values, mailbox.grantId, input);
+  const sent = await sendMessage(credentials.values, transport.grantId, input);
   return { id: sent.id, to: recipients.map((r) => r.email), demo: false };
 }
 

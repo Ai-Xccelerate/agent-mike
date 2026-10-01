@@ -6,6 +6,7 @@ import {
   upsertPendingConnection,
 } from "@/lib/tools-integrations/connection-repository";
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
+import { startReceivingIfGmail } from "@/lib/composio-email";
 import { DEFAULT_SCOPES, buildAuthUrl, callbackUri, resolveNylasCredentials, signState } from "@/lib/nylas";
 
 /**
@@ -65,7 +66,7 @@ export async function startIntegrationConnection(input: {
       composioAuthConfigId: authConfigId,
       connectedBy: input.connectedBy,
     });
-    await markConnectionActive(row.id, active);
+    await startReceivingIfGmail(await markConnectionActive(row.id, active));
     return { redirectUrl: null, alreadyConnected: true };
   }
 

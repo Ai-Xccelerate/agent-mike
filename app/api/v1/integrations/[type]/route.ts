@@ -9,6 +9,7 @@ import {
   markConnectionFailed,
 } from "@/lib/tools-integrations/connection-repository";
 import { disconnectIntegration } from "@/lib/tools-integrations/disconnect";
+import { startReceivingIfGmail } from "@/lib/composio-email";
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ export async function GET(req: NextRequest, { params }: { params: { type: string
       const normalized = composioStatus.toUpperCase();
       if (normalized === "ACTIVE") {
         row = await markConnectionActive(row.id, row.composioConnectedAccountId);
+        // A connected Gmail is also the worker's inbox: start receiving.
+        await startReceivingIfGmail(row);
       } else if (normalized === "EXPIRED" || normalized === "FAILED") {
         // A terminal, non-active state — the manager never finished (or was
         // never able to finish) signing in. Without this, a dead attempt sits

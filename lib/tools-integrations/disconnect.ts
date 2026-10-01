@@ -1,4 +1,5 @@
 import { deleteAccount } from "@/lib/tools-integrations/composio-client";
+import { stopReceivingIfGmail } from "@/lib/composio-email";
 import { deleteConnection, getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 
 /** Removes the local connection row; best-effort revoke on Composio if an account id exists. */
@@ -7,6 +8,7 @@ export async function disconnectIntegration(organizationId: string, type: string
   if (!row) return false;
 
   if (row.composioConnectedAccountId) {
+    await stopReceivingIfGmail(row);
     try {
       await deleteAccount(row.composioConnectedAccountId);
     } catch (error) {

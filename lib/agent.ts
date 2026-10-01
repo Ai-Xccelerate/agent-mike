@@ -908,6 +908,8 @@ export async function buildAgentTools(
   conversationId?: string | null,
   /** Called when a knowledge tool (Confluence) returned real reference material this turn. */
   onReferenceMaterial?: () => void,
+  /** The conversation's channel. On email the channel itself sends the reply. */
+  channel: string = "chat",
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
@@ -1005,6 +1007,11 @@ export async function buildAgentTools(
       );
     }
 
+    // Answering an email conversation, the channel sends the reply into the
+    // customer's thread itself. Offering the Gmail write tools too would let
+    // the agent send that answer a second time.
+    const channelSendsReply = channel === "email";
+
     if (emailConnection.system === "gmail") {
       tools.push(
         tool({
@@ -1016,66 +1023,68 @@ export async function buildAgentTools(
         }),
       );
 
-      const requireApproval = profile.requireWriteApproval !== false;
-      const customerEmail = await customerEmailFor(organizationId, conversationId);
-      // Same rule as run_integration_action: with approval off, only mail to
-      // this conversation's own customer goes out without a manager.
-      const needsApproval = (args: { to: string; cc?: string[] }) =>
-        !decideAction({ tier: "email", requireWriteApproval: requireApproval, args, customerEmail }).run;
+      if (!channelSendsReply) {
+        const requireApproval = profile.requireWriteApproval !== false;
+        const customerEmail = await customerEmailFor(organizationId, conversationId);
+        // Same rule as run_integration_action: with approval off, only mail to
+        // this conversation's own customer goes out without a manager.
+        const needsApproval = (args: { to: string; cc?: string[] }) =>
+          !decideAction({ tier: "email", requireWriteApproval: requireApproval, args, customerEmail }).run;
 
-      tools.push(
-        tool({
-          name: GMAIL_SEND_EMAIL_TOOL_NAME,
-          description: requireApproval
-            ? "Propose sending a new email through the connected Gmail account. Does not send anything — queues it for a human manager to approve first."
-            : "Send a new email through the connected Gmail account. Sends straight away only when the recipient is this conversation's customer; anyone else is queued for a manager to approve. The result says which.",
-          parameters: z.object({
-            to: z.string().describe("Recipient email address"),
-            subject: z.string().optional().describe("Subject line"),
-            body: z.string().describe("Plain-text email body"),
-            cc: z.array(z.string()).optional().describe("Additional CC recipient email addresses"),
+        tools.push(
+          tool({
+            name: GMAIL_SEND_EMAIL_TOOL_NAME,
+            description: requireApproval
+              ? "Propose sending a new email through the connected Gmail account. Does not send anything — queues it for a human manager to approve first."
+              : "Send a new email through the connected Gmail account. Sends straight away only when the recipient is this conversation's customer; anyone else is queued for a manager to approve. The result says which.",
+            parameters: z.object({
+              to: z.string().describe("Recipient email address"),
+              subject: z.string().optional().describe("Subject line"),
+              body: z.string().describe("Plain-text email body"),
+              cc: z.array(z.string()).optional().describe("Additional CC recipient email addresses"),
+            }),
+            execute: async (input) => {
+              if (needsApproval(input)) {
+                const approval = await createPendingApproval({
+                  organizationId,
+                  conversationId,
+                  toolId: GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID,
+                  input,
+                });
+                return `Queued for manager approval (id ${approval.id}): send an email to ${input.to}${input.subject ? ` — "${input.subject}"` : ""}. Nothing has been sent yet.`;
+              }
+              return executeGmailSendEmail(input, organizationId, connectedAccountId);
+            },
           }),
-          execute: async (input) => {
-            if (needsApproval(input)) {
-              const approval = await createPendingApproval({
-                organizationId,
-                conversationId,
-                toolId: GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID,
-                input,
-              });
-              return `Queued for manager approval (id ${approval.id}): send an email to ${input.to}${input.subject ? ` — "${input.subject}"` : ""}. Nothing has been sent yet.`;
-            }
-            return executeGmailSendEmail(input, organizationId, connectedAccountId);
-          },
-        }),
-      );
+        );
 
-      tools.push(
-        tool({
-          name: GMAIL_REPLY_TO_THREAD_TOOL_NAME,
-          description: requireApproval
-            ? "Propose replying, in the same Gmail thread, to a message found via lookup_email. Does not send anything — queues it for a human manager to approve first."
-            : "Reply, in the same Gmail thread, to a message found via lookup_email. Sends straight away only when the recipient is this conversation's customer; anyone else is queued for a manager to approve. The result says which.",
-          parameters: z.object({
-            threadId: z.string().describe("The Gmail thread id to reply within (from lookup_email or get_email_details)"),
-            to: z.string().describe("Recipient email address"),
-            body: z.string().describe("Plain-text reply body"),
-            cc: z.array(z.string()).optional().describe("Additional CC recipient email addresses"),
+        tools.push(
+          tool({
+            name: GMAIL_REPLY_TO_THREAD_TOOL_NAME,
+            description: requireApproval
+              ? "Propose replying, in the same Gmail thread, to a message found via lookup_email. Does not send anything — queues it for a human manager to approve first."
+              : "Reply, in the same Gmail thread, to a message found via lookup_email. Sends straight away only when the recipient is this conversation's customer; anyone else is queued for a manager to approve. The result says which.",
+            parameters: z.object({
+              threadId: z.string().describe("The Gmail thread id to reply within (from lookup_email or get_email_details)"),
+              to: z.string().describe("Recipient email address"),
+              body: z.string().describe("Plain-text reply body"),
+              cc: z.array(z.string()).optional().describe("Additional CC recipient email addresses"),
+            }),
+            execute: async (input) => {
+              if (needsApproval(input)) {
+                const approval = await createPendingApproval({
+                  organizationId,
+                  conversationId,
+                  toolId: GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID,
+                  input,
+                });
+                return `Queued for manager approval (id ${approval.id}): reply within thread ${input.threadId} to ${input.to}. Nothing has been sent yet.`;
+              }
+              return executeGmailReplyToThread(input, organizationId, connectedAccountId);
+            },
           }),
-          execute: async (input) => {
-            if (needsApproval(input)) {
-              const approval = await createPendingApproval({
-                organizationId,
-                conversationId,
-                toolId: GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID,
-                input,
-              });
-              return `Queued for manager approval (id ${approval.id}): reply within thread ${input.threadId} to ${input.to}. Nothing has been sent yet.`;
-            }
-            return executeGmailReplyToThread(input, organizationId, connectedAccountId);
-          },
-        }),
-      );
+        );
+      }
     }
   }
 
@@ -1419,9 +1428,15 @@ export async function runAgent(
   );
   // A Confluence page read mid-turn is approved reference material too, so the
   // reply check mustn't treat an answer grounded in it as general knowledge.
-  const tools = await buildAgentTools(profile, organizationId, conversationId, () => {
-    guardrailContext.referenceMaterialFound = true;
-  });
+  const tools = await buildAgentTools(
+    profile,
+    organizationId,
+    conversationId,
+    () => {
+      guardrailContext.referenceMaterialFound = true;
+    },
+    channel,
+  );
   const maxTurns = Math.max(1, profile.maxAgentTurns || 3);
 
   const agent = new Agent({

@@ -48,6 +48,8 @@ function publicRequest(req: NextRequest): boolean {
   if (path === "/api/v1/mailbox/callback") return true;
   // Verified by each organization's Nylas webhook secret, not a session.
   if (path === "/api/v1/webhooks/nylas") return true;
+  // Verified by the Composio project's webhook secret, not a session.
+  if (path === "/api/v1/webhooks/composio") return true;
   if (
     hasWidgetToken(req) &&
     (path === "/api/v1/chat" || path === "/api/v1/worker")

@@ -25,12 +25,31 @@ vi.mock("@/lib/nylas", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/nylas")>();
   return { ...actual, resolveNylasCredentials: credentialsMock, getMessage: getMessageMock };
 });
+// A real client, so the SDK's own signature check runs; parsing never calls out.
+vi.mock("@/lib/tools-integrations/composio-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tools-integrations/composio-client")>();
+  const { Composio } = await import("@composio/core");
+  const client = new Composio({ apiKey: "test-key", allowTracking: false });
+  return { ...actual, getComposioClient: () => client };
+});
 
 import { db } from "@/lib/db";
-import { conversations, messages, nylasMailboxes, organizations, workerProfiles } from "@/db/schema";
+import {
+  conversations,
+  integrationConnections,
+  messages,
+  nylasMailboxes,
+  organizations,
+  workerProfiles,
+} from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { getIdentityAdapter, setIdentityAdapter } from "@/lib/identity";
-import { processInboundEmail, receiveNylasWebhook, type InboundOutcome } from "@/lib/email-channel";
+import {
+  processInboundEmail,
+  receiveComposioWebhook,
+  receiveNylasWebhook,
+  type InboundOutcome,
+} from "@/lib/email-channel";
 import { POST as postManagerReply } from "@/app/api/v1/conversations/[id]/messages/route";
 import { GET as webhookGet } from "@/app/api/v1/webhooks/nylas/route";
 
@@ -175,6 +194,7 @@ describe("answering an email", () => {
       subject: "Re: Can't log in",
       body: "Check your spam folder.",
       replyToMessageId: stored.inboundMessageId,
+      threadId: "thread-1",
     });
     const [agentReply] = await db
       .select()
@@ -278,5 +298,144 @@ describe("the webhook URL", () => {
   it("echoes Nylas's challenge", async () => {
     const res = await webhookGet(new NextRequest("http://localhost/api/v1/webhooks/nylas?challenge=abc123"));
     expect(await res.text()).toBe("abc123");
+  });
+});
+
+describe("receiving a Gmail email through Composio", () => {
+  const COMPOSIO_SECRET = "composio-whsec-test";
+  const ACCOUNT = "ca_test_gmail";
+  let previousSecret: string | undefined;
+
+  beforeEach(async () => {
+    previousSecret = process.env.COMPOSIO_WEBHOOK_SECRET;
+    process.env.COMPOSIO_WEBHOOK_SECRET = COMPOSIO_SECRET;
+    // This org receives through Gmail, not the Nylas mailbox the outer setup made.
+    await db.delete(nylasMailboxes).where(eq(nylasMailboxes.organizationId, orgId));
+    await db.delete(integrationConnections).where(eq(integrationConnections.composioConnectedAccountId, ACCOUNT));
+    await db.insert(integrationConnections).values({
+      organizationId: orgId,
+      integrationType: "email",
+      system: "gmail",
+      composioAuthConfigId: "ac_test",
+      composioConnectedAccountId: ACCOUNT,
+      status: "active",
+    });
+    await setProfile({ email: "support@aixccelerate.com" });
+  });
+
+  afterEach(() => {
+    if (previousSecret === undefined) delete process.env.COMPOSIO_WEBHOOK_SECRET;
+    else process.env.COMPOSIO_WEBHOOK_SECRET = previousSecret;
+  });
+
+  function trigger(data: Record<string, unknown> = {}, metadata: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      id: `msg_${crypto.randomUUID()}`,
+      timestamp: new Date().toISOString(),
+      type: "composio.trigger.message",
+      metadata: {
+        log_id: "log_1",
+        trigger_slug: "GMAIL_NEW_GMAIL_MESSAGE",
+        trigger_id: "ti_1",
+        connected_account_id: ACCOUNT,
+        auth_config_id: "ac_test",
+        user_id: orgId,
+        ...metadata,
+      },
+      data: {
+        message_id: `gm-${crypto.randomUUID()}`,
+        thread_id: "gthread-1",
+        sender: "Anna Customer <Anna@Customer.com>",
+        to: "support@aixccelerate.com",
+        subject: "Invoice question",
+        message_text: "Why was I charged twice?\n\nOn Mon, Support wrote:\n> old",
+        label_ids: ["INBOX", "UNREAD"],
+        payload: { headers: [{ name: "Subject", value: "Invoice question" }] },
+        ...data,
+      },
+    });
+  }
+
+  function signedRequest(body: string, secret = COMPOSIO_SECRET) {
+    const id = `msg_${crypto.randomUUID()}`;
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createHmac("sha256", secret).update(`${id}.${timestamp}.${body}`).digest("base64");
+    return new Request("http://localhost/api/v1/webhooks/composio", {
+      method: "POST",
+      body,
+      headers: {
+        "content-type": "application/json",
+        "webhook-id": id,
+        "webhook-timestamp": timestamp,
+        "webhook-signature": `v1,${signature}`,
+        "x-composio-webhook-version": "V3",
+      },
+    });
+  }
+
+  it("rejects a delivery signed with the wrong secret, or when no secret is configured", async () => {
+    expect((await receiveComposioWebhook(signedRequest(trigger(), "wrong"))).kind).toBe("rejected");
+    delete process.env.COMPOSIO_WEBHOOK_SECRET;
+    expect((await receiveComposioWebhook(signedRequest(trigger()))).kind).toBe("rejected");
+  });
+
+  it("opens an email conversation for the Gmail thread and stores only the new text", async () => {
+    const outcome = await receiveComposioWebhook(signedRequest(trigger()));
+    expect(outcome.kind).toBe("stored");
+    const stored = outcome as Extract<InboundOutcome, { kind: "stored" }>;
+    expect(stored.organizationId).toBe(orgId);
+
+    const [conversation] = await db.select().from(conversations).where(eq(conversations.id, stored.conversationId));
+    expect(conversation).toMatchObject({
+      channel: "email",
+      customerName: "Anna Customer",
+      customerEmail: "anna@customer.com",
+      subject: "Invoice question",
+      externalThreadId: "gthread-1",
+    });
+    const [message] = await db.select().from(messages).where(eq(messages.id, stored.messageId));
+    expect(message.body).toBe("Why was I charged twice?");
+  });
+
+  it("treats a redelivery as a duplicate and a reply in the thread as the same conversation", async () => {
+    const body = trigger({ message_id: "gm-fixed" });
+    const first = (await receiveComposioWebhook(signedRequest(body))) as Extract<InboundOutcome, { kind: "stored" }>;
+    expect((await receiveComposioWebhook(signedRequest(body))).kind).toBe("duplicate");
+    const followUp = await receiveComposioWebhook(signedRequest(trigger({ message_text: "Any update?" })));
+    expect(followUp).toMatchObject({ kind: "stored", conversationId: first.conversationId });
+  });
+
+  it("ignores accounts no organization connected, and deliveries naming another org", async () => {
+    expect((await receiveComposioWebhook(signedRequest(trigger({}, { connected_account_id: "ca_unknown" })))).kind).toBe(
+      "ignored",
+    );
+    expect((await receiveComposioWebhook(signedRequest(trigger({}, { user_id: "org-someone-else" })))).kind).toBe(
+      "rejected",
+    );
+  });
+
+  it("ignores its own sent mail and automated email", async () => {
+    const cases = [
+      trigger({ label_ids: ["SENT"] }),
+      trigger({ sender: "Support <support@aixccelerate.com>" }),
+      trigger({ sender: "Mail Delivery <mailer-daemon@googlemail.com>" }),
+      trigger({ payload: { headers: [{ name: "Auto-Submitted", value: "auto-replied" }] } }),
+    ];
+    for (const body of cases) {
+      expect((await receiveComposioWebhook(signedRequest(body))).kind).toBe("ignored");
+    }
+  });
+
+  it("answers in the Gmail thread", async () => {
+    const stored = (await receiveComposioWebhook(signedRequest(trigger()))) as Extract<InboundOutcome, { kind: "stored" }>;
+    await processInboundEmail(stored);
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId,
+        to: [{ email: "anna@customer.com", name: "Anna Customer" }],
+        subject: "Re: Invoice question",
+        threadId: "gthread-1",
+      }),
+    );
   });
 });
