@@ -96,25 +96,9 @@ function absoluteAvatarUrl(url: string): string {
   return new URL(url, window.location.origin).href;
 }
 
-/**
- * Mirrors AgentAvatar's own colored-circle-with-initials treatment (same
- * accent color, same initials) so the tab icon reads as the same identity
- * as the sidebar/Identity avatar instead of the app's generic robot icon —
- * that generic icon.svg fallback is what made the favicon never match once
- * a worker had a custom color but no uploaded image yet.
- */
-function placeholderFaviconDataUrl(initials: string, accentColor: string): string {
-  const text = (initials || "AW").slice(0, 2).toUpperCase();
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">` +
-    `<circle cx="32" cy="32" r="32" fill="${accentColor}"/>` +
-    `<text x="32" y="33" text-anchor="middle" dominant-baseline="central" ` +
-    `font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="600" ` +
-    `fill="#fff">${text}</text></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
-}
-
-const DEFAULT_FAVICON_HREF = "/icon.svg";
+/** The AI Xccelerate logo: the tab icon whenever the worker has no avatar image. */
+const DEFAULT_FAVICON_HREF = "/aix-favicon.png";
+const DEFAULT_FAVICON_TYPE = "image/png";
 
 /** Replaces the app's single tab-icon <link> (created in app/layout.tsx). */
 function setAppFavicon(href: string, type: string) {
@@ -152,9 +136,8 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
     return () => window.removeEventListener(IDENTITY_UPDATED_EVENT, update);
   }, []);
 
-  // The browser tab icon: the worker's own uploaded avatar image when there
-  // is one, otherwise a generated circle in the worker's own accent color
-  // and initials (matching AgentAvatar) rather than the app's generic robot.
+  // The browser tab icon: the worker's own avatar image (uploaded or a URL)
+  // when there is one, otherwise the AI Xccelerate logo.
   //
   // This effect is the ONLY writer of the tab icon. There is deliberately no
   // Next metadata icon (see defaultFavicon in app/layout.tsx): Next re-syncs
@@ -172,12 +155,10 @@ export function WorkerIdentityProvider({ children }: { children: React.ReactNode
     const source = profile ?? identitySeed;
     if (!source) return;
     const usingAvatar = Boolean(source.avatarUrl);
-    const href = usingAvatar
-      ? absoluteAvatarUrl(source.avatarUrl ?? "")
-      : placeholderFaviconDataUrl(source.avatarInitials, source.accentColor);
-    setAppFavicon(href, usingAvatar ? avatarMimeType(href) : "image/svg+xml");
+    const href = usingAvatar ? absoluteAvatarUrl(source.avatarUrl ?? "") : DEFAULT_FAVICON_HREF;
+    setAppFavicon(href, usingAvatar ? avatarMimeType(href) : DEFAULT_FAVICON_TYPE);
     // Leaving the admin area (e.g. to /sign-in) goes back to the app icon.
-    return () => setAppFavicon(DEFAULT_FAVICON_HREF, "image/svg+xml");
+    return () => setAppFavicon(DEFAULT_FAVICON_HREF, DEFAULT_FAVICON_TYPE);
   }, [profile, identitySeed]);
 
   return (

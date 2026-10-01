@@ -21,7 +21,7 @@ const noFlashTheme = `(function(){try{if(localStorage.getItem('theme')==='dark')
 // Instead this plain, non-React <link> is the single tab icon for the whole
 // app; WorkerIdentityProvider swaps it for the worker's avatar. Nothing in
 // Next or React ever touches it.
-const defaultFavicon = `(function(){var l=document.createElement('link');l.rel='icon';l.type='image/svg+xml';l.href='/icon.svg';l.setAttribute('data-app-favicon','');document.head.appendChild(l);})();`;
+const defaultFavicon = `(function(){var l=document.createElement('link');l.rel='icon';l.type='image/png';l.href='/aix-favicon.png';l.setAttribute('data-app-favicon','');document.head.appendChild(l);})();`;
 
 function parseList(value: string | undefined): string[] | undefined {
   const values = value
