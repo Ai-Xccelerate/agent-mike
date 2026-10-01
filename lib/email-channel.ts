@@ -58,6 +58,39 @@ function customerNameFor(senderName: string, senderEmail: string): string {
   return senderName || senderEmail.split("@")[0] || senderEmail || "Email customer";
 }
 
+/** Mailbox names that say what an address is for, not who wrote from it. */
+const ROLE_MAILBOXES = new Set([
+  "admin", "billing", "contact", "customer", "hello", "help", "hi", "info", "mail", "noreply",
+  "office", "sales", "service", "support", "team",
+]);
+
+/**
+ * The first name to greet a customer by, or null when all we have is an
+ * address. "Naik, Charan" and "Charan Naik" both give "Charan"; a bare
+ * mailbox name only counts when it reads like a name, not like "support".
+ */
+export function greetingName(customerName: string | null | undefined): string | null {
+  let name = (customerName || "").trim().replace(/^"(.*)"$/, "$1").trim();
+  if (!name || name.includes("@") || name === "Email customer") return null;
+  if (name.includes(",")) name = name.split(",").slice(1).join(" ").trim() || name;
+  const first = name.split(/\s+/)[0].replace(/[^\p{L}'-]/gu, "");
+  if (first.length < 2 || ROLE_MAILBOXES.has(first.toLowerCase())) return null;
+  return first.charAt(0).toUpperCase() + first.slice(1);
+}
+
+const OPENS_WITH_GREETING = /^\s*(hi|hello|hey|dear|greetings|good (morning|afternoon|evening))\b/i;
+
+/**
+ * An email reply opens by name, the way a person answering a support inbox
+ * would. Added here rather than left to the prompt so it is always there;
+ * a reply that already greets is left as it is.
+ */
+export function withGreeting(body: string, customerName: string | null | undefined): string {
+  if (OPENS_WITH_GREETING.test(body)) return body;
+  const name = greetingName(customerName);
+  return `${name ? `Hi ${name},` : "Hi there,"}\n\n${body.trimStart()}`;
+}
+
 /**
  * One inbound email, already verified and attributed to an organization, as
  * either provider delivers it.
@@ -384,16 +417,21 @@ export async function processInboundEmail(stored: Extract<InboundOutcome, { kind
     return;
   }
 
+  const replyBody = withGreeting(turn.reply.body, conversation.customerName);
   try {
     const sent = await sendAsWorker({
       orgId: organizationId,
       to: [{ email: conversation.customerEmail ?? "", name: conversation.customerName }],
       subject: replySubject(conversation.subject),
-      body: turn.reply.body,
+      body: replyBody,
       replyToMessageId: inboundMessageId,
       threadId: conversation.externalThreadId,
     });
-    await db.update(messages).set({ externalMessageId: sent.id }).where(eq(messages.id, turn.reply.id));
+    // The Inbox shows what the customer actually received, greeting included.
+    await db
+      .update(messages)
+      .set({ externalMessageId: sent.id, body: replyBody })
+      .where(eq(messages.id, turn.reply.id));
   } catch (error) {
     console.warn("[email-channel] reply was not sent", error);
     await markNeedsHuman(conversation.id, profile.managerName);

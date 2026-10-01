@@ -45,8 +45,10 @@ import {
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { getIdentityAdapter, setIdentityAdapter } from "@/lib/identity";
 import {
+  greetingName,
   processInboundEmail,
   receiveComposioWebhook,
+  withGreeting,
   receiveNylasWebhook,
   type InboundOutcome,
 } from "@/lib/email-channel";
@@ -192,7 +194,7 @@ describe("answering an email", () => {
       orgId,
       to: [{ email: "anna@customer.com", name: "Anna Customer" }],
       subject: "Re: Can't log in",
-      body: "Check your spam folder.",
+      body: "Hi Anna,\n\nCheck your spam folder.",
       replyToMessageId: stored.inboundMessageId,
       threadId: "thread-1",
     });
@@ -243,7 +245,7 @@ describe("answering an email", () => {
     expect(handoff.subject).toMatch(/^Needs you: TCK-\d+ Can't log in$/);
     expect(handoff.body).toContain("Customer: Anna Customer <anna@customer.com>");
     expect(handoff.body).toContain("What the customer wrote:\nMy password reset link never arrives.");
-    expect(handoff.body).toContain("replied:\nBringing in a teammate.");
+    expect(handoff.body).toContain("replied:\nHi Anna,\n\nBringing in a teammate.");
     expect(handoff.body).toContain(`https://console.example.com/inbox?conversation=${stored.conversationId}`);
   });
 
@@ -437,5 +439,38 @@ describe("receiving a Gmail email through Composio", () => {
         threadId: "gthread-1",
       }),
     );
+  });
+});
+
+describe("greeting the customer by name", () => {
+  it("uses the first name from a display name", () => {
+    expect(greetingName("Charan Naik")).toBe("Charan");
+    expect(greetingName("Naik, Charan")).toBe("Charan");
+    expect(greetingName('"anna"')).toBe("Anna");
+  });
+
+  it("has no name for an address, a role mailbox or the placeholder", () => {
+    expect(greetingName("support")).toBeNull();
+    expect(greetingName("billing")).toBeNull();
+    expect(greetingName("anna@customer.com")).toBeNull();
+    expect(greetingName("Email customer")).toBeNull();
+    expect(greetingName("")).toBeNull();
+  });
+
+  it("opens the reply with the name, once", () => {
+    expect(withGreeting("We refunded it.", "Charan Naik")).toBe("Hi Charan,\n\nWe refunded it.");
+    expect(withGreeting("We refunded it.", "support")).toBe("Hi there,\n\nWe refunded it.");
+    expect(withGreeting("Hi Charan,\n\nWe refunded it.", "Charan Naik")).toBe("Hi Charan,\n\nWe refunded it.");
+    expect(withGreeting("Hello there! Done.", "Charan Naik")).toBe("Hello there! Done.");
+  });
+
+  it("stores the greeted reply, so the Inbox shows what was sent", async () => {
+    const stored = (await receive(delivery())) as Extract<InboundOutcome, { kind: "stored" }>;
+    await processInboundEmail(stored);
+    const [agentReply] = await db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.conversationId, stored.conversationId), eq(messages.senderType, "agent")));
+    expect(agentReply.body).toBe("Hi Anna,\n\nCheck your spam folder.");
   });
 });
