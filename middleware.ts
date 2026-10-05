@@ -34,6 +34,20 @@ function withCors(response: NextResponse, headers: Record<string, string>): Next
   return response;
 }
 
+const VERIFIED_HEADERS = [
+  "x-aix-verified-org-id",
+  "x-aix-verified-user-id",
+  "x-aix-verified-role",
+  "x-aix-verified-email",
+];
+
+/** The inbound headers with every client-supplied `x-aix-verified-*` copy removed. */
+function withoutVerifiedHeaders(req: NextRequest): Headers {
+  const requestHeaders = new Headers(req.headers);
+  for (const name of VERIFIED_HEADERS) requestHeaders.delete(name);
+  return requestHeaders;
+}
+
 function hasWidgetToken(req: NextRequest): boolean {
   return Boolean(
     req.headers.get("x-worker-site-token")?.trim() ||
@@ -69,16 +83,17 @@ export async function middleware(req: NextRequest) {
 
   assertLocalBypassSafe();
   if (publicRequest(req) || !platformAuthRequired()) {
-    return withCors(NextResponse.next(), headers);
+    // Public routes skip verification, so a client could otherwise send its
+    // own x-aix-verified-* headers and be read as a verified manager.
+    return withCors(
+      NextResponse.next({ request: { headers: withoutVerifiedHeaders(req) } }),
+      headers,
+    );
   }
 
   try {
     const tenant = await authenticateManagerRequest(req);
-    const requestHeaders = new Headers(req.headers);
-    requestHeaders.delete("x-aix-verified-org-id");
-    requestHeaders.delete("x-aix-verified-user-id");
-    requestHeaders.delete("x-aix-verified-role");
-    requestHeaders.delete("x-aix-verified-email");
+    const requestHeaders = withoutVerifiedHeaders(req);
     requestHeaders.set("x-aix-verified-org-id", tenant.orgId);
     requestHeaders.set("x-aix-verified-user-id", tenant.userId);
     requestHeaders.set("x-aix-verified-role", tenant.role);
