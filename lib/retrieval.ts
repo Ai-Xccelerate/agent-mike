@@ -27,6 +27,9 @@ import {
   searchWiki,
   toKnowledgeMatches as agentWikiToKnowledgeMatches,
 } from "@/lib/agent-wiki";
+import { ConfluenceKnowledgeError, searchConfluenceKnowledge } from "@/lib/tools-integrations/atlassian";
+
+const CONFLUENCE_SOURCE = "confluence";
 
 /**
  * One retrieval entry point for the agent: local `knowledge_chunks` plus any
@@ -40,7 +43,7 @@ import {
  */
 
 export interface RetrievalSource {
-  source: "local" | "parchment" | "scribe" | "agent_wiki";
+  source: "local" | "parchment" | "scribe" | "agent_wiki" | "confluence";
   count: number;
   error: string | null;
 }
@@ -73,7 +76,7 @@ export async function retrieveKnowledge(
   // Every external source is independent of the others and of local search, so
   // they run concurrently — a worker with three knowledge integrations must not
   // wait for the sum of their latencies on every message.
-  const [parchmentResult, scribeResult, agentWikiResult] = await Promise.all([
+  const [parchmentResult, scribeResult, agentWikiResult, confluenceResult] = await Promise.all([
     parchment.enabled && isParchmentConfigured()
       ? queryParchment({
           orgId: parchmentOrgId(profile.organizationId, parchment.orgId),
@@ -112,6 +115,15 @@ export async function retrieveKnowledge(
             error: error instanceof AgentWikiError ? error.message : "Agent Wiki lookup failed",
           }))
       : null,
+    // A connected Confluence (Settings > Integrations > Knowledge base) is
+    // searched full-text before every answer, so grounding never depends on
+    // the model deciding to look. Null = not connected or switched off.
+    searchConfluenceKnowledge(profile.organizationId, query, limit)
+      .then((matches) => (matches ? { matches, error: null as string | null } : null))
+      .catch((error: unknown) => ({
+        matches: [] as KnowledgeMatch[],
+        error: error instanceof ConfluenceKnowledgeError ? error.message : "Confluence lookup failed",
+      })),
   ]);
 
   const lists: KnowledgeMatch[][] = [localMatches];
@@ -120,6 +132,7 @@ export async function retrieveKnowledge(
     [PARCHMENT_KEY, parchmentResult],
     [SCRIBE_KEY, scribeResult],
     [AGENT_WIKI_KEY, agentWikiResult],
+    [CONFLUENCE_SOURCE, confluenceResult],
   ] as const) {
     if (!result) continue;
     if (result.error) console.warn(`[retrieval] ${key} lookup failed:`, result.error);

@@ -151,6 +151,25 @@ describe("auditWorkerConfiguration", () => {
     );
   });
 
+  it("warns when Jira is connected but handoffs raise no ticket", () => {
+    const unset = auditWorkerConfiguration(
+      snapshot({
+        atlassian: { jira: "connected, but no handoff project/issue type set, so handoffs raise no ticket", confluence: null },
+      }),
+    );
+    expect(unset).toEqual(
+      expect.arrayContaining([expect.objectContaining({ area: "Integrations", issue: expect.stringContaining("no handoff project") })]),
+    );
+
+    const set = auditWorkerConfiguration(
+      snapshot({ atlassian: { jira: "handoff tickets on: a Task in project SUP", confluence: null } }),
+    );
+    expect(set.some((finding) => finding.issue.includes("no handoff project"))).toBe(false);
+    expect(
+      formatConfigurationSnapshot(snapshot({ atlassian: { jira: "handoff tickets on: a Task in project SUP", confluence: "space SK, searched before every answer" } })),
+    ).toContain("Jira: handoff tickets on: a Task in project SUP\nConfluence: space SK, searched before every answer");
+  });
+
   it("orders blockers before warnings before tips", () => {
     const severities = auditWorkerConfiguration(
       snapshot({

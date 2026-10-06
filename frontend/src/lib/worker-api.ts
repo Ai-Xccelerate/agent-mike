@@ -528,7 +528,32 @@ export type IntegrationConnection = {
   createdAt: string;
   updatedAt: string;
   lastUsed: string | null;
+  /** Settings this connection has of its own (Jira, Confluence), defaults filled in. */
+  settings?: JiraConnectionSettings | ConfluenceConnectionSettings;
 } | null;
+
+/** Where the worker raises a ticket when it hands a conversation to a person. */
+export type JiraConnectionSettings = {
+  projectKey: string | null;
+  issueType: string | null;
+  createTicketOnHandoff: boolean;
+};
+
+/** Which Confluence space grounds the worker's answers. */
+export type ConfluenceConnectionSettings = {
+  spaceKey: string | null;
+  searchBeforeAnswering: boolean;
+};
+
+export function saveIntegrationSettings(
+  type: string,
+  settings: Partial<JiraConnectionSettings> | Partial<ConfluenceConnectionSettings>,
+): Promise<IntegrationConnection> {
+  return apiFetch<IntegrationConnection>(`/integrations/${type}`, {
+    method: "PATCH",
+    body: JSON.stringify({ settings }),
+  });
+}
 
 export function getIntegrationConnection(type: string): Promise<IntegrationConnection> {
   return apiFetch<IntegrationConnection>(`/integrations/${type}`);
