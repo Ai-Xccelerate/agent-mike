@@ -170,6 +170,18 @@ describe("auditWorkerConfiguration", () => {
     ).toContain("Jira: handoff tickets on: a Task in project SUP\nConfluence: space SK, searched before every answer");
   });
 
+  it("flags handoff tickets Jira refused as a blocker, with the reason", () => {
+    const findings = auditWorkerConfiguration(
+      snapshot({ ticketFailures: { count: 2, latest: "Issue type 'Support' is not valid for project 'SUP'." } }),
+    );
+    expect(findings[0]).toMatchObject({
+      severity: "blocker",
+      area: "Integrations",
+      issue: expect.stringContaining("Jira refused 2 handoff tickets"),
+    });
+    expect(auditWorkerConfiguration(snapshot({ ticketFailures: { count: 0, latest: null } })).some((f) => f.issue.includes("Jira refused"))).toBe(false);
+  });
+
   it("orders blockers before warnings before tips", () => {
     const severities = auditWorkerConfiguration(
       snapshot({

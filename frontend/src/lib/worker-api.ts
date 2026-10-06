@@ -39,6 +39,10 @@ export type Conversation = {
   archived: boolean;
   confidence: number | null;
   summary: string | null;
+  /** The helpdesk ticket raised when this conversation was handed over, e.g. "SUP-12". */
+  externalTicketKey?: string | null;
+  /** Why the helpdesk refused that ticket, when it did. */
+  externalTicketError?: string | null;
   createdAt: string;
   updatedAt: string;
   messages: Message[];
@@ -544,6 +548,13 @@ export type ConfluenceConnectionSettings = {
   spaceKey: string | null;
   searchBeforeAnswering: boolean;
 };
+
+/** A Jira project and the issue types a handoff ticket can be raised as. */
+export type JiraProject = { key: string; name: string; issueTypes: string[] };
+
+export function getJiraProjects(type: string): Promise<{ projects: JiraProject[] }> {
+  return apiFetch<{ projects: JiraProject[] }>(`/integrations/${type}/jira-projects`);
+}
 
 export function saveIntegrationSettings(
   type: string,

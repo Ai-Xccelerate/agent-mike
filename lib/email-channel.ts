@@ -321,7 +321,11 @@ export async function buildHandoffBrief(input: {
       `Customer: ${conversation.customerName}${conversation.customerEmail ? ` <${conversation.customerEmail}>` : ""}`,
       `Subject: ${conversation.subject || "(no subject)"}`,
       `Messages so far: ${rows.length}`,
-    ].join("\n"),
+      conversation.externalTicketKey ? `Jira ticket: ${conversation.externalTicketKey}` : "",
+      conversation.externalTicketError ? `Jira ticket: not raised. ${conversation.externalTicketError}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     lastCustomer ? `What the customer wrote:\n${clip(lastCustomer.body, BRIEF_MESSAGE_CHARS)}` : "",
     lastAgent ? `What ${workerName} replied:\n${clip(lastAgent.body, BRIEF_MESSAGE_CHARS)}` : "",
     conversation.summary ? `Summary so far:\n${clip(conversation.summary, BRIEF_MESSAGE_CHARS)}` : "",
