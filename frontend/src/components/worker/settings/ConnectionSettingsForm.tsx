@@ -24,7 +24,7 @@ export function connectionSettingsNote(connection: Connection): string | undefin
   if (connection.system !== "jira") return undefined;
   const settings = connection.settings as JiraConnectionSettings;
   return settings.projectKey && settings.issueType
-    ? `Handoffs raise a ${settings.issueType} in ${settings.projectKey}.`
+    ? `Handoffs raise tickets in ${settings.projectKey} (${settings.issueType}).`
     : "Set a project to raise a ticket on every handoff.";
 }
 
