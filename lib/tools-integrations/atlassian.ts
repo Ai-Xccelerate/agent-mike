@@ -403,13 +403,18 @@ export function issueKeyFrom(result: unknown, depth = 0): string | null {
   return null;
 }
 
+/** A write's result, or the reason it didn't go through (Jira's own words where it gave some). */
+type WriteOutcome = { ok: true; result: unknown } | { ok: false; error: string };
+
+const ERROR_CHARS = 300;
+
 async function runWrite(
   toolId: string,
   slug: string,
   args: Record<string, unknown>,
   organizationId: string,
   connectedAccountId: string,
-): Promise<unknown | null> {
+): Promise<WriteOutcome> {
   try {
     const result = (await executeTool(slug, args, {
       connectedAccountId,
@@ -417,6 +422,7 @@ async function runWrite(
       version: JIRA_TOOLKIT_VERSION,
     })) as { successful?: boolean; error?: unknown } | null;
     const failed = result?.successful === false;
+    const error = failed ? clip(String(result?.error ?? "Jira didn't accept it"), ERROR_CHARS) : null;
     await logToolCall({
       organizationId,
       toolId,
@@ -424,10 +430,11 @@ async function runWrite(
       input: args,
       output: toLogOutput(result),
       status: failed ? "error" : "success",
-      errorMessage: failed ? String(result?.error ?? "unsuccessful") : null,
+      errorMessage: error,
     });
-    return failed ? null : result;
-  } catch (error) {
+    return error ? { ok: false, error } : { ok: true, result };
+  } catch (thrown) {
+    const error = clip(thrown instanceof Error ? thrown.message : String(thrown), ERROR_CHARS);
     await logToolCall({
       organizationId,
       toolId,
@@ -435,20 +442,48 @@ async function runWrite(
       input: args,
       output: null,
       status: "error",
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: error,
     });
-    return null;
+    return { ok: false, error };
   }
+}
+
+/** The handoff ticket couldn't be raised or updated; `reason` is shown to the manager. */
+export type HandoffTicketFailure = { failed: string };
+
+export function isHandoffTicket(outcome: HandoffTicketResult | HandoffTicketFailure | null): outcome is HandoffTicketResult {
+  return Boolean(outcome && "key" in outcome);
+}
+
+/** Records the outcome on the conversation, so the Inbox and the manager's email can show it. */
+async function recordTicketOutcome(
+  organizationId: string,
+  conversationId: string,
+  outcome: { key: string } | { error: string },
+): Promise<void> {
+  const scope = and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId));
+  if ("error" in outcome) {
+    await db.update(conversations).set({ externalTicketError: outcome.error }).where(scope);
+    return;
+  }
+  // Only the first handoff's ticket is kept, if two ever race.
+  await db
+    .update(conversations)
+    .set({ externalTicketKey: sql`coalesce(${conversations.externalTicketKey}, ${outcome.key})`, externalTicketError: null })
+    .where(scope);
 }
 
 /**
  * Raises (or, if this conversation already has one, updates) the Jira ticket
- * for a handoff. Null when Jira isn't connected, isn't set up for handoffs,
- * or the call failed — the handoff itself still happens either way, so a
- * Jira outage never leaves a customer without a person. Not retried: a
- * create that timed out may still have created the issue.
+ * for a handoff. Null when Jira isn't connected or isn't set up for handoffs;
+ * { failed } when Jira refused, with its reason recorded on the conversation.
+ * The handoff itself happens either way, so a Jira problem never leaves a
+ * customer without a person. Not retried: a create that timed out may still
+ * have created the issue.
  */
-export async function recordHandoffInJira(input: HandoffTicketInput): Promise<HandoffTicketResult | null> {
+export async function recordHandoffInJira(
+  input: HandoffTicketInput,
+): Promise<HandoffTicketResult | HandoffTicketFailure | null> {
   const { organizationId, conversation } = input;
   const connection = await getConnectionForOrg(organizationId, "helpdesk");
   const connectedAccountId = activeAccount(connection, "jira");
@@ -458,14 +493,16 @@ export async function recordHandoffInJira(input: HandoffTicketInput): Promise<Ha
     const commented = await runWrite(
       HANDOFF_COMMENT_TOOL_ID,
       JIRA_ADD_COMMENT_SLUG,
-      {
-        issue_id_or_key: conversation.externalTicketKey,
-        comment: handoffComment(input),
-      },
+      { issue_id_or_key: conversation.externalTicketKey, comment: handoffComment(input) },
       organizationId,
       connectedAccountId,
     );
-    return commented ? { key: conversation.externalTicketKey, created: false } : null;
+    if (!commented.ok) {
+      const error = `Couldn't add to ${conversation.externalTicketKey}: ${commented.error}`;
+      await recordTicketOutcome(organizationId, conversation.id, { error });
+      return { failed: error };
+    }
+    return { key: conversation.externalTicketKey, created: false };
   }
 
   const settings = readJiraSettings(connection.metadata);
@@ -484,20 +521,13 @@ export async function recordHandoffInJira(input: HandoffTicketInput): Promise<Ha
     organizationId,
     connectedAccountId,
   );
-  const key = issueKeyFrom(created);
-  if (!key) return null;
-
-  // Only the first handoff's ticket is kept, if two ever race.
-  await db
-    .update(conversations)
-    .set({ externalTicketKey: key })
-    .where(
-      and(
-        eq(conversations.id, conversation.id),
-        eq(conversations.organizationId, organizationId),
-        sql`${conversations.externalTicketKey} is null`,
-      ),
-    );
+  const key = created.ok ? issueKeyFrom(created.result) : null;
+  if (!key) {
+    const error = created.ok ? "Jira didn't return a ticket key" : created.error;
+    await recordTicketOutcome(organizationId, conversation.id, { error });
+    return { failed: error };
+  }
+  await recordTicketOutcome(organizationId, conversation.id, { key });
   return { key, created: true };
 }
 
@@ -891,4 +921,52 @@ export async function executeConfluenceTextSearch(
     excerpt: hit.excerpt ? confluenceStorageToText(hit.excerpt).slice(0, 300) : null,
   }));
   return JSON.stringify({ pages });
+}
+
+// ---------------------------------------------------------------------------
+// Jira projects and their issue types, for the settings dialog's dropdowns
+// and to check a project/issue type before it's saved: a type the project
+// doesn't have makes every handoff ticket fail.
+// ---------------------------------------------------------------------------
+
+export const JIRA_LIST_PROJECTS_SLUG = "JIRA_LIST_ALL_PROJECTS";
+export const JIRA_PROJECTS_TOOL_ID = "list_jira_projects";
+
+export type JiraProject = { key: string; name: string; issueTypes: string[] };
+
+type RawProject = { key?: string; name?: string; issueTypes?: { name?: string; subtask?: boolean }[] };
+
+/** Every project the connection can see, with the issue types a ticket can be raised as. Null if Jira can't be reached. */
+export async function listJiraProjects(organizationId: string, connectedAccountId: string): Promise<JiraProject[] | null> {
+  const result = await runReadTool(
+    JIRA_PROJECTS_TOOL_ID,
+    JIRA_LIST_PROJECTS_SLUG,
+    { expand: "issueTypes" },
+    organizationId,
+    connectedAccountId,
+    JIRA_TOOLKIT_VERSION,
+  );
+  if (result === null || wasRefused(result)) return null;
+  const data = (result as { data?: { projects?: unknown } | unknown[] }).data;
+  const raw = Array.isArray(data) ? data : Array.isArray((data as { projects?: unknown })?.projects) ? (data as { projects: unknown[] }).projects : [];
+  return (raw as RawProject[])
+    .filter((project) => project.key)
+    .map((project) => ({
+      key: project.key as string,
+      name: project.name ?? (project.key as string),
+      // Sub-tasks need a parent ticket, so a handoff can't be raised as one.
+      issueTypes: (project.issueTypes ?? []).filter((type) => !type.subtask && type.name).map((type) => type.name as string),
+    }));
+}
+
+/** Why this project/issue type pair can't take handoff tickets, or null when it can. */
+export function jiraSettingsProblem(projects: JiraProject[], projectKey: string, issueType: string): string | null {
+  const project = projects.find((entry) => entry.key === projectKey);
+  if (!project) {
+    return `There's no project ${projectKey} on this Jira. Projects: ${projects.map((entry) => entry.key).join(", ") || "none"}.`;
+  }
+  if (!project.issueTypes.includes(issueType)) {
+    return `"${issueType}" isn't an issue type in ${projectKey}. Choose one of: ${project.issueTypes.join(", ")}.`;
+  }
+  return null;
 }

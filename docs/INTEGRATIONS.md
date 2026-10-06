@@ -105,9 +105,13 @@ Limits worth knowing:
 Both are connected per org under Settings > Integrations, through Composio
 (OAuth): Jira as the Helpdesk (`COMPOSIO_JIRA_AUTH_CONFIG_ID`), Confluence as
 the Knowledge base (`COMPOSIO_CONFLUENCE_AUTH_CONFIG_ID`). Their own settings
-live on the connection row (`integration_connections.metadata.settings`) and
-are edited under each card (`PATCH /api/v1/integrations/:type`). Code:
-`lib/tools-integrations/atlassian.ts`.
+live on the connection row (`integration_connections.metadata.settings`),
+are copied to `integration_settings` so a disconnect and reconnect keeps them,
+and are edited from the gear on each card (`PATCH /api/v1/integrations/:type`).
+Jira's project and issue type are picked from what the connection can see
+(`GET /api/v1/integrations/helpdesk/jira-projects`) and checked against Jira
+before saving: a type the project doesn't have would fail every handoff.
+Code: `lib/tools-integrations/atlassian.ts`.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -122,7 +126,9 @@ are edited under each card (`PATCH /api/v1/integrations/:type`). Code:
   issue with the conversation transcript, stores its key on
   `conversations.external_ticket_key`, and appends "I've logged this for the
   team as SUP-12…" to the reply. A later handoff on the same conversation adds
-  a comment instead. A Jira failure is logged and the handoff still happens.
+  a comment instead. If Jira refuses, the handoff still happens; Jira's reason
+  is stored on `conversations.external_ticket_error`, shown in the Inbox
+  header and the manager's handoff email, and flagged by the Assistant's audit.
 - `lookup_my_tickets`: the status of this customer's own tickets only (keys
   stored on this conversation, or on others with the same customer email).
   There is deliberately no free-text search of the project: it would let

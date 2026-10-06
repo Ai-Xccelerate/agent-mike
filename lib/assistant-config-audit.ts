@@ -1,4 +1,4 @@
-import { and, count, eq, notInArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNotNull, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, emailDomains, knowledgeDocuments, workerProfiles } from "@/db/schema";
 import { getMailbox } from "@/lib/mailbox-repository";
@@ -23,6 +23,8 @@ export type ConfigurationSnapshot = {
   integrationConnections: Record<string, string | null>;
   /** What a connected Jira or Confluence is set up to do, in words. */
   atlassian?: { jira: string | null; confluence: string | null };
+  /** Handoff tickets Jira refused in the last week: how many, and the latest reason. */
+  ticketFailures?: { count: number; latest: string | null };
   internalIntegrations: IntegrationStatus[];
   skills: SkillCatalogItem[];
   emailDomains: { approved: number; pending: number };
@@ -39,7 +41,7 @@ export async function loadConfigurationSnapshot(organizationId: string): Promise
   const [profile] = await db.select().from(workerProfiles).where(eq(workerProfiles.organizationId, organizationId)).limit(1);
   if (!profile) return null;
 
-  const [knowledgeRows, mailbox, connections, internalIntegrations, skills, domainRows, conversationRows] =
+  const [knowledgeRows, mailbox, connections, internalIntegrations, skills, domainRows, conversationRows, failedTickets] =
     await Promise.all([
       db.select({ n: count() }).from(knowledgeDocuments).where(eq(knowledgeDocuments.organizationId, organizationId)),
       getMailbox(organizationId),
@@ -56,6 +58,18 @@ export async function loadConfigurationSnapshot(organizationId: string): Promise
         .select({ n: count() })
         .from(conversations)
         .where(and(eq(conversations.organizationId, organizationId), notInArray(conversations.channel, INTERNAL_CHANNELS))),
+      db
+        .select({ error: conversations.externalTicketError })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.organizationId, organizationId),
+            isNotNull(conversations.externalTicketError),
+            gte(conversations.updatedAt, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+          ),
+        )
+        .orderBy(desc(conversations.updatedAt))
+        .limit(50),
     ]);
 
   return {
@@ -64,6 +78,7 @@ export async function loadConfigurationSnapshot(organizationId: string): Promise
     mailbox: mailbox ? { connected: mailbox.status === "connected", email: mailbox.email ?? null } : null,
     integrationConnections: Object.fromEntries(connections.map(([type, status]) => [type, status])),
     atlassian: describeAtlassian(connections.map(([, , row]) => row)),
+    ticketFailures: { count: failedTickets.length, latest: failedTickets[0]?.error ?? null },
     internalIntegrations,
     skills,
     emailDomains: {
@@ -311,6 +326,14 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
         fix: "Retry or disconnect it in Settings > Integrations.",
       });
     }
+  }
+  if (snapshot.ticketFailures && snapshot.ticketFailures.count > 0) {
+    add({
+      severity: "blocker",
+      area: "Integrations",
+      issue: `Jira refused ${snapshot.ticketFailures.count} handoff ticket${snapshot.ticketFailures.count === 1 ? "" : "s"} in the last week, so those customers have no ticket. Latest reason: ${snapshot.ticketFailures.latest}`,
+      fix: "Check the project and issue type under Jira in Settings > Integrations (the gear on the Jira card).",
+    });
   }
   if (snapshot.atlassian?.jira?.startsWith("connected, but")) {
     add({

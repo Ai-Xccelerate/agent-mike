@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -182,6 +183,9 @@ export const conversations = pgTable(
     // person (e.g. Jira "SUP-12"). Also what the customer agent may look up:
     // a customer sees only tickets recorded on their own conversations.
     externalTicketKey: text("external_ticket_key"),
+    // Why the helpdesk refused the last ticket for this conversation (e.g. an
+    // issue type the project doesn't have). Cleared once a ticket goes through.
+    externalTicketError: text("external_ticket_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -357,6 +361,27 @@ export const workerUsers = pgTable(
       table.organizationId,
       table.clerkUserId,
     ),
+  }),
+);
+
+/**
+ * A connection's own settings (Jira project and issue type, Confluence space),
+ * kept apart from the connection row so they survive a disconnect and
+ * reconnect: disconnecting deletes the row, and with it its metadata.
+ */
+export const integrationSettings = pgTable(
+  "integration_settings",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    integrationType: text("integration_type").notNull(),
+    system: text("system").notNull(),
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.organizationId, table.integrationType] }),
   }),
 );
 

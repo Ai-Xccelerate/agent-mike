@@ -6,7 +6,7 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
-import { handoffTicketNotice, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
 /**
  * One customer-facing agent turn, shared by every channel (chat, widget,
@@ -145,7 +145,9 @@ export async function runCustomerTurn(input: {
       console.warn("[handoff] Jira ticket failed:", error instanceof Error ? error.message : error);
       return null;
     });
-    if (ticket) result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket)}` };
+    // A refused ticket is recorded on the conversation for the manager; the
+    // customer isn't told a number that doesn't exist.
+    if (isHandoffTicket(ticket)) result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket)}` };
   }
 
   const [reply] = await db

@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { integrationConnections } from "@/db/schema";
+import { integrationConnections, integrationSettings } from "@/db/schema";
 
 export type IntegrationConnection = typeof integrationConnections.$inferSelect;
 
@@ -12,9 +12,22 @@ export type UpsertPendingConnectionInput = {
   connectedBy?: string | null;
 };
 
+/** Settings saved for this org's integration type, if they were for the same system. */
+async function savedSettings(organizationId: string, integrationType: string, system: string) {
+  const [row] = await db
+    .select()
+    .from(integrationSettings)
+    .where(and(eq(integrationSettings.organizationId, organizationId), eq(integrationSettings.integrationType, integrationType)))
+    .limit(1);
+  return row && row.system === system ? row.settings : null;
+}
+
 export async function upsertPendingConnection(
   input: UpsertPendingConnectionInput,
 ): Promise<IntegrationConnection> {
+  // A reconnect after a disconnect starts a fresh row; bring back what was
+  // set before (Jira's project, Confluence's space) rather than starting over.
+  const settings = await savedSettings(input.organizationId, input.integrationType, input.system);
   const [row] = await db
     .insert(integrationConnections)
     .values({
@@ -25,6 +38,7 @@ export async function upsertPendingConnection(
       connectedBy: input.connectedBy ?? null,
       status: "pending",
       composioConnectedAccountId: null,
+      metadata: settings ? { settings } : {},
     })
     .onConflictDoUpdate({
       target: [integrationConnections.organizationId, integrationConnections.integrationType],
@@ -126,6 +140,15 @@ export async function saveConnectionSettings(
     })
     .where(eq(integrationConnections.id, id))
     .returning();
+  if (row) {
+    await db
+      .insert(integrationSettings)
+      .values({ organizationId: row.organizationId, integrationType: row.integrationType, system: row.system, settings })
+      .onConflictDoUpdate({
+        target: [integrationSettings.organizationId, integrationSettings.integrationType],
+        set: { system: row.system, settings, updatedAt: new Date() },
+      });
+  }
   return row;
 }
 

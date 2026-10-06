@@ -463,7 +463,21 @@ export default function WorkerInbox() {
                 <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
                   {CHANNEL_LABEL[selected.channel]} &middot; <span className="font-mono">{ticketRef(selected)}</span>
                   {selected.subject ? <> &middot; {selected.subject}</> : null}
+                  {selected.externalTicketKey ? (
+                    <>
+                      {" "}
+                      &middot; Jira <span className="font-mono">{selected.externalTicketKey}</span>
+                    </>
+                  ) : null}
                 </p>
+                {selected.externalTicketError && (
+                  <p
+                    className="mt-1 line-clamp-2 text-xs font-medium text-error-600 dark:text-error-400"
+                    title={selected.externalTicketError}
+                  >
+                    Couldn&rsquo;t raise a Jira ticket: {selected.externalTicketError}
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">

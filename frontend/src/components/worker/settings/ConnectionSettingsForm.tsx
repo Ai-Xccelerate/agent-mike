@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
 import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import { fieldClass, hintClass, labelClass } from "@/components/worker/settings/ui";
 import {
+  getJiraProjects,
   saveIntegrationSettings,
+  type JiraProject,
   type ConfluenceConnectionSettings,
   type IntegrationConnection,
   type JiraConnectionSettings,
@@ -126,7 +128,23 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
   const [projectKey, setProjectKey] = useState(settings.projectKey ?? "");
   const [issueType, setIssueType] = useState(settings.issueType ?? "");
   const [createTicketOnHandoff, setCreateTicketOnHandoff] = useState(settings.createTicketOnHandoff);
+  // Null while loading; "failed" falls back to typing the values in.
+  const [projects, setProjects] = useState<JiraProject[] | "failed" | null>(null);
   const { saving, error, save } = useSave(integrationType, onSaved, onClose);
+
+  useEffect(() => {
+    let cancelled = false;
+    getJiraProjects(integrationType)
+      .then(({ projects: list }) => !cancelled && setProjects(list))
+      .catch(() => !cancelled && setProjects("failed"));
+    return () => {
+      cancelled = true;
+    };
+  }, [integrationType]);
+
+  const listed = Array.isArray(projects) ? projects : null;
+  const project = listed?.find((entry) => entry.key === projectKey) ?? null;
+  const issueTypes = project?.issueTypes ?? [];
 
   return (
     <form
@@ -141,25 +159,67 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
       />
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label>
-          <span className={labelClass}>Project key</span>
-          <input
-            className={`mt-1.5 ${fieldClass}`}
-            value={projectKey}
-            placeholder="SUP"
-            onChange={(event) => setProjectKey(event.target.value.toUpperCase())}
-          />
+          <span className={labelClass}>Project</span>
+          {listed ? (
+            <select
+              className={`mt-1.5 ${fieldClass}`}
+              value={projectKey}
+              onChange={(event) => {
+                const next = listed.find((entry) => entry.key === event.target.value);
+                setProjectKey(event.target.value);
+                // Keep the issue type only if the new project has it too.
+                if (!next?.issueTypes.includes(issueType)) setIssueType(next?.issueTypes[0] ?? "");
+              }}
+            >
+              <option value="">Choose a project</option>
+              {listed.map((entry) => (
+                <option key={entry.key} value={entry.key}>
+                  {entry.name} ({entry.key})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className={`mt-1.5 ${fieldClass}`}
+              value={projectKey}
+              placeholder={projects === null ? "Loading projects…" : "Project key"}
+              disabled={projects === null}
+              onChange={(event) => setProjectKey(event.target.value.toUpperCase())}
+            />
+          )}
         </label>
         <label>
           <span className={labelClass}>Issue type</span>
-          <input
-            className={`mt-1.5 ${fieldClass}`}
-            value={issueType}
-            placeholder="Support"
-            onChange={(event) => setIssueType(event.target.value)}
-          />
+          {listed ? (
+            <select
+              className={`mt-1.5 ${fieldClass}`}
+              value={issueTypes.includes(issueType) ? issueType : ""}
+              disabled={!project}
+              onChange={(event) => setIssueType(event.target.value)}
+            >
+              <option value="">{project ? "Choose an issue type" : "Choose a project first"}</option>
+              {issueTypes.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className={`mt-1.5 ${fieldClass}`}
+              value={issueType}
+              placeholder={projects === null ? "Loading issue types…" : "Issue type"}
+              disabled={projects === null}
+              onChange={(event) => setIssueType(event.target.value)}
+            />
+          )}
         </label>
       </div>
-      <p className={hintClass}>Use an issue type that exists in that project, spelled as Jira shows it.</p>
+      <p className={hintClass}>
+        {projects === "failed"
+          ? "Couldn't load your Jira projects, so type them in. They're checked with Jira when you save."
+          : "Only issue types that exist in the chosen project are listed."}
+      </p>
       <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
         <SettingsToggleRow
           title="Raise a ticket on handoff"
