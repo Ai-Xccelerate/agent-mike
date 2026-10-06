@@ -29,7 +29,7 @@ export default function IntegrationsSettingsPage() {
         integrationType="helpdesk"
         vendors={[{ system: "jira", label: "Jira", icon: <JiraIcon className={iconClass} /> }]}
         title="Helpdesk"
-        description="Search connected helpdesk issues."
+        description="Raise a ticket when the worker hands over, and let customers check their own tickets."
       />
       <IntegrationCategorySection
         integrationType="project_management"
@@ -62,7 +62,7 @@ export default function IntegrationsSettingsPage() {
           },
         ]}
         title="Knowledge base"
-        description="Pages the worker can find by title and read to ground its answers."
+        description="Pages the worker searches before answering and grounds its replies in."
       />
     </>
   );

@@ -4,6 +4,7 @@ import { conversations, emailDomains, knowledgeDocuments, workerProfiles } from 
 import { getMailbox } from "@/lib/mailbox-repository";
 import { integrationStatuses, type IntegrationStatus } from "@/lib/integrations";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
+import { readConfluenceSettings, readJiraSettings } from "@/lib/tools-integrations/atlassian";
 import { listSkillsForOrg, type SkillCatalogItem } from "@/lib/tools-integrations/skills-catalog";
 import { INTEGRATION_TYPES } from "@/lib/tools-integrations/registry";
 
@@ -20,6 +21,8 @@ export type ConfigurationSnapshot = {
   knowledgeCount: number;
   mailbox: { connected: boolean; email: string | null } | null;
   integrationConnections: Record<string, string | null>;
+  /** What a connected Jira or Confluence is set up to do, in words. */
+  atlassian?: { jira: string | null; confluence: string | null };
   internalIntegrations: IntegrationStatus[];
   skills: SkillCatalogItem[];
   emailDomains: { approved: number; pending: number };
@@ -43,7 +46,7 @@ export async function loadConfigurationSnapshot(organizationId: string): Promise
       Promise.all(
         INTEGRATION_TYPES.map(async ({ type }) => {
           const row = await getConnectionForOrg(organizationId, type);
-          return [type, row ? row.status : null] as const;
+          return [type, row ? row.status : null, row] as const;
         }),
       ),
       integrationStatuses(profile.integrationsConfig, organizationId),
@@ -59,7 +62,8 @@ export async function loadConfigurationSnapshot(organizationId: string): Promise
     profile,
     knowledgeCount: Number(knowledgeRows[0]?.n ?? 0),
     mailbox: mailbox ? { connected: mailbox.status === "connected", email: mailbox.email ?? null } : null,
-    integrationConnections: Object.fromEntries(connections),
+    integrationConnections: Object.fromEntries(connections.map(([type, status]) => [type, status])),
+    atlassian: describeAtlassian(connections.map(([, , row]) => row)),
     internalIntegrations,
     skills,
     emailDomains: {
@@ -67,6 +71,27 @@ export async function loadConfigurationSnapshot(organizationId: string): Promise
       pending: domainRows.filter((row) => row.status === "pending").length,
     },
     realConversationCount: Number(conversationRows[0]?.n ?? 0),
+  };
+}
+
+function describeAtlassian(
+  rows: (Awaited<ReturnType<typeof getConnectionForOrg>>)[],
+): NonNullable<ConfigurationSnapshot["atlassian"]> {
+  const jira = rows.find((row) => row?.status === "active" && row.system === "jira");
+  const confluence = rows.find((row) => row?.status === "active" && row.system === "confluence");
+  const jiraSettings = jira ? readJiraSettings(jira.metadata) : null;
+  const confluenceSettings = confluence ? readConfluenceSettings(confluence.metadata) : null;
+  return {
+    jira: jiraSettings
+      ? jiraSettings.projectKey && jiraSettings.issueType
+        ? `handoff tickets ${jiraSettings.createTicketOnHandoff ? "on" : "off"}: a ${jiraSettings.issueType} in project ${jiraSettings.projectKey}`
+        : "connected, but no handoff project/issue type set, so handoffs raise no ticket"
+      : null,
+    confluence: confluenceSettings
+      ? `${confluenceSettings.spaceKey ? `space ${confluenceSettings.spaceKey}` : "every space"}, ${
+          confluenceSettings.searchBeforeAnswering ? "searched before every answer" : "searched only when the worker decides to"
+        }`
+      : null,
   };
 }
 
@@ -98,6 +123,8 @@ export function formatConfigurationSnapshot(snapshot: ConfigurationSnapshot): st
         .map(([type, status]) => `${type}=${status}`)
         .join(", ") || "(none connected)"
     }`,
+    ...(snapshot.atlassian?.jira ? [`Jira: ${snapshot.atlassian.jira}`] : []),
+    ...(snapshot.atlassian?.confluence ? [`Confluence: ${snapshot.atlassian.confluence}`] : []),
     `Internal tools: ${snapshot.internalIntegrations
       .map((item) => `${item.name} ${item.active ? "active" : item.enabled ? "on but unavailable" : "off"}`)
       .join(", ")}`,
@@ -284,6 +311,14 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
         fix: "Retry or disconnect it in Settings > Integrations.",
       });
     }
+  }
+  if (snapshot.atlassian?.jira?.startsWith("connected, but")) {
+    add({
+      severity: "warning",
+      area: "Integrations",
+      issue: "Jira is connected but has no handoff project, so when the worker hands a conversation to a person no ticket is raised.",
+      fix: "Set the project key and issue type under Jira in Settings > Integrations.",
+    });
   }
   if (!profile.assistantActionsEnabled) {
     add({

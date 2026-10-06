@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { integrationConnections } from "@/db/schema";
 
@@ -111,6 +111,22 @@ export async function getConnectionByConnectedAccountId(
     .where(eq(integrationConnections.composioConnectedAccountId, composioConnectedAccountId))
     .limit(1);
   return row ?? null;
+}
+
+/** Replaces the connection's own settings (metadata.settings), keeping the rest of its metadata. */
+export async function saveConnectionSettings(
+  id: string,
+  settings: Record<string, unknown>,
+): Promise<IntegrationConnection> {
+  const [row] = await db
+    .update(integrationConnections)
+    .set({
+      metadata: sql`coalesce(${integrationConnections.metadata}, '{}'::jsonb) || jsonb_build_object('settings', ${JSON.stringify(settings)}::jsonb)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(integrationConnections.id, id))
+    .returning();
+  return row;
 }
 
 export async function deleteConnection(id: string): Promise<void> {

@@ -33,6 +33,14 @@ import {
 } from "@/lib/tools-integrations/composio-actions";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
 import {
+  CONFLUENCE_READ_TOOL_NAME,
+  CONFLUENCE_SEARCH_TOOL_NAME,
+  CUSTOMER_TICKETS_TOOL_NAME,
+  executeConfluencePageRead,
+  executeConfluenceSearch,
+  lookupCustomerTickets,
+} from "@/lib/tools-integrations/atlassian";
+import {
   getSkillForOrg,
   listActiveSkillsForOrg,
   skillRequirementsMet,
@@ -729,175 +737,29 @@ export async function executeCalendarSearch(
   return JSON.stringify(result);
 }
 
-export const JIRA_SEARCH_ISSUES_SLUG = "JIRA_SEARCH_ISSUES";
-/** Toolkit version from composio.toolkits.get("jira") (Version: 20260915_00). */
-export const JIRA_TOOLKIT_VERSION = "20260915_00";
-export const JIRA_LOOKUP_TOOL_NAME = "lookup_jira_issue";
-export const JIRA_LOOKUP_RETRY_BACKOFF_MS = 500;
-export const JIRA_LOOKUP_FAILURE_MESSAGE =
-  "Jira issue search failed after retry (authentication or connectivity issue). This needs human follow-up — end your reply with [[ESCALATE]].";
+// Moved to lib/tools-integrations/atlassian.ts so the Assistant can share them.
+export {
+  buildJiraTextSearchJql,
+  CONFLUENCE_FAILURE_MESSAGE,
+  CONFLUENCE_GET_PAGE_SLUG,
+  CONFLUENCE_PAGE_TEXT_LIMIT,
+  CONFLUENCE_READ_TOOL_NAME,
+  CONFLUENCE_SEARCH_SLUG,
+  CONFLUENCE_SEARCH_TOOL_NAME,
+  CONFLUENCE_TOOLKIT_VERSION,
+  confluenceStorageToText,
+  executeConfluencePageRead,
+  executeConfluenceSearch,
+  executeJiraSearch,
+  JIRA_LOOKUP_FAILURE_MESSAGE,
+  JIRA_LOOKUP_RETRY_BACKOFF_MS,
+  JIRA_LOOKUP_TOOL_NAME,
+  JIRA_SEARCH_ISSUES_SLUG,
+  JIRA_TOOLKIT_VERSION,
+} from "@/lib/tools-integrations/atlassian";
 
-/** JQL text-search clause. Escapes backslashes then quotes so the value is a valid JQL string literal. */
-export function buildJiraTextSearchJql(query: string): string {
-  const escaped = query.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `text ~ "${escaped}"`;
-}
-
-export async function executeJiraSearch(
-  query: string,
-  organizationId: string,
-  connectedAccountId: string,
-): Promise<string> {
-  const input = { query };
-  const run = () =>
-    executeTool(
-      JIRA_SEARCH_ISSUES_SLUG,
-      { jql: buildJiraTextSearchJql(query) },
-      {
-        connectedAccountId,
-        userId: organizationId,
-        version: JIRA_TOOLKIT_VERSION,
-      },
-    );
-
-  let result: unknown;
-  try {
-    result = await run();
-  } catch {
-    await sleep(JIRA_LOOKUP_RETRY_BACKOFF_MS);
-    try {
-      result = await run();
-    } catch (retryError) {
-      const errorMessage = retryError instanceof Error ? retryError.message : String(retryError);
-      await logToolCall({
-        organizationId,
-        toolId: JIRA_LOOKUP_TOOL_NAME,
-        input,
-        output: null,
-        status: "error",
-        errorMessage,
-      });
-      return JIRA_LOOKUP_FAILURE_MESSAGE;
-    }
-  }
-
-  await logToolCall({
-    organizationId,
-    toolId: JIRA_LOOKUP_TOOL_NAME,
-    input,
-    output: toLogOutput(result),
-    status: "success",
-  });
-  return JSON.stringify(result);
-}
-
-export const CONFLUENCE_SEARCH_SLUG = "CONFLUENCE_SEARCH_CONTENT";
-export const CONFLUENCE_GET_PAGE_SLUG = "CONFLUENCE_GET_PAGE_BY_ID";
-/** Toolkit version from composio.toolkits.get("confluence") (Version: 20260915_00). */
-export const CONFLUENCE_TOOLKIT_VERSION = "20260915_00";
-export const CONFLUENCE_SEARCH_TOOL_NAME = "search_confluence";
-export const CONFLUENCE_READ_TOOL_NAME = "read_confluence_page";
-export const CONFLUENCE_FAILURE_MESSAGE =
-  "Confluence lookup failed after retry (authentication or connectivity issue). Don't answer from memory instead: if the answer depends on it, end your reply with [[ESCALATE]].";
-/** How much of one page's text goes back to the model. */
-export const CONFLUENCE_PAGE_TEXT_LIMIT = 8000;
-const CONFLUENCE_SEARCH_LIMIT = 10;
-
-/** Confluence storage format (HTML) to plain text for the model: block tags become line breaks, entities decoded. */
-export function confluenceStorageToText(html: string): string {
-  return html
-    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
-    .replace(/<\s*br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|h[1-6]|li|tr|table|blockquote|pre)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "- ")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n\s*\n+/g, "\n\n")
-    .trim();
-}
-
-/** One read-only Composio call, retried once, logged either way. Null means it failed twice. */
-async function runReadTool(
-  toolName: string,
-  slug: string,
-  args: Record<string, unknown>,
-  organizationId: string,
-  connectedAccountId: string,
-  version: string,
-): Promise<unknown | null> {
-  const run = () => executeTool(slug, args, { connectedAccountId, userId: organizationId, version });
-  let result: unknown;
-  try {
-    result = await run();
-  } catch {
-    await sleep(JIRA_LOOKUP_RETRY_BACKOFF_MS);
-    try {
-      result = await run();
-    } catch (retryError) {
-      await logToolCall({
-        organizationId,
-        toolId: toolName,
-        input: args,
-        output: null,
-        status: "error",
-        errorMessage: retryError instanceof Error ? retryError.message : String(retryError),
-      });
-      return null;
-    }
-  }
-  await logToolCall({ organizationId, toolId: toolName, input: args, output: toLogOutput(result), status: "success" });
-  return result;
-}
-
-export async function executeConfluenceSearch(query: string, organizationId: string, connectedAccountId: string) {
-  const result = await runReadTool(
-    CONFLUENCE_SEARCH_TOOL_NAME,
-    CONFLUENCE_SEARCH_SLUG,
-    { query, limit: CONFLUENCE_SEARCH_LIMIT },
-    organizationId,
-    connectedAccountId,
-    CONFLUENCE_TOOLKIT_VERSION,
-  );
-  return result === null ? CONFLUENCE_FAILURE_MESSAGE : JSON.stringify(result);
-}
-
-/**
- * One page's text. `onReferenceMaterial` fires when real page text comes
- * back, so the reply check knows this turn's answer can be grounded in it.
- */
-export async function executeConfluencePageRead(
-  pageId: string,
-  organizationId: string,
-  connectedAccountId: string,
-  onReferenceMaterial?: () => void,
-) {
-  const result = (await runReadTool(
-    CONFLUENCE_READ_TOOL_NAME,
-    CONFLUENCE_GET_PAGE_SLUG,
-    { id: pageId },
-    organizationId,
-    connectedAccountId,
-    CONFLUENCE_TOOLKIT_VERSION,
-  )) as { data?: { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } } } | null;
-  if (result === null) return CONFLUENCE_FAILURE_MESSAGE;
-  const page = result.data ?? {};
-  const text = confluenceStorageToText(page.body?.storage?.value ?? "");
-  if (!text) return JSON.stringify({ id: page.id ?? pageId, title: page.title ?? null, text: "", note: "This page has no readable text." });
-  onReferenceMaterial?.();
-  return JSON.stringify({
-    id: page.id ?? pageId,
-    title: page.title ?? null,
-    link: page._links?.webui ?? null,
-    text: text.slice(0, CONFLUENCE_PAGE_TEXT_LIMIT),
-    truncated: text.length > CONFLUENCE_PAGE_TEXT_LIMIT,
-  });
-}
+/** The customer agent reaches these through its own tools, never the generic action runner. */
+export const CUSTOMER_EXCLUDED_TOOLKITS = ["jira", "confluence"];
 
 export async function buildAgentTools(
   profile: Pick<
@@ -1118,18 +980,16 @@ export async function buildAgentTools(
     helpdeskConnection.system === "jira"
   ) {
     const connectedAccountId = helpdeskConnection.composioConnectedAccountId;
+    // Only this customer's own tickets: a free-text search of the project
+    // would let anyone in the chat read other customers' tickets.
     tools.push(
       tool({
-        name: JIRA_LOOKUP_TOOL_NAME,
+        name: CUSTOMER_TICKETS_TOOL_NAME,
         description:
-          "Search the connected Jira project for issues matching a free-text query. Read-only; does not create, update, or delete issues.",
-        parameters: z.object({
-          query: z
-            .string()
-            .describe("Free-text search across Jira issue summary, description, and comments"),
-        }),
-        execute: async ({ query }) =>
-          executeJiraSearch(query, organizationId, connectedAccountId),
+          "Check the status of this customer's own support tickets (the ones raised for this conversation or " +
+          "this customer's email). Read-only. Use it when they ask about a ticket or an earlier request.",
+        parameters: z.object({}),
+        execute: async () => lookupCustomerTickets(organizationId, conversationId, connectedAccountId),
       }),
     );
   }
@@ -1166,7 +1026,9 @@ export async function buildAgentTools(
   // Everything else the connected apps can do (create/update tickets,
   // comments, contacts, events, email…), behind one search tool and one run
   // tool. The run tool applies the approval policy per action.
-  const toolkits = await connectedToolkits(organizationId);
+  const toolkits = (await connectedToolkits(organizationId)).filter(
+    (entry) => !CUSTOMER_EXCLUDED_TOOLKITS.includes(entry.toolkit),
+  );
   if (toolkits.length > 0) {
     const apps = toolkits.map((entry) => entry.toolkit).join(", ");
     const requireWriteApproval = profile.requireWriteApproval !== false;
@@ -1185,7 +1047,8 @@ export async function buildAgentTools(
             .nullable()
             .describe(`Limit the search to one connected app (${apps}), or null to search all of them`),
         }),
-        execute: async ({ query, app }) => executeSearchActions(query, app ?? undefined, organizationId),
+        execute: async ({ query, app }) =>
+          executeSearchActions(query, app ?? undefined, organizationId, CUSTOMER_EXCLUDED_TOOLKITS),
       }),
       tool({
         name: RUN_ACTION_TOOL_NAME,
@@ -1202,7 +1065,12 @@ export async function buildAgentTools(
         execute: async ({ action, arguments_json }) =>
           executeRunAction(
             { action, argumentsJson: arguments_json },
-            { organizationId, conversationId: conversationId ?? null, requireWriteApproval },
+            {
+              organizationId,
+              conversationId: conversationId ?? null,
+              requireWriteApproval,
+              excludeToolkits: CUSTOMER_EXCLUDED_TOOLKITS,
+            },
           ),
       }),
     );

@@ -58,10 +58,11 @@ What happens (`lib/email-channel.ts`):
 
 ## Every other action a connected app offers
 
-Beyond the hand-wired lookups below (`lookup_jira_issue`, `search_confluence`,
+Beyond the hand-wired lookups below (`lookup_my_tickets`, `search_confluence`,
 `lookup_crm_contact`…), the agent can use any Composio action of a connected
-app: create or update a Jira/Linear issue, add a comment, transition it, update
-a Zoho record, create a calendar event, send email and so on. It gets two tools
+app: create or update a Linear issue, add a comment, transition it, update
+a Zoho record, create a calendar event, send email and so on (Jira and
+Confluence are excluded for the customer agent; see below). It gets two tools
 rather than hundreds, because a single model request can't carry every action
 Jira alone offers:
 
@@ -99,22 +100,54 @@ Limits worth knowing:
 - Settings > Email domains doesn't apply to these sends; the recipient rule
   above does.
 
-## Confluence (Knowledge base)
+## Jira and Confluence (Atlassian)
 
-Connected per org under Settings > Integrations > Knowledge base, through
-Composio (OAuth). The Composio auth config id goes in
-`COMPOSIO_CONFLUENCE_AUTH_CONFIG_ID` (e.g. `ac_...` from the Composio
-dashboard). Once a connection is active the agent gets two read-only tools:
+Both are connected per org under Settings > Integrations, through Composio
+(OAuth): Jira as the Helpdesk (`COMPOSIO_JIRA_AUTH_CONFIG_ID`), Confluence as
+the Knowledge base (`COMPOSIO_CONFLUENCE_AUTH_CONFIG_ID`). Their own settings
+live on the connection row (`integration_connections.metadata.settings`) and
+are edited under each card (`PATCH /api/v1/integrations/:type`). Code:
+`lib/tools-integrations/atlassian.ts`.
 
-- `search_confluence`: `CONFLUENCE_SEARCH_CONTENT`. Matches **page titles
-  only** (a Composio limitation), so the agent searches by likely page names.
-- `read_confluence_page`: `CONFLUENCE_GET_PAGE_BY_ID`, returned as plain text
-  (storage HTML stripped, capped at 8,000 characters).
+| Setting | Default | What it does |
+|---|---|---|
+| Jira `projectKey`, `issueType` | unset | Where handoff tickets go, e.g. `SUP` / `Task` |
+| Jira `createTicketOnHandoff` | on | Raise a ticket on every handoff (needs both of the above) |
+| Confluence `spaceKey` | every space | The space answers come from |
+| Confluence `searchBeforeAnswering` | on | Search page text before every answer |
 
-Page text the agent reads counts as approved reference material for the
-reply check (lib/guardrails.ts), so an answer grounded in a Confluence page
-isn't blocked as general knowledge. Toolkit version pinned in
-`CONFLUENCE_TOOLKIT_VERSION` (lib/agent.ts).
+**Customer-facing worker** (`lib/agent.ts`, `lib/customer-turn.ts`):
+
+- Handoff: when a turn escalates, the code (not the model) creates the Jira
+  issue with the conversation transcript, stores its key on
+  `conversations.external_ticket_key`, and appends "I've logged this for the
+  team as SUP-12…" to the reply. A later handoff on the same conversation adds
+  a comment instead. A Jira failure is logged and the handoff still happens.
+- `lookup_my_tickets`: the status of this customer's own tickets only (keys
+  stored on this conversation, or on others with the same customer email).
+  There is deliberately no free-text search of the project: it would let
+  anyone in a chat read other customers' tickets.
+- Knowledge: Confluence is searched full-text (CQL, keywords from the
+  question) in `lib/retrieval.ts` before every answer, alongside local
+  knowledge, Parchment, Scribe and Agent Wiki. The model also keeps
+  `search_confluence` (title match) and `read_confluence_page`.
+- `search_integration_actions` / `run_integration_action` exclude Jira and
+  Confluence for this agent (`CUSTOMER_EXCLUDED_TOOLKITS`).
+
+**Assistant** (`lib/assistant-agent.ts`):
+
+- Read, for everyone including read-only members: `search_jira_issues`
+  (any project; the handoff project by default), `read_jira_issue`,
+  `search_confluence_pages` (full text), `read_confluence_page`.
+- Change, with "Let the Assistant take actions" on: `search_integration_actions`
+  then `propose_integration_action` (any action of any connected app: create
+  or edit a ticket, comment, transition, create a page). It's a proposal like
+  every other Assistant action; it runs after the manager approves, against
+  the connection as it is then.
+
+Page text the customer agent reads counts as approved reference material for
+the reply check (lib/guardrails.ts). Toolkit versions are pinned in
+`JIRA_TOOLKIT_VERSION` / `CONFLUENCE_TOOLKIT_VERSION`.
 
 ## Parchment
 
