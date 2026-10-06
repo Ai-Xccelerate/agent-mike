@@ -21,6 +21,8 @@ import {
   lookupCustomerTickets,
   readConfluenceSettings,
   readJiraSettings,
+  CONFLUENCE_GET_PAGES_SLUG,
+  scorePage,
   recordHandoffInJira,
   searchConfluenceKnowledge,
   searchKeywords,
@@ -319,6 +321,44 @@ describe("Confluence searched before answering", () => {
         rank: 1,
       },
     ]);
+  });
+
+  it("ranks the space's pages itself when Confluence refuses the search (no search scope)", async () => {
+    connectionsFor({
+      knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+    });
+    const page = (id: string, title: string, html: string, space = "SK") => ({
+      id,
+      title,
+      body: { storage: { value: html } },
+      _links: { webui: `/spaces/${space}/pages/${id}/x` },
+    });
+    executeToolMock.mockImplementation(async (slug) =>
+      slug === CONFLUENCE_CQL_SEARCH_SLUG
+        ? { successful: false, error: "Unauthorized; scope does not match", data: {} }
+        : {
+            successful: true,
+            error: null,
+            data: {
+              results: [
+                page("1", "How to add a new user", "<p>Open Administration.</p>"),
+                page("2", "How to reset your password", "<p>Click Forgot password, then reset it.</p>"),
+                page("3", "Reset password (other space)", "<p>Not ours.</p>", "OTHER"),
+              ],
+            },
+          },
+    );
+
+    const matches = await searchConfluenceKnowledge(orgId, "How do I reset my password?", 3);
+
+    expect(executeToolMock.mock.calls.map((call) => call[0])).toEqual([CONFLUENCE_CQL_SEARCH_SLUG, CONFLUENCE_GET_PAGES_SLUG]);
+    expect(matches?.map((match) => match.title)).toEqual(["How to reset your password"]);
+    expect(matches?.[0].content).toContain("Click Forgot password");
+  });
+
+  it("weighs title matches above body matches", () => {
+    expect(scorePage("Reset your password", "", ["password"])).toBeGreaterThan(scorePage("Users", "password", ["password"]));
+    expect(scorePage("Users", "nothing here", ["password"])).toBe(0);
   });
 
   it("throws a ConfluenceKnowledgeError when the search fails twice", async () => {
