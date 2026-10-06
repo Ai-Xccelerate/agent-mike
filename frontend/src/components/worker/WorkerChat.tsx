@@ -39,7 +39,9 @@ function welcomeMessage(profile: WorkerProfile | null): Message {
     conversationId: "",
     senderType: "agent",
     senderName: profile?.displayName ?? "AI Worker",
-    body: `Hi! I'm ${profile?.displayName ?? "your AI worker"}. ${profile?.role ?? "How can I help?"}`,
+    // Not the Role: that's an instruction written for the worker, and read
+    // out to a customer it sounded like a job description.
+    body: `Hi! I'm ${profile?.displayName ?? "your AI worker"}. How can I help today?`,
     citations: [],
     createdAt: new Date().toISOString(),
   };
