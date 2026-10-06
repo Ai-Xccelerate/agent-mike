@@ -154,8 +154,24 @@ async function runReadTool(
       return null;
     }
   }
-  await logToolCall({ organizationId, toolId: toolName, input: args, output: toLogOutput(result), status: "success" });
+  // Composio reports a refused call (missing scope, bad arguments) as a
+  // result with successful: false rather than throwing; log it as the error
+  // it is, so it isn't mistaken for an empty answer.
+  const refused = (result as { successful?: boolean } | null)?.successful === false;
+  await logToolCall({
+    organizationId,
+    toolId: toolName,
+    input: args,
+    output: toLogOutput(result),
+    status: refused ? "error" : "success",
+    errorMessage: refused ? String((result as { error?: unknown }).error ?? "unsuccessful") : null,
+  });
   return result;
+}
+
+/** True when Composio answered but the app refused the call (e.g. a scope the connection lacks). */
+export function wasRefused(result: unknown): boolean {
+  return (result as { successful?: boolean } | null)?.successful === false;
 }
 
 export async function executeConfluenceSearch(query: string, organizationId: string, connectedAccountId: string) {
@@ -632,6 +648,64 @@ function cqlResultsFrom(result: unknown): CqlResult[] {
   return Array.isArray(results) ? (results as CqlResult[]) : [];
 }
 
+export const CONFLUENCE_GET_PAGES_SLUG = "CONFLUENCE_GET_PAGES";
+/** Confluence's own cap on one page of results. */
+const PAGE_LIST_LIMIT = 250;
+
+type ListedPage = { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } };
+export type RankedPage = { id: string; title: string; text: string; score: number };
+
+/** How well a page matches the keywords: a title hit counts more than body hits (capped per word). */
+export function scorePage(title: string, text: string, keywords: string[]): number {
+  const lowerTitle = title.toLowerCase();
+  const lowerText = text.toLowerCase();
+  let score = 0;
+  for (const word of keywords) {
+    if (lowerTitle.includes(word)) score += 3;
+    score += Math.min(3, lowerText.split(word).length - 1);
+  }
+  return score;
+}
+
+/**
+ * The search Confluence would have done, done here: list the space's pages
+ * with their text and rank them by keyword. Used when the connection may read
+ * pages but not search (Composio's managed Atlassian app has no
+ * search:confluence scope unless it's added to the auth config). Only reads
+ * the first PAGE_LIST_LIMIT pages, which covers a support knowledge base.
+ */
+export async function rankPagesByKeywords(
+  toolId: string,
+  keywords: string[],
+  spaceKey: string | null,
+  limit: number,
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<RankedPage[] | null> {
+  const result = await runReadTool(
+    toolId,
+    CONFLUENCE_GET_PAGES_SLUG,
+    { limit: PAGE_LIST_LIMIT, status: "current", body_format: "storage" },
+    organizationId,
+    connectedAccountId,
+    CONFLUENCE_TOOLKIT_VERSION,
+  );
+  if (result === null || wasRefused(result)) return null;
+  const data = (result as { data?: { results?: unknown } }).data;
+  const pages = Array.isArray(data?.results) ? (data.results as ListedPage[]) : [];
+  const inSpace = spaceKey ? `/spaces/${spaceKey}/`.toLowerCase() : null;
+  return pages
+    .filter((page) => !inSpace || (page._links?.webui ?? "").toLowerCase().includes(inSpace))
+    .map((page) => {
+      const title = page.title ?? "";
+      const text = confluenceStorageToText(page.body?.storage?.value ?? "");
+      return { id: page.id ?? title, title, text, score: scorePage(title, text, keywords) };
+    })
+    .filter((page) => page.title && page.text && page.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
 /**
  * Null when Confluence isn't connected or isn't set to be searched before
  * answering. Throws ConfluenceKnowledgeError when the search itself fails, so
@@ -660,6 +734,25 @@ export async function searchConfluenceKnowledge(
     CONFLUENCE_TOOLKIT_VERSION,
   );
   if (result === null) throw new ConfluenceKnowledgeError("Confluence search failed");
+
+  if (wasRefused(result)) {
+    const ranked = await rankPagesByKeywords(
+      CONFLUENCE_KNOWLEDGE_TOOL_ID,
+      keywords,
+      settings.spaceKey,
+      limit,
+      organizationId,
+      connectedAccountId,
+    );
+    if (ranked === null) throw new ConfluenceKnowledgeError("Confluence search and page listing both failed");
+    return ranked.map((page, index) => ({
+      documentId: `confluence:${page.id}`,
+      title: page.title,
+      heading: null,
+      content: clip(page.text, CONFLUENCE_MATCH_CHARS),
+      rank: 1 / (index + 1),
+    }));
+  }
 
   return cqlResultsFrom(result)
     .map((hit, index): KnowledgeMatch | null => {
@@ -767,6 +860,18 @@ export async function executeConfluenceTextSearch(
     CONFLUENCE_TOOLKIT_VERSION,
   );
   if (result === null) return "Confluence search failed. Try again in a moment.";
+  if (wasRefused(result)) {
+    const ranked = await rankPagesByKeywords(
+      MANAGER_CONFLUENCE_SEARCH_TOOL_NAME,
+      keywords,
+      spaceKey,
+      CONFLUENCE_SEARCH_LIMIT,
+      organizationId,
+      connectedAccountId,
+    );
+    if (ranked === null) return "Confluence search failed. Try again in a moment.";
+    return JSON.stringify({ pages: ranked.map((page) => ({ id: page.id, title: page.title, excerpt: page.text.slice(0, 300) })) });
+  }
   const pages = cqlResultsFrom(result).map((hit) => ({
     id: hit.content?.id ?? null,
     title: hit.content?.title ?? hit.title ?? null,
