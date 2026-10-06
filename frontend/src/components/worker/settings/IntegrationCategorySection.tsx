@@ -4,7 +4,10 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { IntegrationCard, IntegrationCategoryHeading, type IntegrationCardStatus } from "@/components/worker/settings/IntegrationCard";
-import ConnectionSettingsForm from "@/components/worker/settings/ConnectionSettingsForm";
+import ConnectionSettingsDialog, {
+  connectionSettingsNote,
+  hasConnectionSettings,
+} from "@/components/worker/settings/ConnectionSettingsForm";
 import {
   connectIntegration,
   disconnectIntegration,
@@ -43,6 +46,7 @@ export default function IntegrationCategorySection({
   const [connectingSystem, setConnectingSystem] = useState<string | null>(null);
   const [failedSystem, setFailedSystem] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState("");
   // A "pending" row can be stuck forever with nothing to unstick it: Composio's
   // own INITIALIZING status doesn't reliably self-expire, and there was
@@ -148,7 +152,9 @@ export default function IntegrationCategorySection({
                   : `Finish signing in to ${vendor.label} in the popup or redirected tab.`
                 : status === "failed"
                   ? "The previous attempt failed. Try again."
-                  : undefined;
+                  : status === "connected" && hasConnectionSettings(connection)
+                    ? connectionSettingsNote(connection)
+                    : undefined;
 
           const action =
             status === "connected" ? (
@@ -187,12 +193,21 @@ export default function IntegrationCategorySection({
               status={status}
               note={note}
               action={action}
+              onSettings={
+                status === "connected" && hasConnectionSettings(connection) ? () => setSettingsOpen(true) : undefined
+              }
             />
           );
         })}
       </div>
-      {connection?.status === "active" && connection.settings && (
-        <ConnectionSettingsForm integrationType={integrationType} connection={connection} onSaved={setConnection} />
+      {connection?.status === "active" && hasConnectionSettings(connection) && (
+        <ConnectionSettingsDialog
+          integrationType={integrationType}
+          connection={connection}
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={setConnection}
+        />
       )}
       {error && <p className="mt-2 text-xs font-medium text-error-600 dark:text-error-400">{error}</p>}
     </section>

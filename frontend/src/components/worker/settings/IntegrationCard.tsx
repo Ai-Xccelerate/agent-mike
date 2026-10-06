@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { GearIcon } from "@/icons";
 import { panelClass } from "@/components/worker/settings/ui";
 
 export type IntegrationCardStatus = "connected" | "disconnected" | "pending" | "failed" | "unavailable";
@@ -44,6 +45,7 @@ export function IntegrationCard({
   status,
   note,
   action,
+  onSettings,
 }: {
   icon: ReactNode;
   title: string;
@@ -53,6 +55,8 @@ export function IntegrationCard({
   note?: ReactNode;
   /** The connect/disconnect/retry control. Omitted entirely when there's nothing to do. */
   action?: ReactNode;
+  /** Opens this connection's own settings. Shows a gear button when set. */
+  onSettings?: () => void;
 }) {
   const surfaceClass =
     status === "connected"
@@ -70,7 +74,20 @@ export function IntegrationCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm font-semibold text-gray-800 dark:text-white/90">{title}</p>
-            <IntegrationStatusPill status={status} />
+            <div className="flex shrink-0 items-center gap-1.5">
+              {onSettings && (
+                <button
+                  type="button"
+                  onClick={onSettings}
+                  aria-label={`${title} settings`}
+                  title={`${title} settings`}
+                  className="flex size-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-200"
+                >
+                  <GearIcon className="size-4" />
+                </button>
+              )}
+              <IntegrationStatusPill status={status} />
+            </div>
           </div>
           <p className="mt-1.5 text-xs leading-5 text-gray-500 dark:text-gray-400">{description}</p>
         </div>
