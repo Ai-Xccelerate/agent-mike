@@ -13,6 +13,7 @@ import {
   ConfluenceKnowledgeError,
   customerTicketKeys,
   HANDOFF_TICKET_LABEL,
+  handoffTicketSummary,
   issueKeyFrom,
   JIRA_ADD_COMMENT_SLUG,
   JIRA_CREATE_ISSUE_SLUG,
@@ -206,6 +207,26 @@ describe("raising a Jira ticket on handoff", () => {
     ).toBeNull();
     const [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
     expect(stored.externalTicketKey).toBeNull();
+  });
+
+  it("titles the ticket with what the customer came about, not their last answer", () => {
+    const conversation = { subject: null } as HandoffConversation;
+    const transcript = [
+      { speaker: "Ana", body: "hi" },
+      { speaker: "Eva", body: "Hi! How can I help?" },
+      { speaker: "Ana", body: "The EAPx dashboard shows the wrong case counts" },
+      { speaker: "Eva", body: "What's your work email?" },
+      { speaker: "Ana", body: "ana@acme.com" },
+    ];
+    expect(handoffTicketSummary({ conversation, transcript, latestMessage: "ana@acme.com", workerName: "Eva" })).toBe(
+      "The EAPx dashboard shows the wrong case counts",
+    );
+    expect(
+      handoffTicketSummary({ conversation: { subject: "Login loop" } as HandoffConversation, transcript, latestMessage: "x", workerName: "Eva" }),
+    ).toBe("Login loop");
+    expect(handoffTicketSummary({ conversation, transcript: [], latestMessage: "help me please now", workerName: "Eva" })).toBe(
+      "help me please now",
+    );
   });
 
   it("finds the issue key wherever the toolkit version put it", () => {

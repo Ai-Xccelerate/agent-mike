@@ -329,8 +329,16 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-export function handoffTicketSummary(conversation: HandoffConversation, latestMessage: string): string {
-  const topic = oneLine(conversation.subject || latestMessage) || "Customer needs help";
+/**
+ * The ticket's title: the email subject, else the customer's first real
+ * message (what they came about). Not their latest one: by handoff time that
+ * is usually an answer to an intake question ("ana@acme.com").
+ */
+export function handoffTicketSummary(input: Pick<HandoffTicketInput, "conversation" | "transcript" | "latestMessage" | "workerName">): string {
+  const opening = input.transcript.find(
+    (turn) => turn.speaker !== input.workerName && oneLine(turn.body).split(" ").length >= 3,
+  );
+  const topic = oneLine(input.conversation.subject || opening?.body || input.latestMessage) || "Customer needs help";
   return clip(topic, 120);
 }
 
@@ -450,7 +458,7 @@ export async function recordHandoffInJira(input: HandoffTicketInput): Promise<Ha
     {
       project_key: settings.projectKey,
       issue_type: settings.issueType,
-      summary: handoffTicketSummary(conversation, input.latestMessage),
+      summary: handoffTicketSummary(input),
       description: handoffTicketDescription(input),
       labels: [HANDOFF_TICKET_LABEL],
     },
