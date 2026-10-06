@@ -76,8 +76,10 @@ export async function executeSearchActions(
   query: string,
   app: string | undefined,
   organizationId: string,
+  /** Toolkits this caller reaches through its own tools instead (the customer agent's Jira and Confluence). */
+  excludeToolkits: string[] = [],
 ): Promise<string> {
-  const connected = await connectedToolkits(organizationId);
+  const connected = (await connectedToolkits(organizationId)).filter((entry) => !excludeToolkits.includes(entry.toolkit));
   const wanted = app ? connected.filter((entry) => entry.toolkit === app.trim().toLowerCase()) : connected;
   if (wanted.length === 0) {
     return app
@@ -182,7 +184,12 @@ async function runAndLog(
 
 export async function executeRunAction(
   input: { action: string; argumentsJson: string },
-  context: { organizationId: string; conversationId?: string | null; requireWriteApproval: boolean },
+  context: {
+    organizationId: string;
+    conversationId?: string | null;
+    requireWriteApproval: boolean;
+    excludeToolkits?: string[];
+  },
 ): Promise<string> {
   const { organizationId, conversationId } = context;
 
@@ -205,6 +212,9 @@ export async function executeRunAction(
     return `${input.action} can't be run right now. Use ${SEARCH_ACTIONS_TOOL_NAME} to find another way.`;
   }
 
+  if (context.excludeToolkits?.includes(schema.toolkit)) {
+    return `${input.action} isn't available here. Use the ${schema.toolkit} tools you were given instead.`;
+  }
   const connected = await connectedToolkits(organizationId);
   const target = toolkitFor(schema, connected);
   if (!target) {

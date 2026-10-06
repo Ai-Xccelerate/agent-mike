@@ -53,6 +53,28 @@ import { INTEGRATIONS, getIntegrationType } from "@/lib/tools-integrations/regis
 import { isPanelKind, loadPanel, PANEL_KINDS, summarizePanel, systemLabel, type PanelKind } from "@/lib/assistant-panels";
 import { isValidDomain, normalizeDomain } from "@/lib/email-domains";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
+import {
+  CONFLUENCE_READ_TOOL_NAME,
+  executeConfluencePageRead,
+  executeConfluenceTextSearch,
+  executeJiraIssueRead,
+  executeJiraIssueSearch,
+  issueKeyFrom,
+  managerAccount,
+  MANAGER_CONFLUENCE_SEARCH_TOOL_NAME,
+  MANAGER_JIRA_READ_TOOL_NAME,
+  MANAGER_JIRA_SEARCH_TOOL_NAME,
+  readConfluenceSettings,
+  readJiraSettings,
+} from "@/lib/tools-integrations/atlassian";
+import {
+  applyComposioActionApproval,
+  connectedToolkits,
+  executeSearchActions,
+  SEARCH_ACTIONS_TOOL_NAME,
+} from "@/lib/tools-integrations/composio-actions";
+import { classifyAction } from "@/lib/tools-integrations/action-policy";
+import { getActionSchema } from "@/lib/tools-integrations/composio-client";
 import { listSkillsForOrg, VERIFY_CUSTOMER_SKILL_ID } from "@/lib/tools-integrations/skills-catalog";
 import { auditWorkerConfiguration, formatConfigurationSnapshot, loadConfigurationSnapshot } from "@/lib/assistant-config-audit";
 import { PRODUCT_GUIDE_TOPICS, productGuide, type ProductGuideTopic } from "@/lib/assistant-product-guide";
@@ -100,6 +122,7 @@ export const PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME = "propose_skill_from_attac
 export const PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME = "propose_edit_knowledge_article";
 export const CONFIRM_PENDING_CHANGE_TOOL_NAME = "confirm_pending_change";
 export const CANCEL_PENDING_CHANGE_TOOL_NAME = "cancel_pending_change";
+export const PROPOSE_INTEGRATION_ACTION_TOOL_NAME = "propose_integration_action";
 
 function assistantToolFailed(text: string): string | null {
   if (text.startsWith("Could not complete that:") || text.startsWith("That failed:")) return text;
@@ -147,6 +170,8 @@ const TOOL_CONFIGURE_EDIT_KNOWLEDGE = "assistant_configure_edit_knowledge";
 const TOOL_ACTION_SEND_REPLY = "assistant_action_send_reply";
 const TOOL_ACTION_UPDATE_TICKET_STATUS = "assistant_action_update_ticket_status";
 const TOOL_ACTION_PUBLISH_KNOWLEDGE = "assistant_action_publish_knowledge";
+/** Anything a connected app can do (create a Jira ticket, comment, create a Confluence page...). */
+const TOOL_ACTION_INTEGRATION = "assistant_action_integration";
 
 const CONFIGURE_TOOL_IDS = new Set([
   TOOL_CONFIGURE_ROLE,
@@ -176,6 +201,7 @@ const ACTION_TOOL_IDS = new Set([
   TOOL_ACTION_SEND_REPLY,
   TOOL_ACTION_UPDATE_TICKET_STATUS,
   TOOL_ACTION_PUBLISH_KNOWLEDGE,
+  TOOL_ACTION_INTEGRATION,
 ]);
 
 /**
@@ -241,6 +267,8 @@ function describePendingChange(toolId: string, input: Record<string, unknown>): 
       return `mark ticket #${input.ticketNumber} as ${input.newStatus}`;
     case TOOL_ACTION_PUBLISH_KNOWLEDGE:
       return `publish a new knowledge article titled "${input.title}"`;
+    case TOOL_ACTION_INTEGRATION:
+      return String(input.summary);
     case TOOL_CONFIGURE_MANAGER_CONTACT: {
       const parts = [
         input.managerName ? `name to "${input.managerName}"` : null,
@@ -327,6 +355,8 @@ export function pendingChangeDetails(toolId: string, input: Record<string, unkno
       return preview(input.replyText, 1200);
     case TOOL_ACTION_PUBLISH_KNOWLEDGE:
       return preview(input.body);
+    case TOOL_ACTION_INTEGRATION:
+      return `${systemLabel(String(input.app))}: ${input.action}\n\n${preview(JSON.stringify(input.arguments, null, 2), 1500)}`;
     case TOOL_CONFIGURE_KNOWLEDGE_FROM_ATTACHMENT: {
       const format =
         input.format === "as_written"
@@ -472,6 +502,12 @@ async function applyPendingChange(
       .set({ status: input.newStatus as string, updatedAt: new Date() })
       .where(eq(conversations.id, conversation.id));
     return { ticketNumber, status: input.newStatus };
+  }
+  if (toolId === TOOL_ACTION_INTEGRATION) {
+    // Runs against the app's connection as it is now, not as it was when
+    // proposed: it may have been disconnected or reconnected since.
+    const result = await applyComposioActionApproval(input, organizationId, "assistant");
+    return result.ok ? { output: result.output.slice(0, 2000) } : { error: result.output };
   }
   if (toolId === TOOL_CONFIGURE_MANAGER_CONTACT) {
     const patch: Record<string, unknown> = {};
@@ -1188,6 +1224,147 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
   ];
 }
 
+/**
+ * Jira and Confluence as the manager sees them: any issue in any project and
+ * any page the connection can read. Read-only, so members get them too. Each
+ * tool checks the connection when called, so the list stays the same whether
+ * or not they're connected.
+ */
+function buildIntegrationReadTools(organizationId: string): Tool[] {
+  return [
+    tool({
+      name: MANAGER_JIRA_SEARCH_TOOL_NAME,
+      description:
+        "Search the connected Jira for issues, newest first: by words in them, by project, or both (both empty = " +
+        "the last 30 days). Read-only. Use it for 'what tickets are open about X', 'show me the latest in SUP'.",
+      parameters: z.object({
+        query: z.string().describe("Words to search issue text for, or empty"),
+        projectKey: z.string().nullable().describe("Limit to one project key (e.g. SUP), or null for the handoff project if one is set"),
+      }),
+      execute: async ({ query, projectKey }) =>
+        loggedAssistantTool(organizationId, MANAGER_JIRA_SEARCH_TOOL_NAME, { query, projectKey }, async () => {
+          const account = await managerAccount(organizationId, "jira");
+          if (typeof account === "string") return account;
+          const project = projectKey?.trim().toUpperCase() || readJiraSettings(account.connection.metadata).projectKey;
+          return executeJiraIssueSearch(query, project, organizationId, account.connectedAccountId);
+        }),
+    }),
+    tool({
+      name: MANAGER_JIRA_READ_TOOL_NAME,
+      description: "Read one Jira issue by key (e.g. SUP-12): summary, status, people, description and comments. Read-only.",
+      parameters: z.object({ key: z.string().describe("The issue key, e.g. SUP-12") }),
+      execute: async ({ key }) =>
+        loggedAssistantTool(organizationId, MANAGER_JIRA_READ_TOOL_NAME, { key }, async () => {
+          const account = await managerAccount(organizationId, "jira");
+          if (typeof account === "string") return account;
+          return executeJiraIssueRead(key.trim().toUpperCase(), organizationId, account.connectedAccountId);
+        }),
+    }),
+    tool({
+      name: MANAGER_CONFLUENCE_SEARCH_TOOL_NAME,
+      description:
+        "Search the connected Confluence's page text (the space the worker answers from, if one is set). Returns page " +
+        `ids, titles and excerpts; read a page with ${CONFLUENCE_READ_TOOL_NAME}. Read-only.`,
+      parameters: z.object({ query: z.string().describe("Words to look for") }),
+      execute: async ({ query }) =>
+        loggedAssistantTool(organizationId, MANAGER_CONFLUENCE_SEARCH_TOOL_NAME, { query }, async () => {
+          const account = await managerAccount(organizationId, "confluence");
+          if (typeof account === "string") return account;
+          const { spaceKey } = readConfluenceSettings(account.connection.metadata);
+          return executeConfluenceTextSearch(query, spaceKey, organizationId, account.connectedAccountId);
+        }),
+    }),
+    tool({
+      name: CONFLUENCE_READ_TOOL_NAME,
+      description: `Read one Confluence page's text by its id (from ${MANAGER_CONFLUENCE_SEARCH_TOOL_NAME}). Read-only.`,
+      parameters: z.object({ pageId: z.string() }),
+      execute: async ({ pageId }) =>
+        loggedAssistantTool(organizationId, CONFLUENCE_READ_TOOL_NAME, { pageId }, async () => {
+          const account = await managerAccount(organizationId, "confluence");
+          if (typeof account === "string") return account;
+          return executeConfluencePageRead(pageId, organizationId, account.connectedAccountId);
+        }),
+    }),
+  ];
+}
+
+/**
+ * Any change a connected app supports (create or update a Jira ticket,
+ * comment, transition, create a Confluence page...), found with
+ * search_integration_actions and proposed for the manager's approval like
+ * every other action.
+ */
+function buildIntegrationActionTools(organizationId: string, propose: Proposer): Tool[] {
+  return [
+    tool({
+      name: SEARCH_ACTIONS_TOOL_NAME,
+      description:
+        "Find what a connected app (Jira, Confluence, Zoho...) can do and what each action needs: creating or " +
+        "updating a ticket, adding a comment, moving it to another status, creating a page, and so on. Then " +
+        `propose one with ${PROPOSE_INTEGRATION_ACTION_TOOL_NAME}.`,
+      parameters: z.object({
+        query: z.string().describe("What you want to do, e.g. \"create a Jira issue\""),
+        app: z.string().nullable().describe("Limit to one connected app (e.g. jira, confluence), or null"),
+      }),
+      execute: async ({ query, app }) =>
+        loggedAssistantTool(organizationId, SEARCH_ACTIONS_TOOL_NAME, { query, app }, async () =>
+          executeSearchActions(query, app ?? undefined, organizationId),
+        ),
+    }),
+    tool({
+      name: PROPOSE_INTEGRATION_ACTION_TOOL_NAME,
+      description:
+        `Propose running one action found with ${SEARCH_ACTIONS_TOOL_NAME} in a connected app. Does not run ` +
+        "anything yet: the manager approves it first, like every other change. Use the parameter names the " +
+        "action listed. For a Jira ticket, use the handoff project and issue type from get_worker_configuration " +
+        "unless the manager named others.",
+      parameters: z.object({
+        action: z.string().describe("The exact action name, e.g. JIRA_CREATE_ISSUE"),
+        arguments_json: z.string().describe("The action's arguments as a JSON object string"),
+        summary: z
+          .string()
+          .describe("What it does, as a short phrase the manager approves, e.g. 'create a Jira task in SUP: Invoice shows wrong amount'"),
+        reason: z.string(),
+      }),
+      execute: async ({ action, arguments_json, summary, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_INTEGRATION_ACTION_TOOL_NAME, { action, summary, reason }, async () => {
+          let args: Record<string, unknown>;
+          try {
+            const parsed = JSON.parse(arguments_json || "{}") as unknown;
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+            args = parsed as Record<string, unknown>;
+          } catch {
+            return "Can't propose that: arguments_json must be a JSON object.";
+          }
+          let schema;
+          try {
+            schema = await getActionSchema(action);
+          } catch {
+            return `Can't propose that: there's no action called ${action}. Use ${SEARCH_ACTIONS_TOOL_NAME} to find the right one.`;
+          }
+          if (schema.isDeprecated || !schema.version) return `Can't propose that: ${action} can't be run right now.`;
+          const connected = await connectedToolkits(organizationId);
+          if (!connected.some((entry) => entry.toolkit === schema.toolkit)) {
+            return `Can't propose that: ${systemLabel(schema.toolkit)} isn't connected. Offer to connect it (propose_connect_integration).`;
+          }
+          const missing = (schema.inputParameters?.required ?? []).filter((name) => args[name] === undefined || args[name] === "");
+          if (missing.length > 0) return `Can't propose that: ${action} also needs ${missing.join(", ")}.`;
+          const input = {
+            action: schema.slug,
+            app: schema.toolkit,
+            version: schema.version,
+            tier: classifyAction(schema),
+            arguments: args,
+            summary: summary.trim(),
+            reason,
+          };
+          const approval = await propose(TOOL_ACTION_INTEGRATION, input);
+          return proposedText(approval, TOOL_ACTION_INTEGRATION, input);
+        }),
+    }),
+  ];
+}
+
 function buildActionTools(profile: Profile, organizationId: string, propose: Proposer): Tool[] {
   if (!profile.assistantActionsEnabled) {
     const disabledMessage =
@@ -1197,8 +1374,9 @@ function buildActionTools(profile: Profile, organizationId: string, propose: Pro
       tool({
         name: PROPOSE_ACTION_TOOL_NAME,
         description:
-          "ONLY for sending a reply to a customer, changing a ticket's status, or publishing a knowledge " +
-          "article from a draft. Those actions are disabled for this worker - calling this explains that. " +
+          "ONLY for sending a reply to a customer, changing a ticket's status, publishing a knowledge " +
+          "article from a draft, or creating or changing anything in a connected app (a Jira ticket, a " +
+          "Confluence page). Those actions are disabled for this worker - calling this explains that. " +
           "It has nothing to do with changing settings.",
         parameters: z.object({ actionType: z.string(), details: z.string() }),
         execute: async ({ actionType, details }) =>
@@ -1208,6 +1386,7 @@ function buildActionTools(profile: Profile, organizationId: string, propose: Pro
   }
 
   return [
+    ...buildIntegrationActionTools(organizationId, propose),
     tool({
       name: PROPOSE_SEND_REPLY_TOOL_NAME,
       description:
@@ -1344,6 +1523,15 @@ function describeDone(toolId: string, input: Record<string, unknown>, result: Re
       return `I've marked ticket #${input.ticketNumber} as ${String(input.newStatus).replace("_", " ")}.`;
     case TOOL_ACTION_PUBLISH_KNOWLEDGE:
       return `I've published "${input.title}".`;
+    case TOOL_ACTION_INTEGRATION: {
+      let key: string | null = null;
+      try {
+        key = issueKeyFrom(JSON.parse(String(result.output ?? "null")));
+      } catch {
+        key = null;
+      }
+      return `That went through in ${systemLabel(String(input.app))}${key ? ` as ${key}` : ""}.`;
+    }
     default:
       return "That's done.";
   }
@@ -1812,6 +2000,8 @@ export function buildAssistantTools(
       },
     }),
 
+    ...buildIntegrationReadTools(organizationId),
+
     // Same rule as every Settings route (isOrgAdmin): only owners and admins
     // change anything. A member's Assistant never even sees the tools.
     ...(options.readOnly
@@ -1874,7 +2064,16 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "the mailbox (a sign-in window opens after approval) and turning internal tools on or off. These never " +
     "depend on 'Assistant actions'.\n" +
     "5. Act - propose sending a real reply, changing a ticket's status, or publishing a knowledge article, if " +
-    "those tools are available to you (they are off unless the manager turned on Assistant actions).\n\n" +
+    "those tools are available to you (they are off unless the manager turned on Assistant actions). The same " +
+    "goes for connected apps: to create, update, comment on or move a Jira ticket, or create or edit a " +
+    `Confluence page, find the action with ${SEARCH_ACTIONS_TOOL_NAME} and propose it with ` +
+    `${PROPOSE_INTEGRATION_ACTION_TOOL_NAME}.\n` +
+    "Jira and Confluence: when connected, you can always read them, whatever the Assistant actions setting: " +
+    `${MANAGER_JIRA_SEARCH_TOOL_NAME} and ${MANAGER_JIRA_READ_TOOL_NAME} for tickets (any project), ` +
+    `${MANAGER_CONFLUENCE_SEARCH_TOOL_NAME} and ${CONFLUENCE_READ_TOOL_NAME} for pages. A Jira ticket key looks ` +
+    "like SUP-12; the worker's own ticket numbers look like #1023, and are a different thing. The customer-facing " +
+    "worker raises a Jira ticket by itself when it hands a conversation over, if a handoff project is set in " +
+    "Settings > Integrations.\n\n" +
     "Permission rules for 4 and 5: propose in one turn and STOP - never call confirm_pending_change in the same " +
     "reply. The manager sees Approve / Cancel buttons for what you proposed, or can reply in words. Only call " +
     "confirm_pending_change in a LATER turn when their new message is a clear, explicit yes to what you just " +

@@ -178,6 +178,10 @@ export const conversations = pgTable(
     // Email channel: the provider's thread id (Nylas thread_id), so a reply
     // in the same email thread lands on the same conversation.
     externalThreadId: text("external_thread_id"),
+    // The helpdesk ticket raised when this conversation was handed to a
+    // person (e.g. Jira "SUP-12"). Also what the customer agent may look up:
+    // a customer sees only tickets recorded on their own conversations.
+    externalTicketKey: text("external_ticket_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

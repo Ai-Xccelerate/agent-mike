@@ -7,7 +7,10 @@ import {
   getConnectionForOrg,
   markConnectionActive,
   markConnectionFailed,
+  saveConnectionSettings,
+  type IntegrationConnection,
 } from "@/lib/tools-integrations/connection-repository";
+import { connectionSettingsSchema, readConnectionSettings } from "@/lib/tools-integrations/atlassian";
 import { disconnectIntegration } from "@/lib/tools-integrations/disconnect";
 import { startReceivingIfGmail } from "@/lib/composio-email";
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
@@ -42,7 +45,48 @@ export async function GET(req: NextRequest, { params }: { params: { type: string
     }
   }
 
-  return NextResponse.json(row);
+  return NextResponse.json(withSettings(row));
+}
+
+/** The row plus its settings with defaults filled in, so the screen never has to know the defaults. */
+function withSettings(row: IntegrationConnection | null) {
+  if (!row) return row;
+  const settings = readConnectionSettings(row);
+  return settings ? { ...row, settings } : row;
+}
+
+/**
+ * Settings > Integrations: the settings a connection has of its own (Jira's
+ * project and issue type for handoff tickets, Confluence's space). Body:
+ * { settings: { ...only the fields being changed } }.
+ */
+export async function PATCH(req: NextRequest, { params }: { params: { type: string } }) {
+  const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
+  if (!getIntegrationType(params.type)) {
+    return NextResponse.json({ error: `Unknown integration type "${params.type}"` }, { status: 400 });
+  }
+  const row = await getConnectionForOrg(tenant.orgId, params.type);
+  if (!row) return NextResponse.json({ error: "Connect it first" }, { status: 404 });
+  const schema = connectionSettingsSchema(row.integrationType, row.system);
+  if (!schema) {
+    return NextResponse.json({ error: `${row.system} has no settings of its own` }, { status: 400 });
+  }
+
+  const body = (await req.json().catch(() => null)) as { settings?: unknown } | null;
+  const patch = schema.partial().strict().safeParse(body?.settings ?? null);
+  if (!patch.success) {
+    return NextResponse.json(
+      { error: patch.error.issues.map((issue) => `${issue.path.join(".") || "settings"}: ${issue.message}`).join("; ") },
+      { status: 400 },
+    );
+  }
+
+  const merged = schema.parse({ ...readConnectionSettings(row), ...patch.data });
+  const saved = await saveConnectionSettings(row.id, merged as Record<string, unknown>);
+  return NextResponse.json(withSettings(saved));
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { type: string } }) {

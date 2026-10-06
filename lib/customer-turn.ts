@@ -6,6 +6,7 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
+import { handoffTicketNotice, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
 /**
  * One customer-facing agent turn, shared by every channel (chat, widget,
@@ -127,6 +128,23 @@ export async function runCustomerTurn(input: {
       // transaction around tool calls, and rolling them back is out of scope.
       result = handoffToManager(profile);
     }
+  }
+
+  // A handoff raises (or updates) the helpdesk ticket here, in code, so it
+  // can't be skipped or invented by the model. A Jira failure never blocks
+  // the handoff itself: the customer still gets a person.
+  if (result.escalate) {
+    const ticket = await recordHandoffInJira({
+      organizationId,
+      workerName: profile.displayName,
+      conversation,
+      transcript: toHistoryTurns([...priorMessages, userMessage]),
+      latestMessage: message,
+    }).catch((error: unknown) => {
+      console.warn("[handoff] Jira ticket failed:", error instanceof Error ? error.message : error);
+      return null;
+    });
+    if (ticket) result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket)}` };
   }
 
   const [reply] = await db

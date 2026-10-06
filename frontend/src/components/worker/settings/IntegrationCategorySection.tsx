@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { IntegrationCard, IntegrationCategoryHeading, type IntegrationCardStatus } from "@/components/worker/settings/IntegrationCard";
+import ConnectionSettingsForm from "@/components/worker/settings/ConnectionSettingsForm";
 import {
   connectIntegration,
   disconnectIntegration,
@@ -190,6 +191,9 @@ export default function IntegrationCategorySection({
           );
         })}
       </div>
+      {connection?.status === "active" && connection.settings && (
+        <ConnectionSettingsForm integrationType={integrationType} connection={connection} onSaved={setConnection} />
+      )}
       {error && <p className="mt-2 text-xs font-medium text-error-600 dark:text-error-400">{error}</p>}
     </section>
   );

@@ -58,6 +58,7 @@ import { db } from "@/lib/db";
 import { conversations } from "@/db/schema";
 import { listPendingApprovals } from "@/lib/tools-integrations/approval-repository";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
+import { CUSTOMER_TICKETS_TOOL_NAME } from "@/lib/tools-integrations/atlassian";
 import type { IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import {
@@ -119,7 +120,7 @@ function isCalendarLookupTool(tool: unknown): boolean {
 function isJiraLookupTool(tool: unknown): boolean {
   if (!tool || typeof tool !== "object") return false;
   const candidate = tool as { type?: string; name?: string };
-  return candidate.type === "function" && candidate.name === JIRA_LOOKUP_TOOL_NAME;
+  return candidate.type === "function" && candidate.name === CUSTOMER_TICKETS_TOOL_NAME;
 }
 
 function isLoadSkillTool(tool: unknown): boolean {
@@ -1169,38 +1170,34 @@ describe("Google Calendar search retry-once and tool_calls logging", () => {
 
 describe("agent Jira lookup tool wiring", () => {
   beforeEach(() => {
+    executeToolMock.mockReset();
     getConnectionForOrgMock.mockReset();
     getConnectionForOrgMock.mockResolvedValue(null);
   });
 
-  it("includes lookup_jira_issue for an active Jira helpdesk connection", async () => {
+  it("gives the customer agent its own-tickets lookup, never a project-wide search", async () => {
     getConnectionForOrgMock.mockImplementation(async (_org, type) =>
       type === "helpdesk" ? activeJiraConnection() : null,
     );
-    executeToolMock.mockResolvedValue({ data: { issues: [] }, error: null, successful: true });
 
     const tools = await buildAgentTools({ toolsConfig: {} }, "org-1");
     expect(getConnectionForOrgMock).toHaveBeenCalledWith("org-1", "helpdesk");
     expect(tools.some(isJiraLookupTool)).toBe(true);
+    expect(tools.some((t) => (t as { name?: string }).name === JIRA_LOOKUP_TOOL_NAME)).toBe(false);
     expect(tools.some(isCrmLookupTool)).toBe(false);
     expect(tools.some(isLinearLookupTool)).toBe(false);
     expect(tools.some(isEmailLookupTool)).toBe(false);
     expect(tools.some(isCalendarLookupTool)).toBe(false);
 
+    // With no conversation there are no tickets of the customer's own, and
+    // nothing is searched in Jira.
     const jiraTool = tools.find(isJiraLookupTool) as
       | { invoke: (context: unknown, input: string) => Promise<string> }
       | undefined;
-    if (!jiraTool) throw new Error("lookup_jira_issue tool not found");
-    await jiraTool.invoke(undefined, JSON.stringify({ query: "login failed" }));
-    expect(executeToolMock).toHaveBeenCalledWith(
-      JIRA_SEARCH_ISSUES_SLUG,
-      { jql: 'text ~ "login failed"' },
-      {
-        connectedAccountId: "ca_jira_test",
-        userId: "org-1",
-        version: JIRA_TOOLKIT_VERSION,
-      },
-    );
+    if (!jiraTool) throw new Error(`${CUSTOMER_TICKETS_TOOL_NAME} tool not found`);
+    const result = JSON.parse(await jiraTool.invoke(undefined, "{}"));
+    expect(result.tickets).toEqual([]);
+    expect(executeToolMock).not.toHaveBeenCalled();
   });
 
   it("omits the Jira lookup tool when there is no connection", async () => {
