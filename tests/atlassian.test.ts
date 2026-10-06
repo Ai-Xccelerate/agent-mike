@@ -15,6 +15,8 @@ import {
   HANDOFF_TICKET_LABEL,
   handoffTicketSummary,
   issueKeyFrom,
+  jiraSettingsProblem,
+  listJiraProjects,
   JIRA_ADD_COMMENT_SLUG,
   JIRA_CREATE_ISSUE_SLUG,
   JIRA_GET_ISSUE_SLUG,
@@ -224,22 +226,59 @@ describe("raising a Jira ticket on handoff", () => {
     expect(comment).toContain(`Eva replied:\n\n${summary}`);
   });
 
-  it("returns null, without recording anything, when Jira refuses", async () => {
+  it("records Jira's reason on the conversation when it refuses, and clears it once a ticket goes through", async () => {
     connectionsFor({ helpdesk: jiraReady() });
-    executeToolMock.mockResolvedValue({ successful: false, error: "issue type not valid", data: {} });
+    executeToolMock.mockResolvedValue({
+      successful: false,
+      error: "Issue type 'Support' is not valid for project 'SUP'.",
+      data: {},
+    });
     const row = await newConversation();
+    const input = {
+      organizationId: orgId,
+      workerName: "Mike",
+      conversation: handoffConversation(row),
+      transcript: [],
+      latestMessage: "help",
+    };
 
-    expect(
-      await recordHandoffInJira({
-        organizationId: orgId,
-        workerName: "Mike",
-        conversation: handoffConversation(row),
-        transcript: [],
-        latestMessage: "help",
-      }),
-    ).toBeNull();
-    const [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+    expect(await recordHandoffInJira(input)).toEqual({ failed: "Issue type 'Support' is not valid for project 'SUP'." });
+    let [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
     expect(stored.externalTicketKey).toBeNull();
+    expect(stored.externalTicketError).toBe("Issue type 'Support' is not valid for project 'SUP'.");
+
+    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-9" } });
+    expect(await recordHandoffInJira(input)).toEqual({ key: "SUP-9", created: true });
+    [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+    expect(stored.externalTicketKey).toBe("SUP-9");
+    expect(stored.externalTicketError).toBeNull();
+  });
+
+  it("lists projects with the issue types a ticket can be raised as, and says what's wrong with a bad pair", async () => {
+    executeToolMock.mockResolvedValue({
+      successful: true,
+      error: null,
+      data: {
+        projects: [
+          {
+            key: "SUP",
+            name: "Support",
+            issueTypes: [
+              { name: "[System] Service request" },
+              { name: "Task" },
+              { name: "Sub-task", subtask: true },
+            ],
+          },
+        ],
+      },
+    });
+    const projects = await listJiraProjects(orgId, "ca_jira");
+    expect(projects).toEqual([{ key: "SUP", name: "Support", issueTypes: ["[System] Service request", "Task"] }]);
+    expect(jiraSettingsProblem(projects!, "SUP", "Task")).toBeNull();
+    expect(jiraSettingsProblem(projects!, "SUP", "Support")).toBe(
+      '"Support" isn\'t an issue type in SUP. Choose one of: [System] Service request, Task.',
+    );
+    expect(jiraSettingsProblem(projects!, "NOPE", "Task")).toContain("There's no project NOPE");
   });
 
   it("titles the ticket with what the customer came about, not their last answer", () => {
@@ -500,10 +539,16 @@ describe("a handoff in chat", () => {
       citations: [],
     });
 
-    const body = (await (await chat("My invoice is wrong")).json()) as { status: string; message: { body: string } };
+    const body = (await (await chat("My invoice is wrong")).json()) as {
+      conversation_id: string;
+      status: string;
+      message: { body: string };
+    };
 
     expect(body.status).toBe("needs_human");
     expect(body.message.body).toBe("I'm bringing in a teammate who can help.");
+    const [stored] = await db.select().from(conversations).where(eq(conversations.id, body.conversation_id));
+    expect(stored.externalTicketError).toBe("Jira down");
   });
 
   it("raises nothing when the worker answers", async () => {

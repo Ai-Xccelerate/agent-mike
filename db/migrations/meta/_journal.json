@@ -211,6 +211,13 @@
       "when": 1790660000010,
       "tag": "0029_conversation_external_ticket",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790660000011,
+      "tag": "0030_integration_settings",
+      "breakpoints": true
     }
   ]
 }

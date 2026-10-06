@@ -10,7 +10,13 @@ import {
   saveConnectionSettings,
   type IntegrationConnection,
 } from "@/lib/tools-integrations/connection-repository";
-import { connectionSettingsSchema, readConnectionSettings } from "@/lib/tools-integrations/atlassian";
+import {
+  connectionSettingsSchema,
+  jiraSettingsProblem,
+  listJiraProjects,
+  readConnectionSettings,
+  type JiraSettings,
+} from "@/lib/tools-integrations/atlassian";
 import { disconnectIntegration } from "@/lib/tools-integrations/disconnect";
 import { startReceivingIfGmail } from "@/lib/composio-email";
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
@@ -85,6 +91,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { type: stri
   }
 
   const merged = schema.parse({ ...readConnectionSettings(row), ...patch.data });
+
+  // A project or issue type Jira doesn't have would make every handoff ticket
+  // fail, so it's checked against Jira before it's saved, not discovered at
+  // the next handoff.
+  const jira = merged as JiraSettings;
+  const changesTarget = "projectKey" in patch.data || "issueType" in patch.data;
+  if (row.system === "jira" && changesTarget && jira.projectKey && jira.issueType) {
+    if (row.status !== "active" || !row.composioConnectedAccountId) {
+      return NextResponse.json({ error: "Finish connecting Jira first." }, { status: 409 });
+    }
+    const projects = await listJiraProjects(tenant.orgId, row.composioConnectedAccountId);
+    if (!projects) {
+      return NextResponse.json({ error: "Couldn't check the project with Jira. Try again in a moment." }, { status: 502 });
+    }
+    const problem = jiraSettingsProblem(projects, jira.projectKey, jira.issueType);
+    if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+  }
   const saved = await saveConnectionSettings(row.id, merged as Record<string, unknown>);
   return NextResponse.json(withSettings(saved));
 }
