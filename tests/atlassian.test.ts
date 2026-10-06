@@ -193,6 +193,37 @@ describe("raising a Jira ticket on handoff", () => {
     expect(executeToolMock.mock.calls[0][1]).toMatchObject({ issue_id_or_key: "SUP-7" });
   });
 
+  it("puts the worker's handoff summary on the ticket, not only the customer's message", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-8" } });
+    const summary = "Here's what I've passed to the support team:\n- Product: EAPx Cloud";
+
+    const first = await newConversation();
+    await recordHandoffInJira({
+      organizationId: orgId,
+      workerName: "Eva",
+      conversation: handoffConversation(first),
+      transcript: [{ speaker: "Ana", body: "Dashboard counts are wrong for everyone" }],
+      latestMessage: "Dashboard counts are wrong for everyone",
+      workerReply: summary,
+    });
+    expect(String(executeToolMock.mock.calls[0][1].description)).toContain(`**Eva:** ${summary}`);
+
+    executeToolMock.mockClear();
+    const second = await newConversation({ externalTicketKey: "SUP-8" });
+    await recordHandoffInJira({
+      organizationId: orgId,
+      workerName: "Eva",
+      conversation: handoffConversation(second),
+      transcript: [],
+      latestMessage: "ana@acmeeap.com",
+      workerReply: summary,
+    });
+    const comment = String(executeToolMock.mock.calls[0][1].comment);
+    expect(comment).toContain("ana@acmeeap.com");
+    expect(comment).toContain(`Eva replied:\n\n${summary}`);
+  });
+
   it("returns null, without recording anything, when Jira refuses", async () => {
     connectionsFor({ helpdesk: jiraReady() });
     executeToolMock.mockResolvedValue({ successful: false, error: "issue type not valid", data: {} });

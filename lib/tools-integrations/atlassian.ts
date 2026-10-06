@@ -332,6 +332,8 @@ export type HandoffTicketInput = {
   /** The conversation so far, oldest first, including the latest customer message. */
   transcript: { speaker: string; body: string }[];
   latestMessage: string;
+  /** What the worker said in this handoff reply (e.g. its handoff summary), before the ticket notice. */
+  workerReply?: string;
 };
 
 export type HandoffTicketResult = { key: string; created: boolean };
@@ -366,7 +368,8 @@ export function handoffTicketDescription(input: HandoffTicketInput): string {
   ]
     .filter(Boolean)
     .join(" ");
-  const transcript = input.transcript
+  const turns = input.workerReply ? [...input.transcript, { speaker: input.workerName, body: input.workerReply }] : input.transcript;
+  const transcript = turns
     .slice(-HANDOFF_TRANSCRIPT_MESSAGES)
     .map((turn) => `**${turn.speaker}:** ${clip(turn.body, HANDOFF_MESSAGE_CHARS)}`)
     .join("\n\n");
@@ -457,7 +460,7 @@ export async function recordHandoffInJira(input: HandoffTicketInput): Promise<Ha
       JIRA_ADD_COMMENT_SLUG,
       {
         issue_id_or_key: conversation.externalTicketKey,
-        comment: `The customer needs a person again. Their latest message:\n\n${clip(input.latestMessage, HANDOFF_MESSAGE_CHARS)}`,
+        comment: handoffComment(input),
       },
       organizationId,
       connectedAccountId,
@@ -496,6 +499,16 @@ export async function recordHandoffInJira(input: HandoffTicketInput): Promise<Ha
       ),
     );
   return { key, created: true };
+}
+
+/** A later handoff on the same conversation: what the customer added, and what the worker passed on. */
+export function handoffComment(input: Pick<HandoffTicketInput, "latestMessage" | "workerReply" | "workerName">): string {
+  return [
+    `The customer needs a person again. Their latest message:\n\n${clip(input.latestMessage, HANDOFF_MESSAGE_CHARS)}`,
+    input.workerReply ? `${input.workerName} replied:\n\n${clip(input.workerReply, HANDOFF_MESSAGE_CHARS)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /** The line added to the customer's reply once their ticket exists. */

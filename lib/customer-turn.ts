@@ -140,6 +140,7 @@ export async function runCustomerTurn(input: {
       conversation,
       transcript: toHistoryTurns([...priorMessages, userMessage]),
       latestMessage: message,
+      workerReply: result.answer,
     }).catch((error: unknown) => {
       console.warn("[handoff] Jira ticket failed:", error instanceof Error ? error.message : error);
       return null;
