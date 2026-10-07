@@ -429,7 +429,7 @@ export default function SkillsSettings() {
               </div>
             </div>
 
-            <label className="mt-4 flex h-full min-h-[320px] flex-col text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="mt-4 flex flex-col text-sm font-medium text-gray-700 dark:text-gray-300">
               Instructions <span className="font-normal text-gray-400">(full text the worker reads when it uses this skill)</span>
               <AutoGrowTextarea
                 minRows={12}
@@ -439,7 +439,7 @@ export default function SkillsSettings() {
                 onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
                 placeholder={formLoading ? "Loading current instructions…" : undefined}
                 disabled={formLoading}
-                className="mt-2 w-full flex-1 resize-none rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 font-mono text-xs leading-5 text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 disabled:opacity-60 dark:border-gray-700 dark:text-white/90"
+                className="mt-2 w-full resize-none rounded-lg border border-gray-300 bg-transparent px-3 py-2.5 font-mono text-xs leading-5 text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 disabled:opacity-60 dark:border-gray-700 dark:text-white/90"
               />
               <span className={counterClass}>
                 {form.body.length}/{SKILL_BODY_MAX_LENGTH}
