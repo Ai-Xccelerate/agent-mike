@@ -121,7 +121,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   integrations: [
     "Settings > Integrations (/settings/integrations). One connection per type, via OAuth.",
     "- CRM (Zoho): contact lookup; required by the verify-customer skill.",
-    "- Helpdesk (Jira): once a project key and issue type are set under Jira, every handoff raises a ticket there with the conversation, and the customer is told its key (e.g. SUP-12). A later handoff on the same conversation adds a comment instead. Customers can check the status of their own tickets (the ones raised for their conversations or email), never anyone else's.",
+    "- Helpdesk (Jira): once a project key and an issue type (or, for a Jira Service Management project, a request type, so tickets land in the service desk's queues) are set under Jira, every handoff raises a ticket there with the conversation, and the customer is told its key (e.g. SUP-12). A later handoff on the same conversation adds a comment instead. Customers can check the status of their own tickets (the ones raised for their conversations or email), never anyone else's.",
     "- Project management (Linear): issue search.",
     "- Email (Gmail or Outlook): look up messages; Gmail can also send/reply.",
     "- Calendar (Google Calendar): event search.",

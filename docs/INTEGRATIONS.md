@@ -111,12 +111,18 @@ and are edited from the gear on each card (`PATCH /api/v1/integrations/:type`).
 Jira's project and issue type are picked from what the connection can see
 (`GET /api/v1/integrations/helpdesk/jira-projects`) and checked against Jira
 before saving: a type the project doesn't have would fail every handoff.
+For a Jira Service Management project the dialog offers its request types
+instead: with one set, handoffs go through the service desk request API
+(`/rest/servicedeskapi/request`, called through Composio's proxy on
+`api.atlassian.com/ex/jira/{cloudId}`), so they carry a request type and show
+in the desk's queues and portal. Composio has no action for that API.
 Code: `lib/tools-integrations/atlassian.ts`.
 
 | Setting | Default | What it does |
 |---|---|---|
 | Jira `projectKey`, `issueType` | unset | Where handoff tickets go, e.g. `SUP` / `Task` |
-| Jira `createTicketOnHandoff` | on | Raise a ticket on every handoff (needs both of the above) |
+| Jira `requestTypeId` | unset | A service desk request type, e.g. `8` (Report a system problem). Wins over `issueType`; the name is stored from Jira as `requestTypeName` |
+| Jira `createTicketOnHandoff` | on | Raise a ticket on every handoff (needs a project and an issue or request type) |
 | Confluence `spaceKey` | every space | The space answers come from |
 | Confluence `searchBeforeAnswering` | on | Search page text before every answer |
 

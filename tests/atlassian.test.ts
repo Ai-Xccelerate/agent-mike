@@ -17,7 +17,6 @@ import {
   issueKeyFrom,
   jiraSettingsProblem,
   listJiraProjects,
-  JIRA_ADD_COMMENT_SLUG,
   JIRA_CREATE_ISSUE_SLUG,
   JIRA_GET_ISSUE_SLUG,
   lookupCustomerTickets,
@@ -28,17 +27,28 @@ import {
   recordHandoffInJira,
   searchConfluenceKnowledge,
   searchKeywords,
+  serviceRequestTarget,
+  JSM_REQUEST_TOOL_ID,
   type HandoffConversation,
 } from "@/lib/tools-integrations/atlassian";
 import { executeRunAction, executeSearchActions } from "@/lib/tools-integrations/composio-actions";
 import { getConnectionForOrg, type IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
-import { executeTool, getActionSchema, searchActions } from "@/lib/tools-integrations/composio-client";
+import {
+  executeTool,
+  getAccountSite,
+  getActionSchema,
+  proxyRequest,
+  searchActions,
+} from "@/lib/tools-integrations/composio-client";
+import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/tools-integrations/connection-repository", () => ({ getConnectionForOrg: vi.fn() }));
 vi.mock("@/lib/tools-integrations/composio-client", () => ({
   executeTool: vi.fn(),
+  getAccountSite: vi.fn(),
+  proxyRequest: vi.fn(),
   getActionSchema: vi.fn(),
   searchActions: vi.fn(),
 }));
@@ -55,6 +65,8 @@ vi.mock("@/lib/conversation-memory", async (importOriginal) => {
 
 const getConnectionMock = vi.mocked(getConnectionForOrg);
 const executeToolMock = vi.mocked(executeTool);
+const proxyRequestMock = vi.mocked(proxyRequest);
+const getAccountSiteMock = vi.mocked(getAccountSite);
 const getActionSchemaMock = vi.mocked(getActionSchema);
 const searchActionsMock = vi.mocked(searchActions);
 
@@ -90,6 +102,24 @@ function connectionsFor(map: Record<string, IntegrationConnection | null>) {
   getConnectionMock.mockImplementation(async (_org, type) => map[type] ?? null);
 }
 
+/** Answers like Jira does: the site list, SUP's desk, then `post` to whatever is created or commented. */
+function jiraAnswers(post: { status: number; data: unknown }, desks = [{ id: "1", projectKey: "SUP" }]) {
+  proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+    if (endpoint.endsWith("/accessible-resources")) {
+      return {
+        status: 200,
+        data: [
+          { id: "cloud-other", url: "https://other.atlassian.net" },
+          { id: "cloud-acme", url: "https://acme.atlassian.net/" },
+        ],
+      };
+    }
+    if (method === "GET" && endpoint.includes("/servicedeskapi/servicedesk")) return { status: 200, data: { values: desks } };
+    if (method === "POST") return post;
+    return { status: 204, data: null };
+  });
+}
+
 let orgId: string;
 
 beforeEach(async () => {
@@ -98,6 +128,9 @@ beforeEach(async () => {
   getConnectionMock.mockReset();
   getConnectionMock.mockResolvedValue(null);
   executeToolMock.mockReset();
+  proxyRequestMock.mockReset();
+  getAccountSiteMock.mockReset();
+  getAccountSiteMock.mockResolvedValue("https://acme.atlassian.net");
   getActionSchemaMock.mockReset();
   searchActionsMock.mockReset();
   runAgentMock.mockReset();
@@ -117,7 +150,13 @@ function handoffConversation(row: typeof conversations.$inferSelect): HandoffCon
 
 describe("connection settings", () => {
   it("defaults when nothing is stored, and ignores anything that doesn't validate", () => {
-    expect(readJiraSettings({})).toEqual({ projectKey: null, issueType: null, createTicketOnHandoff: true });
+    expect(readJiraSettings({})).toEqual({
+      projectKey: null,
+      issueType: null,
+      requestTypeId: null,
+      requestTypeName: null,
+      createTicketOnHandoff: true,
+    });
     expect(readJiraSettings({ settings: { projectKey: "not a key!" } }).projectKey).toBeNull();
     expect(readConfluenceSettings(null)).toEqual({ spaceKey: null, searchBeforeAnswering: true });
   });
@@ -179,7 +218,7 @@ describe("raising a Jira ticket on handoff", () => {
 
   it("comments on the existing ticket instead of opening a second one", async () => {
     connectionsFor({ helpdesk: jiraReady() });
-    executeToolMock.mockResolvedValue({ successful: true, error: null, data: {} });
+    jiraAnswers({ status: 201, data: {} });
     const row = await newConversation({ externalTicketKey: "SUP-7" });
 
     const result = await recordHandoffInJira({
@@ -191,8 +230,10 @@ describe("raising a Jira ticket on handoff", () => {
     });
 
     expect(result).toEqual({ key: "SUP-7", created: false });
-    expect(executeToolMock.mock.calls[0][0]).toBe(JIRA_ADD_COMMENT_SLUG);
-    expect(executeToolMock.mock.calls[0][1]).toMatchObject({ issue_id_or_key: "SUP-7" });
+    expect(executeToolMock).not.toHaveBeenCalled();
+    const comment = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
+    expect(comment.endpoint).toBe("https://api.atlassian.com/ex/jira/cloud-acme/rest/api/2/issue/SUP-7/comment");
+    expect(String((comment.body as { body: string }).body)).toContain("Still broken");
   });
 
   it("puts the worker's handoff summary on the ticket, not only the customer's message", async () => {
@@ -211,7 +252,7 @@ describe("raising a Jira ticket on handoff", () => {
     });
     expect(String(executeToolMock.mock.calls[0][1].description)).toContain(`**Eva:** ${summary}`);
 
-    executeToolMock.mockClear();
+    jiraAnswers({ status: 201, data: {} });
     const second = await newConversation({ externalTicketKey: "SUP-8" });
     await recordHandoffInJira({
       organizationId: orgId,
@@ -221,7 +262,7 @@ describe("raising a Jira ticket on handoff", () => {
       latestMessage: "ana@acmeeap.com",
       workerReply: summary,
     });
-    const comment = String(executeToolMock.mock.calls[0][1].comment);
+    const comment = String((proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0].body as { body: string }).body);
     expect(comment).toContain("ana@acmeeap.com");
     expect(comment).toContain(`Eva replied:\n\n${summary}`);
   });
@@ -279,6 +320,141 @@ describe("raising a Jira ticket on handoff", () => {
       '"Support" isn\'t an issue type in SUP. Choose one of: [System] Service request, Task.',
     );
     expect(jiraSettingsProblem(projects!, "NOPE", "Task")).toContain("There's no project NOPE");
+  });
+
+  describe("as a Jira Service Management request", () => {
+    const API = "https://api.atlassian.com/ex/jira/cloud-acme";
+    const jsmReady = () =>
+      connection("helpdesk", "jira", {
+        metadata: {
+          settings: {
+            projectKey: "SUP",
+            issueType: null,
+            requestTypeId: "8",
+            requestTypeName: "Report a system problem",
+            createTicketOnHandoff: true,
+          },
+        },
+      });
+
+
+    it("raises it through the request API on the connection's own site, so it lands in the desk's queues", async () => {
+      connectionsFor({ helpdesk: jsmReady() });
+      jiraAnswers({ status: 201, data: { issueKey: "SUP-12", requestTypeId: "8" } });
+      const row = await newConversation({ customerName: "Ana", customerEmail: "ana@example.com" });
+
+      const result = await recordHandoffInJira({
+        organizationId: orgId,
+        workerName: "Eva",
+        conversation: handoffConversation(row),
+        transcript: [{ speaker: "Ana", body: "The dashboard shows the wrong case counts" }],
+        latestMessage: "The dashboard shows the wrong case counts",
+      });
+
+      expect(result).toEqual({ key: "SUP-12", created: true });
+      expect(executeToolMock).not.toHaveBeenCalled();
+      const create = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
+      expect(create.endpoint).toBe(`${API}/rest/servicedeskapi/request`);
+      expect(create.connectedAccountId).toBe("ca_jira");
+      const body = create.body as { serviceDeskId: string; requestTypeId: string; requestFieldValues: Record<string, string> };
+      expect(body).toMatchObject({ serviceDeskId: "1", requestTypeId: "8" });
+      expect(body.requestFieldValues.summary).toBe("The dashboard shows the wrong case counts");
+      // Jira's wiki markup, not Markdown.
+      expect(body.requestFieldValues.description).toContain("*Customer:* Ana <ana@example.com>");
+      expect(body.requestFieldValues.description).not.toContain("**");
+
+      const label = proxyRequestMock.mock.calls.find(([call]) => call.method === "PUT")![0];
+      expect(label).toMatchObject({
+        endpoint: `${API}/rest/api/3/issue/SUP-12`,
+        body: { update: { labels: [{ add: HANDOFF_TICKET_LABEL }] } },
+      });
+      expect(vi.mocked(logToolCall)).toHaveBeenCalledWith(
+        expect.objectContaining({ toolId: JSM_REQUEST_TOOL_ID, status: "success" }),
+      );
+      const [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+      expect(stored.externalTicketKey).toBe("SUP-12");
+    });
+
+    it("adds a later handoff as an internal note, falling back to a comment on a ticket that isn't a request", async () => {
+      connectionsFor({ helpdesk: jsmReady() });
+      jiraAnswers({ status: 201, data: {} });
+      const row = await newConversation({ externalTicketKey: "SUP-12" });
+      const input = {
+        organizationId: orgId,
+        workerName: "Eva",
+        conversation: handoffConversation(row),
+        transcript: [],
+        latestMessage: "Still wrong this morning",
+      };
+
+      expect(await recordHandoffInJira(input)).toEqual({ key: "SUP-12", created: false });
+      const posts = () => proxyRequestMock.mock.calls.filter(([call]) => call.method === "POST").map(([call]) => call);
+      expect(posts()).toHaveLength(1);
+      expect(posts()[0]).toMatchObject({
+        endpoint: `${API}/rest/servicedeskapi/request/SUP-12/comment`,
+        body: { public: false },
+      });
+
+      proxyRequestMock.mockClear();
+      proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+        if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+        if (method === "POST" && endpoint.includes("/servicedeskapi/")) return { status: 404, data: { errorMessage: "Not a request" } };
+        return { status: 201, data: {} };
+      });
+      expect(await recordHandoffInJira(input)).toEqual({ key: "SUP-12", created: false });
+      expect(posts().map((call) => call.endpoint)).toEqual([
+        `${API}/rest/servicedeskapi/request/SUP-12/comment`,
+        `${API}/rest/api/2/issue/SUP-12/comment`,
+      ]);
+    });
+
+    it("records Jira's reason when the request is refused", async () => {
+      connectionsFor({ helpdesk: jsmReady() });
+      jiraAnswers({ status: 400, data: { errorMessage: "Field 'customfield_10050' is required." } });
+      const row = await newConversation();
+
+      const result = await recordHandoffInJira({
+        organizationId: orgId,
+        workerName: "Eva",
+        conversation: handoffConversation(row),
+        transcript: [],
+        latestMessage: "help",
+      });
+
+      expect(result).toEqual({ failed: "Field 'customfield_10050' is required." });
+      expect(proxyRequestMock.mock.calls.some(([call]) => call.method === "PUT")).toBe(false);
+      const [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+      expect(stored.externalTicketKey).toBeNull();
+      expect(stored.externalTicketError).toBe("Field 'customfield_10050' is required.");
+    });
+
+    it("fails visibly when the project isn't a service desk", async () => {
+      connectionsFor({ helpdesk: jsmReady() });
+      jiraAnswers({ status: 201, data: { issueKey: "SUP-1" } }, [{ id: "2", projectKey: "OPS" }]);
+      const row = await newConversation();
+
+      const result = await recordHandoffInJira({
+        organizationId: orgId,
+        workerName: "Eva",
+        conversation: handoffConversation(row),
+        transcript: [],
+        latestMessage: "help",
+      });
+
+      expect(result).toEqual({ failed: "SUP isn't a Jira Service Management project" });
+      expect(proxyRequestMock.mock.calls.some(([call]) => call.method === "POST")).toBe(false);
+    });
+
+    it("says what's wrong with a project/request type pair", () => {
+      const desks = [{ id: "1", projectKey: "SUP", requestTypes: [{ id: "8", name: "Report a system problem" }] }];
+      expect(serviceRequestTarget(desks, "SUP", "8")).toEqual({ name: "Report a system problem" });
+      expect(serviceRequestTarget(desks, "SUP", "99")).toEqual({
+        problem: "That request type isn't in SUP. Choose one of: Report a system problem.",
+      });
+      expect(serviceRequestTarget(desks, "OPS", "8")).toEqual({
+        problem: "OPS isn't a Jira Service Management project, so it has no request types.",
+      });
+    });
   });
 
   it("titles the ticket with what the customer came about, not their last answer", () => {

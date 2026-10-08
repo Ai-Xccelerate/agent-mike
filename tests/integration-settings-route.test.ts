@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { GET, PATCH } from "@/app/api/v1/integrations/[type]/route";
+import { GET as getJiraProjects } from "@/app/api/v1/integrations/[type]/jira-projects/route";
 import { db } from "@/lib/db";
 import { organizations } from "@/db/schema";
 import { ensureOrganization } from "@/lib/bootstrap";
 import { getIdentityAdapter, setIdentityAdapter } from "@/lib/identity";
-import { executeTool } from "@/lib/tools-integrations/composio-client";
+import { executeTool, getAccountSite, proxyRequest } from "@/lib/tools-integrations/composio-client";
 import { disconnectIntegration } from "@/lib/tools-integrations/disconnect";
 import {
   getConnectionForOrg,
@@ -17,16 +18,21 @@ import {
 vi.mock("@/lib/tools-integrations/composio-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tools-integrations/composio-client")>()),
   executeTool: vi.fn(),
+  getAccountSite: vi.fn(),
+  proxyRequest: vi.fn(),
   deleteAccount: vi.fn(),
 }));
 vi.mock("@/lib/tools-integrations/tool-call-log", () => ({ logToolCall: vi.fn() }));
 
 const executeToolMock = vi.mocked(executeTool);
+const proxyRequestMock = vi.mocked(proxyRequest);
 const jiraProjects = {
   successful: true,
   error: null,
   data: { projects: [{ key: "SUP", name: "Support", issueTypes: [{ name: "Task" }, { name: "[System] Incident" }] }] },
 };
+
+const NO_REQUEST_TYPE = { requestTypeId: null, requestTypeName: null };
 
 const previousAdapter = getIdentityAdapter();
 let orgId: string;
@@ -57,6 +63,17 @@ async function connect(integrationType: string, system: string) {
 beforeEach(async () => {
   executeToolMock.mockReset();
   executeToolMock.mockResolvedValue(jiraProjects);
+  vi.mocked(getAccountSite).mockResolvedValue("https://acme.atlassian.net");
+  // SUP is a service desk with two request types.
+  proxyRequestMock.mockReset();
+  proxyRequestMock.mockImplementation(async ({ endpoint }) => {
+    if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+    if (endpoint.includes("/servicedesk/1/requesttype")) {
+      return { status: 200, data: { values: [{ id: "1", name: "Get IT help" }, { id: "8", name: "Report a system problem" }] } };
+    }
+    if (endpoint.includes("/servicedeskapi/servicedesk")) return { status: 200, data: { values: [{ id: "1", projectKey: "SUP" }] } };
+    return { status: 404, data: null };
+  });
   orgId = `org-${crypto.randomUUID()}`;
   role = "owner";
   await ensureOrganization(orgId, "Integration settings org");
@@ -77,10 +94,10 @@ describe("PATCH /api/v1/integrations/:type settings", () => {
 
     const res = await patch("helpdesk", { settings: { projectKey: "sup", issueType: "Task" } });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { settings: unknown }).settings).toEqual({ projectKey: "SUP", issueType: "Task", createTicketOnHandoff: true });
+    expect(((await res.json()) as { settings: unknown }).settings).toEqual({ ...NO_REQUEST_TYPE, projectKey: "SUP", issueType: "Task", createTicketOnHandoff: true });
 
     const stored = await getConnectionForOrg(orgId, "helpdesk");
-    expect(stored?.metadata).toEqual({ settings: { projectKey: "SUP", issueType: "Task", createTicketOnHandoff: true } });
+    expect(stored?.metadata).toEqual({ settings: { ...NO_REQUEST_TYPE, projectKey: "SUP", issueType: "Task", createTicketOnHandoff: true } });
 
     const got = await GET(new NextRequest("http://localhost/api/v1/integrations/helpdesk"), { params: { type: "helpdesk" } });
     expect(((await got.json()) as { settings: { projectKey: string } }).settings.projectKey).toBe("SUP");
@@ -94,6 +111,56 @@ describe("PATCH /api/v1/integrations/:type settings", () => {
       '"Support" isn\'t an issue type in SUP. Choose one of: Task, [System] Incident.',
     );
     expect((await getConnectionForOrg(orgId, "helpdesk"))?.metadata).toEqual({});
+  });
+
+  it("saves a service desk request type, naming it from Jira rather than the browser", async () => {
+    await connect("helpdesk", "jira");
+
+    const res = await patch("helpdesk", { settings: { projectKey: "SUP", requestTypeId: "8", requestTypeName: "Made up" } });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { settings: unknown }).settings).toEqual({
+      projectKey: "SUP",
+      issueType: null,
+      requestTypeId: "8",
+      requestTypeName: "Report a system problem",
+      createTicketOnHandoff: true,
+    });
+    // The issue type isn't checked when a request type decides it.
+    expect(executeToolMock).not.toHaveBeenCalled();
+
+    const cleared = await patch("helpdesk", { settings: { requestTypeId: null } });
+    expect(((await cleared.json()) as { settings: unknown }).settings).toMatchObject(NO_REQUEST_TYPE);
+  });
+
+  it("refuses a request type the service desk doesn't have", async () => {
+    await connect("helpdesk", "jira");
+    const res = await patch("helpdesk", { settings: { projectKey: "SUP", requestTypeId: "99" } });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "That request type isn't in SUP. Choose one of: Get IT help, Report a system problem.",
+    );
+    expect((await getConnectionForOrg(orgId, "helpdesk"))?.metadata).toEqual({});
+  });
+
+  it("lists a service desk project's request types with its issue types", async () => {
+    await connect("helpdesk", "jira");
+    const res = await getJiraProjects(new NextRequest("http://localhost/api/v1/integrations/helpdesk/jira-projects"), {
+      params: { type: "helpdesk" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      projects: [
+        {
+          key: "SUP",
+          name: "Support",
+          issueTypes: ["Task", "[System] Incident"],
+          requestTypes: [
+            { id: "1", name: "Get IT help" },
+            { id: "8", name: "Report a system problem" },
+          ],
+        },
+      ],
+    });
   });
 
   it("refuses to save when Jira can't be reached to check", async () => {
@@ -111,6 +178,7 @@ describe("PATCH /api/v1/integrations/:type settings", () => {
     await connect("helpdesk", "jira");
     const got = await GET(new NextRequest("http://localhost/api/v1/integrations/helpdesk"), { params: { type: "helpdesk" } });
     expect(((await got.json()) as { settings: unknown }).settings).toEqual({
+      ...NO_REQUEST_TYPE,
       projectKey: "SUP",
       issueType: "Task",
       createTicketOnHandoff: true,

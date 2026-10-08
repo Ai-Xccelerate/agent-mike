@@ -14,7 +14,9 @@ import {
   connectionSettingsSchema,
   jiraSettingsProblem,
   listJiraProjects,
+  listServiceDesks,
   readConnectionSettings,
+  serviceRequestTarget,
   type JiraSettings,
 } from "@/lib/tools-integrations/atlassian";
 import { disconnectIntegration } from "@/lib/tools-integrations/disconnect";
@@ -63,7 +65,7 @@ function withSettings(row: IntegrationConnection | null) {
 
 /**
  * Settings > Integrations: the settings a connection has of its own (Jira's
- * project and issue type for handoff tickets, Confluence's space). Body:
+ * project and issue or request type for handoff tickets, Confluence's space). Body:
  * { settings: { ...only the fields being changed } }.
  */
 export async function PATCH(req: NextRequest, { params }: { params: { type: string } }) {
@@ -90,23 +92,39 @@ export async function PATCH(req: NextRequest, { params }: { params: { type: stri
     );
   }
 
-  const merged = schema.parse({ ...readConnectionSettings(row), ...patch.data });
+  // A request type's name is Jira's to say, never the browser's.
+  const changes: Record<string, unknown> = { ...patch.data };
+  delete changes.requestTypeName;
+  const merged = schema.parse({ ...readConnectionSettings(row), ...changes });
 
-  // A project or issue type Jira doesn't have would make every handoff ticket
-  // fail, so it's checked against Jira before it's saved, not discovered at
-  // the next handoff.
+  // A project, issue type or request type Jira doesn't have would make every
+  // handoff ticket fail, so it's checked against Jira before it's saved, not
+  // discovered at the next handoff.
   const jira = merged as JiraSettings;
-  const changesTarget = "projectKey" in patch.data || "issueType" in patch.data;
-  if (row.system === "jira" && changesTarget && jira.projectKey && jira.issueType) {
-    if (row.status !== "active" || !row.composioConnectedAccountId) {
-      return NextResponse.json({ error: "Finish connecting Jira first." }, { status: 409 });
+  if (row.system === "jira") {
+    if (!jira.requestTypeId) jira.requestTypeName = null;
+    const changesTarget = ["projectKey", "issueType", "requestTypeId"].some((field) => field in changes);
+    if (changesTarget && jira.projectKey && (jira.issueType || jira.requestTypeId)) {
+      if (row.status !== "active" || !row.composioConnectedAccountId) {
+        return NextResponse.json({ error: "Finish connecting Jira first." }, { status: 409 });
+      }
+      const unreachable = NextResponse.json(
+        { error: "Couldn't check the project with Jira. Try again in a moment." },
+        { status: 502 },
+      );
+      if (jira.requestTypeId) {
+        const desks = await listServiceDesks(tenant.orgId, row.composioConnectedAccountId);
+        if (!desks) return unreachable;
+        const target = serviceRequestTarget(desks, jira.projectKey, jira.requestTypeId);
+        if ("problem" in target) return NextResponse.json({ error: target.problem }, { status: 400 });
+        jira.requestTypeName = target.name;
+      } else if (jira.issueType) {
+        const projects = await listJiraProjects(tenant.orgId, row.composioConnectedAccountId);
+        if (!projects) return unreachable;
+        const problem = jiraSettingsProblem(projects, jira.projectKey, jira.issueType);
+        if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+      }
     }
-    const projects = await listJiraProjects(tenant.orgId, row.composioConnectedAccountId);
-    if (!projects) {
-      return NextResponse.json({ error: "Couldn't check the project with Jira. Try again in a moment." }, { status: 502 });
-    }
-    const problem = jiraSettingsProblem(projects, jira.projectKey, jira.issueType);
-    if (problem) return NextResponse.json({ error: problem }, { status: 400 });
   }
   const saved = await saveConnectionSettings(row.id, merged as Record<string, unknown>);
   return NextResponse.json(withSettings(saved));
