@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { conversations } from "@/db/schema";
 import type { KnowledgeMatch } from "@/lib/knowledge";
-import { executeTool } from "@/lib/tools-integrations/composio-client";
+import { executeTool, getAccountSite, proxyRequest } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg, type IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
 
@@ -230,8 +230,17 @@ export const jiraSettingsSchema = z.object({
     .toUpperCase()
     .regex(/^[A-Z][A-Z0-9_]{0,19}$/, "A Jira project key is letters and digits, starting with a letter (e.g. SUP)")
     .nullable(),
-  /** An issue type that exists in that project, e.g. "Task" or a service desk's request type name. */
+  /** An issue type that exists in that project, e.g. "Task". Used when no request type is set. */
   issueType: z.string().trim().min(1).max(80).nullable(),
+  /**
+   * A Jira Service Management request type in that project, e.g. "8" for
+   * "Report a system problem". When set, handoffs are raised as service desk
+   * requests, so they land in the desk's queues and portal; the request type
+   * decides the issue type.
+   */
+  requestTypeId: z.string().trim().regex(/^\d{1,18}$/, "A request type id is a number").nullable(),
+  /** The request type's name, for showing it; set by the server from Jira. */
+  requestTypeName: z.string().trim().min(1).max(120).nullable(),
   /** Raise a ticket the moment the worker hands a conversation to a person. */
   createTicketOnHandoff: z.boolean(),
 });
@@ -252,7 +261,7 @@ export const confluenceSettingsSchema = z.object({
 export type ConfluenceSettings = z.infer<typeof confluenceSettingsSchema>;
 
 export function jiraSettingsDefaults(): JiraSettings {
-  return { projectKey: null, issueType: null, createTicketOnHandoff: true };
+  return { projectKey: null, issueType: null, requestTypeId: null, requestTypeName: null, createTicketOnHandoff: true };
 }
 
 export function confluenceSettingsDefaults(): ConfluenceSettings {
@@ -305,7 +314,6 @@ function activeAccount(connection: IntegrationConnection | null, system: string)
 
 export const JIRA_CREATE_ISSUE_SLUG = "JIRA_CREATE_ISSUE";
 export const JIRA_GET_ISSUE_SLUG = "JIRA_GET_ISSUE";
-export const JIRA_ADD_COMMENT_SLUG = "JIRA_ADD_COMMENT";
 export const HANDOFF_TICKET_TOOL_ID = "create_handoff_ticket";
 export const HANDOFF_COMMENT_TOOL_ID = "comment_on_handoff_ticket";
 export const HANDOFF_TICKET_LABEL = "ai-worker-handoff";
@@ -489,12 +497,12 @@ export async function recordHandoffInJira(
   const connectedAccountId = activeAccount(connection, "jira");
   if (!connection || !connectedAccountId) return null;
 
+  const settings = readJiraSettings(connection.metadata);
   if (conversation.externalTicketKey) {
-    const commented = await runWrite(
-      HANDOFF_COMMENT_TOOL_ID,
-      JIRA_ADD_COMMENT_SLUG,
-      { issue_id_or_key: conversation.externalTicketKey, comment: handoffComment(input) },
-      organizationId,
+    const commented = await commentOnHandoffTicket(
+      input,
+      conversation.externalTicketKey,
+      Boolean(settings.requestTypeId),
       connectedAccountId,
     );
     if (!commented.ok) {
@@ -505,8 +513,11 @@ export async function recordHandoffInJira(
     return { key: conversation.externalTicketKey, created: false };
   }
 
-  const settings = readJiraSettings(connection.metadata);
-  if (!settings.createTicketOnHandoff || !settings.projectKey || !settings.issueType) return null;
+  if (!settings.createTicketOnHandoff || !settings.projectKey) return null;
+  if (settings.requestTypeId) {
+    return raiseServiceRequest(input, settings.projectKey, settings.requestTypeId, connectedAccountId);
+  }
+  if (!settings.issueType) return null;
 
   const created = await runWrite(
     HANDOFF_TICKET_TOOL_ID,
@@ -529,6 +540,40 @@ export async function recordHandoffInJira(
   }
   await recordTicketOutcome(organizationId, conversation.id, { key });
   return { key, created: true };
+}
+
+/**
+ * Adds a later handoff to the conversation's ticket, through Jira's own API:
+ * Composio's comment action fails without saying why. On a service desk
+ * ticket it's an internal note, so the team sees it and the customer isn't
+ * emailed; elsewhere a plain comment.
+ */
+async function commentOnHandoffTicket(
+  input: HandoffTicketInput,
+  key: string,
+  asRequest: boolean,
+  connectedAccountId: string,
+): Promise<JiraCall> {
+  const body = toJiraWikiMarkup(handoffComment(input));
+  const post = async (path: string, payload: Record<string, unknown>) => {
+    const commented = await callJira(connectedAccountId, "POST", path, payload);
+    await logToolCall({
+      organizationId: input.organizationId,
+      toolId: HANDOFF_COMMENT_TOOL_ID,
+      calledBy: "system",
+      input: { key, ...payload },
+      output: commented.ok ? toLogOutput(commented.data) : null,
+      status: commented.ok ? "success" : "error",
+      errorMessage: commented.ok ? null : commented.error,
+    });
+    return commented;
+  };
+  if (asRequest) {
+    const note = await post(`/rest/servicedeskapi/request/${key}/comment`, { body, public: false });
+    // A ticket raised before the desk's request type was set isn't a request.
+    if (note.ok) return note;
+  }
+  return post(`/rest/api/2/issue/${key}/comment`, { body });
 }
 
 /** A later handoff on the same conversation: what the customer added, and what the worker passed on. */
@@ -969,4 +1014,193 @@ export function jiraSettingsProblem(projects: JiraProject[], projectKey: string,
     return `"${issueType}" isn't an issue type in ${projectKey}. Choose one of: ${project.issueTypes.join(", ")}.`;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Jira Service Management. A handoff raised through the service desk's
+// request API, rather than as a plain issue, carries a request type, so it
+// shows in the desk's queues and on its portal like any other request.
+// Composio has no actions for that API, so it's called through Composio's
+// proxy, with the connection's own sign-in.
+// ---------------------------------------------------------------------------
+
+export const JSM_REQUEST_TOOL_ID = "create_service_request";
+export const JSM_REQUEST_TYPES_TOOL_ID = "list_service_desk_request_types";
+const ATLASSIAN_SITES_URL = "https://api.atlassian.com/oauth/token/accessible-resources";
+
+type JiraCall = { ok: true; data: unknown } | { ok: false; error: string };
+
+const jiraApiBases = new Map<string, string>();
+
+function siteKey(url: string): string {
+  return url.replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * The connection's Jira REST base through Atlassian's API gateway, which an
+ * OAuth sign-in has to use: https://api.atlassian.com/ex/jira/{cloudId}.
+ * Null when the connection's site can't be told apart from the others it can see.
+ */
+export async function jiraApiBase(connectedAccountId: string): Promise<string | null> {
+  const cached = jiraApiBases.get(connectedAccountId);
+  if (cached) return cached;
+  const [site, sites] = await Promise.all([
+    getAccountSite(connectedAccountId),
+    proxyRequest({ connectedAccountId, endpoint: ATLASSIAN_SITES_URL, method: "GET" }),
+  ]);
+  const listed = Array.isArray(sites.data) ? (sites.data as { id?: string; url?: string }[]) : [];
+  const match = site
+    ? listed.find((entry) => entry.url && siteKey(entry.url) === siteKey(site))
+    : listed.length === 1
+      ? listed[0]
+      : undefined;
+  if (!match?.id) return null;
+  const base = `https://api.atlassian.com/ex/jira/${match.id}`;
+  jiraApiBases.set(connectedAccountId, base);
+  return base;
+}
+
+/** Jira's reason for refusing, from either API's error shape. */
+function jiraErrorText(data: unknown): string {
+  if (!data || typeof data !== "object") return typeof data === "string" ? data : "";
+  const record = data as { errorMessage?: unknown; errorMessages?: unknown; errors?: unknown };
+  const parts = [
+    typeof record.errorMessage === "string" ? record.errorMessage : null,
+    ...(Array.isArray(record.errorMessages) ? record.errorMessages.map(String) : []),
+    ...(record.errors && typeof record.errors === "object"
+      ? Object.entries(record.errors as Record<string, unknown>).map(([field, message]) => `${field}: ${String(message)}`)
+      : []),
+  ].filter(Boolean);
+  return parts.join("; ");
+}
+
+async function callJira(
+  connectedAccountId: string,
+  method: "GET" | "POST" | "PUT",
+  path: string,
+  body?: unknown,
+): Promise<JiraCall> {
+  try {
+    const base = await jiraApiBase(connectedAccountId);
+    if (!base) return { ok: false, error: "Couldn't tell which Jira site this connection is for" };
+    const response = await proxyRequest({ connectedAccountId, endpoint: `${base}${path}`, method, body });
+    if (response.status >= 400) {
+      return { ok: false, error: clip(jiraErrorText(response.data) || `Jira answered ${response.status}`, ERROR_CHARS) };
+    }
+    return { ok: true, data: response.data };
+  } catch (thrown) {
+    return { ok: false, error: clip(thrown instanceof Error ? thrown.message : String(thrown), ERROR_CHARS) };
+  }
+}
+
+function pageValues<T>(data: unknown): T[] {
+  const values = (data as { values?: unknown } | null)?.values;
+  return Array.isArray(values) ? (values as T[]) : [];
+}
+
+export type ServiceDesk = { id: string; projectKey: string; requestTypes: { id: string; name: string }[] };
+
+/**
+ * Every service desk the connection can see, with the request types a
+ * handoff can be raised as. Null if Jira can't be reached; empty when the
+ * site has no Jira Service Management.
+ */
+export async function listServiceDesks(organizationId: string, connectedAccountId: string): Promise<ServiceDesk[] | null> {
+  const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
+  if (!desks.ok) {
+    await logToolCall({
+      organizationId,
+      toolId: JSM_REQUEST_TYPES_TOOL_ID,
+      calledBy: "system",
+      input: {},
+      output: null,
+      status: "error",
+      errorMessage: desks.error,
+    });
+    return null;
+  }
+  const listed = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).filter(
+    (desk) => desk.id != null && typeof desk.projectKey === "string",
+  );
+  return Promise.all(
+    listed.map(async (desk) => {
+      const types = await callJira(connectedAccountId, "GET", `/rest/servicedeskapi/servicedesk/${String(desk.id)}/requesttype?limit=100`);
+      const requestTypes = types.ok
+        ? pageValues<{ id?: unknown; name?: unknown }>(types.data)
+            .filter((type) => type.id != null && typeof type.name === "string")
+            .map((type) => ({ id: String(type.id), name: type.name as string }))
+        : [];
+      return { id: String(desk.id), projectKey: desk.projectKey as string, requestTypes };
+    }),
+  );
+}
+
+/** The request type's name, or why this project/request type pair can't take handoffs. */
+export function serviceRequestTarget(
+  desks: ServiceDesk[],
+  projectKey: string,
+  requestTypeId: string,
+): { name: string } | { problem: string } {
+  const desk = desks.find((entry) => entry.projectKey === projectKey);
+  if (!desk) return { problem: `${projectKey} isn't a Jira Service Management project, so it has no request types.` };
+  const type = desk.requestTypes.find((entry) => entry.id === requestTypeId);
+  if (!type) {
+    return {
+      problem: `That request type isn't in ${projectKey}. Choose one of: ${desk.requestTypes.map((entry) => entry.name).join(", ") || "none"}.`,
+    };
+  }
+  return { name: type.name };
+}
+
+/** The ticket description in Jira's wiki markup, which the request API renders (bold is *x*, not **x**). */
+export function toJiraWikiMarkup(markdown: string): string {
+  return markdown.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
+}
+
+async function raiseServiceRequest(
+  input: HandoffTicketInput,
+  projectKey: string,
+  requestTypeId: string,
+  connectedAccountId: string,
+): Promise<HandoffTicketResult | HandoffTicketFailure> {
+  const { organizationId, conversation } = input;
+  const fail = async (error: string): Promise<HandoffTicketFailure> => {
+    await recordTicketOutcome(organizationId, conversation.id, { error });
+    return { failed: error };
+  };
+
+  const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
+  if (!desks.ok) return fail(`Couldn't find the ${projectKey} service desk: ${desks.error}`);
+  const desk = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).find((entry) => entry.projectKey === projectKey);
+  if (desk?.id == null) return fail(`${projectKey} isn't a Jira Service Management project`);
+
+  const request = {
+    serviceDeskId: String(desk.id),
+    requestTypeId,
+    requestFieldValues: {
+      summary: handoffTicketSummary(input),
+      description: toJiraWikiMarkup(handoffTicketDescription(input)),
+    },
+  };
+  const created = await callJira(connectedAccountId, "POST", "/rest/servicedeskapi/request", request);
+  const issueKey = created.ok ? (created.data as { issueKey?: unknown } | null)?.issueKey : null;
+  const key = typeof issueKey === "string" && ISSUE_KEY_PATTERN.test(issueKey) ? issueKey : null;
+  await logToolCall({
+    organizationId,
+    toolId: JSM_REQUEST_TOOL_ID,
+    calledBy: "system",
+    input: request,
+    output: created.ok ? toLogOutput(created.data) : null,
+    status: key ? "success" : "error",
+    errorMessage: key ? null : created.ok ? "Jira didn't return a ticket key" : created.error,
+  });
+  if (!key) return fail(created.ok ? "Jira didn't return a ticket key" : created.error);
+
+  // The request API can't set labels, so the label that marks the worker's
+  // tickets goes on afterwards. A ticket without it is still a good ticket.
+  await callJira(connectedAccountId, "PUT", `/rest/api/3/issue/${key}`, {
+    update: { labels: [{ add: HANDOFF_TICKET_LABEL }] },
+  });
+  await recordTicketOutcome(organizationId, conversation.id, { key });
+  return { key, created: true };
 }
