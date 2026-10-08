@@ -540,6 +540,10 @@ export type IntegrationConnection = {
 export type JiraConnectionSettings = {
   projectKey: string | null;
   issueType: string | null;
+  /** A service desk request type; when set, handoffs are raised as requests of this type. */
+  requestTypeId: string | null;
+  /** Set by the server from Jira. */
+  requestTypeName: string | null;
   createTicketOnHandoff: boolean;
 };
 
@@ -550,7 +554,13 @@ export type ConfluenceConnectionSettings = {
 };
 
 /** A Jira project and the issue types a handoff ticket can be raised as. */
-export type JiraProject = { key: string; name: string; issueTypes: string[] };
+export type JiraProject = {
+  key: string;
+  name: string;
+  issueTypes: string[];
+  /** Empty unless the project is a Jira Service Management desk. */
+  requestTypes: { id: string; name: string }[];
+};
 
 export function getJiraProjects(type: string): Promise<{ projects: JiraProject[] }> {
   return apiFetch<{ projects: JiraProject[] }>(`/integrations/${type}/jira-projects`);

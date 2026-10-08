@@ -98,9 +98,11 @@ function describeAtlassian(
   const confluenceSettings = confluence ? readConfluenceSettings(confluence.metadata) : null;
   return {
     jira: jiraSettings
-      ? jiraSettings.projectKey && jiraSettings.issueType
-        ? `handoff tickets ${jiraSettings.createTicketOnHandoff ? "on" : "off"}: a ${jiraSettings.issueType} in project ${jiraSettings.projectKey}`
-        : "connected, but no handoff project/issue type set, so handoffs raise no ticket"
+      ? jiraSettings.projectKey && jiraSettings.requestTypeId
+        ? `handoff tickets ${jiraSettings.createTicketOnHandoff ? "on" : "off"}: a "${jiraSettings.requestTypeName ?? jiraSettings.requestTypeId}" service desk request in project ${jiraSettings.projectKey}`
+        : jiraSettings.projectKey && jiraSettings.issueType
+          ? `handoff tickets ${jiraSettings.createTicketOnHandoff ? "on" : "off"}: a ${jiraSettings.issueType} in project ${jiraSettings.projectKey}`
+          : "connected, but no handoff project/issue type set, so handoffs raise no ticket"
       : null,
     confluence: confluenceSettings
       ? `${confluenceSettings.spaceKey ? `space ${confluenceSettings.spaceKey}` : "every space"}, ${

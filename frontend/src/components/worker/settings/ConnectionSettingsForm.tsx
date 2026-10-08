@@ -25,8 +25,9 @@ export function hasConnectionSettings(connection: IntegrationConnection): connec
 export function connectionSettingsNote(connection: Connection): string | undefined {
   if (connection.system !== "jira") return undefined;
   const settings = connection.settings as JiraConnectionSettings;
-  return settings.projectKey && settings.issueType
-    ? `Handoffs raise tickets in ${settings.projectKey} (${settings.issueType}).`
+  const type = settings.requestTypeId ? settings.requestTypeName ?? "service request" : settings.issueType;
+  return settings.projectKey && type
+    ? `Handoffs raise tickets in ${settings.projectKey} (${type}).`
     : "Set a project to raise a ticket on every handoff.";
 }
 
@@ -127,6 +128,7 @@ function DialogFooter({ saving, error, onCancel }: { saving: boolean; error: str
 function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<JiraConnectionSettings>) {
   const [projectKey, setProjectKey] = useState(settings.projectKey ?? "");
   const [issueType, setIssueType] = useState(settings.issueType ?? "");
+  const [requestTypeId, setRequestTypeId] = useState(settings.requestTypeId ?? "");
   const [createTicketOnHandoff, setCreateTicketOnHandoff] = useState(settings.createTicketOnHandoff);
   // Null while loading; "failed" falls back to typing the values in.
   const [projects, setProjects] = useState<JiraProject[] | "failed" | null>(null);
@@ -145,12 +147,22 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
   const listed = Array.isArray(projects) ? projects : null;
   const project = listed?.find((entry) => entry.key === projectKey) ?? null;
   const issueTypes = project?.issueTypes ?? [];
+  const requestTypes = project?.requestTypes ?? [];
+  // A service desk's handoffs go in as requests, so they show in its queues
+  // and portal. The request type then decides the issue type.
+  const asRequest = requestTypes.length > 0;
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        void save({ projectKey: projectKey.trim() || null, issueType: issueType.trim() || null, createTicketOnHandoff });
+        void save({
+          projectKey: projectKey.trim() || null,
+          issueType: issueType.trim() || null,
+          // Without the project list there's no way to change it, so keep what's saved.
+          requestTypeId: listed ? (asRequest && requestTypeId) || null : settings.requestTypeId,
+          createTicketOnHandoff,
+        });
       }}
     >
       <DialogHeader
@@ -167,8 +179,11 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
               onChange={(event) => {
                 const next = listed.find((entry) => entry.key === event.target.value);
                 setProjectKey(event.target.value);
-                // Keep the issue type only if the new project has it too.
+                // Keep the issue and request types only if the new project has them too.
                 if (!next?.issueTypes.includes(issueType)) setIssueType(next?.issueTypes[0] ?? "");
+                if (!next?.requestTypes.some((type) => type.id === requestTypeId)) {
+                  setRequestTypeId(next?.requestTypes[0]?.id ?? "");
+                }
               }}
             >
               <option value="">Choose a project</option>
@@ -188,37 +203,57 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
             />
           )}
         </label>
-        <label>
-          <span className={labelClass}>Issue type</span>
-          {listed ? (
+        {asRequest ? (
+          <label>
+            <span className={labelClass}>Request type</span>
             <select
               className={`mt-1.5 ${fieldClass}`}
-              value={issueTypes.includes(issueType) ? issueType : ""}
-              disabled={!project}
-              onChange={(event) => setIssueType(event.target.value)}
+              value={requestTypes.some((type) => type.id === requestTypeId) ? requestTypeId : ""}
+              onChange={(event) => setRequestTypeId(event.target.value)}
             >
-              <option value="">{project ? "Choose an issue type" : "Choose a project first"}</option>
-              {issueTypes.map((name) => (
-                <option key={name} value={name}>
-                  {name}
+              <option value="">Choose a request type</option>
+              {requestTypes.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.name}
                 </option>
               ))}
             </select>
-          ) : (
-            <input
-              className={`mt-1.5 ${fieldClass}`}
-              value={issueType}
-              placeholder={projects === null ? "Loading issue types…" : "Issue type"}
-              disabled={projects === null}
-              onChange={(event) => setIssueType(event.target.value)}
-            />
-          )}
-        </label>
+          </label>
+        ) : (
+          <label>
+            <span className={labelClass}>Issue type</span>
+            {listed ? (
+              <select
+                className={`mt-1.5 ${fieldClass}`}
+                value={issueTypes.includes(issueType) ? issueType : ""}
+                disabled={!project}
+                onChange={(event) => setIssueType(event.target.value)}
+              >
+                <option value="">{project ? "Choose an issue type" : "Choose a project first"}</option>
+                {issueTypes.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className={`mt-1.5 ${fieldClass}`}
+                value={issueType}
+                placeholder={projects === null ? "Loading issue types…" : "Issue type"}
+                disabled={projects === null}
+                onChange={(event) => setIssueType(event.target.value)}
+              />
+            )}
+          </label>
+        )}
       </div>
       <p className={hintClass}>
         {projects === "failed"
           ? "Couldn't load your Jira projects, so type them in. They're checked with Jira when you save."
-          : "Only issue types that exist in the chosen project are listed."}
+          : asRequest
+            ? "This is a service desk, so handoffs go in as requests and show in its queues."
+            : "Only issue types that exist in the chosen project are listed."}
       </p>
       <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
         <SettingsToggleRow

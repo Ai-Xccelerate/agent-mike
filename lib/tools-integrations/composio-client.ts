@@ -106,3 +106,33 @@ export async function searchActions(toolkits: string[], search: string, limit: n
 export async function getActionSchema(slug: string): Promise<ComposioActionSchema> {
   return toActionSchema(await getComposioClient().tools.getRawComposioToolBySlug(slug));
 }
+
+/** The site a connection signed in to, e.g. https://acme.atlassian.net. Null when Composio doesn't record one. */
+export async function getAccountSite(connectedAccountId: string): Promise<string | null> {
+  const account = (await getComposioClient().connectedAccounts.get(connectedAccountId)) as {
+    data?: { base_url?: unknown };
+    params?: { base_url?: unknown };
+  };
+  const site = account.data?.base_url ?? account.params?.base_url;
+  return typeof site === "string" && site ? site : null;
+}
+
+/**
+ * A raw HTTP call made with a connection's credentials, for APIs Composio has
+ * no action for (e.g. Jira Service Management's request API). The endpoint
+ * is an absolute URL.
+ */
+export async function proxyRequest(options: {
+  connectedAccountId: string;
+  endpoint: string;
+  method: "GET" | "POST" | "PUT";
+  body?: unknown;
+}): Promise<{ status: number; data: unknown }> {
+  const response = await getComposioClient().tools.proxyExecute({
+    endpoint: options.endpoint,
+    method: options.method,
+    connectedAccountId: options.connectedAccountId,
+    ...(options.body === undefined ? {} : { body: options.body }),
+  });
+  return { status: response.status, data: response.data };
+}
