@@ -32,7 +32,7 @@ const jiraProjects = {
   data: { projects: [{ key: "SUP", name: "Support", issueTypes: [{ name: "Task" }, { name: "[System] Incident" }] }] },
 };
 
-const NO_REQUEST_TYPE = { requestTypeId: null, requestTypeName: null };
+const NO_REQUEST_TYPE = { requestTypeId: null, requestTypeName: null, workerChoosesRequestType: false };
 
 const previousAdapter = getIdentityAdapter();
 let orgId: string;
@@ -124,12 +124,31 @@ describe("PATCH /api/v1/integrations/:type settings", () => {
       requestTypeId: "8",
       requestTypeName: "Report a system problem",
       createTicketOnHandoff: true,
+      workerChoosesRequestType: false,
     });
     // The issue type isn't checked when a request type decides it.
     expect(executeToolMock).not.toHaveBeenCalled();
 
     const cleared = await patch("helpdesk", { settings: { requestTypeId: null } });
     expect(((await cleared.json()) as { settings: unknown }).settings).toMatchObject(NO_REQUEST_TYPE);
+  });
+
+  it("lets the worker choose the request type on a service desk, and refuses it elsewhere", async () => {
+    await connect("helpdesk", "jira");
+
+    const res = await patch("helpdesk", { settings: { projectKey: "SUP", workerChoosesRequestType: true } });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { settings: unknown }).settings).toMatchObject({
+      projectKey: "SUP",
+      requestTypeId: null,
+      workerChoosesRequestType: true,
+    });
+
+    const elsewhere = await patch("helpdesk", { settings: { projectKey: "OPS" } });
+    expect(elsewhere.status).toBe(400);
+    expect(((await elsewhere.json()) as { error: string }).error).toBe(
+      "OPS isn't a Jira Service Management project with request types, so the worker has nothing to choose from.",
+    );
   });
 
   it("refuses a request type the service desk doesn't have", async () => {

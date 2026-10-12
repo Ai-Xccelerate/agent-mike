@@ -545,6 +545,8 @@ export type JiraConnectionSettings = {
   /** Set by the server from Jira. */
   requestTypeName: string | null;
   createTicketOnHandoff: boolean;
+  /** The worker picks the request type for each handoff from the desk's own list. */
+  workerChoosesRequestType: boolean;
 };
 
 /** Which Confluence space grounds the worker's answers. */

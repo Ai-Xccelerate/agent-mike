@@ -30,7 +30,13 @@ import {
   serviceRequestTarget,
   JSM_REQUEST_TOOL_ID,
   type HandoffConversation,
+  clearRequestTypeCatalogCache,
+  requestFieldValuesFor,
+  requestTypeFieldsFrom,
+  requestTypeGuidance,
+  type RequestTypeCatalog,
 } from "@/lib/tools-integrations/atlassian";
+import { chooseRequestType } from "@/lib/request-type-choice";
 import { executeRunAction, executeSearchActions } from "@/lib/tools-integrations/composio-actions";
 import { getConnectionForOrg, type IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
 import {
@@ -53,6 +59,7 @@ vi.mock("@/lib/tools-integrations/composio-client", () => ({
   searchActions: vi.fn(),
 }));
 vi.mock("@/lib/tools-integrations/tool-call-log", () => ({ logToolCall: vi.fn() }));
+vi.mock("@/lib/request-type-choice", () => ({ chooseRequestType: vi.fn() }));
 vi.mock("@/lib/agent", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/agent")>();
   return { ...actual, runAgent: runAgentMock };
@@ -127,6 +134,8 @@ beforeEach(async () => {
   await ensureOrganization(orgId, "Atlassian test org");
   getConnectionMock.mockReset();
   getConnectionMock.mockResolvedValue(null);
+  clearRequestTypeCatalogCache();
+  vi.mocked(chooseRequestType).mockReset();
   executeToolMock.mockReset();
   proxyRequestMock.mockReset();
   getAccountSiteMock.mockReset();
@@ -156,6 +165,7 @@ describe("connection settings", () => {
       requestTypeId: null,
       requestTypeName: null,
       createTicketOnHandoff: true,
+      workerChoosesRequestType: false,
     });
     expect(readJiraSettings({ settings: { projectKey: "not a key!" } }).projectKey).toBeNull();
     expect(readConfluenceSettings(null)).toEqual({ spaceKey: null, searchBeforeAnswering: true });
@@ -454,6 +464,197 @@ describe("raising a Jira ticket on handoff", () => {
       expect(serviceRequestTarget(desks, "OPS", "8")).toEqual({
         problem: "OPS isn't a Jira Service Management project, so it has no request types.",
       });
+    });
+  });
+
+  describe("when the worker chooses the request type", () => {
+    const API = "https://api.atlassian.com/ex/jira/cloud-acme";
+    const chooseMock = vi.mocked(chooseRequestType);
+    const workerChooses = (extra: Record<string, unknown> = {}) =>
+      connection("helpdesk", "jira", {
+        metadata: {
+          settings: { projectKey: "SUP", issueType: null, createTicketOnHandoff: true, workerChoosesRequestType: true, ...extra },
+        },
+      });
+
+    const productField = {
+      fieldId: "customfield_10050",
+      name: "Product",
+      required: true,
+      validValues: [
+        { value: "10001", label: "EAP Expert V3" },
+        { value: "10002", label: "Online Intake" },
+      ],
+      jiraSchema: { type: "option" },
+    };
+
+    /** A desk with an outage type (no extra fields) and a feature type that needs a Product. */
+    function deskAnswers(post: { status: number; data: unknown } = { status: 201, data: { issueKey: "SUP-40" } }) {
+      proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+        if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+        if (method === "GET" && endpoint.endsWith("/requesttype/20/field")) {
+          return { status: 200, data: { requestTypeFields: [{ fieldId: "summary", name: "Summary", required: true, jiraSchema: { type: "string" } }] } };
+        }
+        if (method === "GET" && endpoint.endsWith("/requesttype/21/field")) {
+          return { status: 200, data: { requestTypeFields: [{ fieldId: "description", name: "Description", required: true, jiraSchema: { type: "string" } }, productField] } };
+        }
+        if (method === "GET" && endpoint.includes("/requesttype")) {
+          return {
+            status: 200,
+            data: {
+              values: [
+                { id: "20", name: "System Unavailable", description: "System unavailable to one or more users" },
+                { id: "21", name: "Request a New Feature", description: "Have something you want added into the system?" },
+              ],
+            },
+          };
+        }
+        if (method === "GET" && endpoint.includes("/servicedeskapi/servicedesk")) return { status: 200, data: { values: [{ id: "1", projectKey: "SUP" }] } };
+        if (method === "POST") return post;
+        return { status: 204, data: null };
+      });
+    }
+
+    const catalog: RequestTypeCatalog = {
+      serviceDeskId: "1",
+      projectKey: "SUP",
+      requestTypes: [
+        { id: "20", name: "System Unavailable", description: "", fields: [] },
+        { id: "21", name: "Request a New Feature", description: "", fields: requestTypeFieldsFrom({ requestTypeFields: [productField] }) },
+      ],
+    };
+
+    async function handoff(row: Awaited<ReturnType<typeof newConversation>>) {
+      return recordHandoffInJira({
+        organizationId: orgId,
+        workerName: "Eva",
+        conversation: handoffConversation(row),
+        transcript: [{ speaker: "Ana", body: "Nobody in our office can log in to EAP Expert" }],
+        latestMessage: "Nobody in our office can log in to EAP Expert",
+      });
+    }
+
+    it("raises the request as the type the worker chose, with the fields it filled in", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      deskAnswers();
+      chooseMock.mockResolvedValue({ requestTypeId: "21", fields: [{ fieldId: "customfield_10050", values: ["eap expert v3"] }] });
+      const row = await newConversation();
+
+      expect(await handoff(row)).toEqual({ key: "SUP-40", created: true });
+
+      // The worker read the desk's own list, descriptions and needs included.
+      const { catalogText, problem } = chooseMock.mock.calls[0][0];
+      expect(catalogText).toContain("[20] System Unavailable: System unavailable to one or more users");
+      expect(catalogText).toContain("Needs: Product [customfield_10050] (one of: EAP Expert V3, Online Intake)");
+      expect(problem).toBeUndefined();
+      const create = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
+      expect(create.endpoint).toBe(`${API}/rest/servicedeskapi/request`);
+      expect(create.body).toMatchObject({
+        serviceDeskId: "1",
+        requestTypeId: "21",
+        requestFieldValues: { customfield_10050: { id: "10001" }, summary: "Nobody in our office can log in to EAP Expert" },
+      });
+    });
+
+    it("sends a choice the desk can't take back once with the reason", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      deskAnswers();
+      chooseMock
+        .mockResolvedValueOnce({ requestTypeId: "21", fields: [] })
+        .mockResolvedValueOnce({ requestTypeId: "20", fields: [] });
+      const row = await newConversation();
+
+      expect(await handoff(row)).toEqual({ key: "SUP-40", created: true });
+      expect(chooseMock).toHaveBeenCalledTimes(2);
+      expect(chooseMock.mock.calls[1][0].problem).toBe("Product is required for Request a New Feature.");
+      const create = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
+      expect(create.body).toMatchObject({ requestTypeId: "20" });
+    });
+
+    it("raises no ticket rather than a wrong one, even with a default request type saved", async () => {
+      connectionsFor({ helpdesk: workerChooses({ requestTypeId: "20", requestTypeName: "System Unavailable" }) });
+      deskAnswers();
+      chooseMock.mockResolvedValue({ requestTypeId: "99", fields: [] });
+      const row = await newConversation();
+
+      const result = await handoff(row);
+
+      expect(result).toEqual({ failed: "Eva couldn't choose a request type: There's no request type 99. Choose one of the ids listed." });
+      expect(proxyRequestMock.mock.calls.some(([call]) => call.method === "POST")).toBe(false);
+      const [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+      expect(stored.externalTicketKey).toBeNull();
+      expect(stored.externalTicketError).toContain("couldn't choose a request type");
+    });
+
+    it("fails visibly when the desk's request types can't be read", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      proxyRequestMock.mockImplementation(async ({ endpoint }) => {
+        if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+        return { status: 401, data: { message: "Unauthorized; scope does not match" } };
+      });
+      const row = await newConversation();
+
+      const result = await handoff(row);
+
+      expect(result).toMatchObject({ failed: expect.stringContaining("Couldn't find the SUP service desk") });
+      expect(chooseMock).not.toHaveBeenCalled();
+    });
+
+    it("tells the customer agent what each kind of request needs, and never to ask for a category", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      deskAnswers();
+
+      const guidance = await requestTypeGuidance(orgId);
+
+      expect(guidance).toContain("never ask the customer to pick a category");
+      expect(guidance).toContain("[21] Request a New Feature: Have something you want added into the system?");
+      expect(guidance).toContain("Needs: Product (one of: EAP Expert V3, Online Intake)");
+
+      connectionsFor({ helpdesk: jsmReadyFixed() });
+      expect(await requestTypeGuidance(orgId)).toBe("");
+    });
+
+    const jsmReadyFixed = () =>
+      connection("helpdesk", "jira", {
+        metadata: { settings: { projectKey: "SUP", issueType: null, requestTypeId: "8", createTicketOnHandoff: true } },
+      });
+
+    it("checks a choice field by field", () => {
+      expect(requestFieldValuesFor(catalog, { requestTypeId: "21", fields: [{ fieldId: "customfield_10050", values: ["10002"] }] })).toEqual({
+        requestTypeId: "21",
+        name: "Request a New Feature",
+        values: { customfield_10050: { id: "10002" } },
+      });
+      expect(requestFieldValuesFor(catalog, { requestTypeId: "21", fields: [{ fieldId: "customfield_10050", values: ["Mobile"] }] })).toEqual({
+        problem: "Product must be one of: EAP Expert V3, Online Intake.",
+      });
+      expect(requestFieldValuesFor(catalog, { requestTypeId: null, fields: [] })).toEqual({
+        problem: "No request type was chosen. Choose one of the ids listed.",
+      });
+      // Fields the request type doesn't have are left out, not sent to Jira.
+      expect(requestFieldValuesFor(catalog, { requestTypeId: "20", fields: [{ fieldId: "customfield_1", values: ["x"] }] })).toEqual({
+        requestTypeId: "20",
+        name: "System Unavailable",
+        values: {},
+      });
+    });
+
+    it("reads field kinds from Jira and leaves out the ones the code fills in", () => {
+      const fields = requestTypeFieldsFrom({
+        requestTypeFields: [
+          { fieldId: "summary", name: "Summary", required: true, jiraSchema: { type: "string" } },
+          { fieldId: "customfield_1", name: "Build Date", required: false, jiraSchema: { type: "string" } },
+          { fieldId: "priority", name: "Priority", required: true, validValues: [{ value: "1", label: "High" }], jiraSchema: { type: "priority" } },
+          { fieldId: "customfield_2", name: "Modules", required: false, validValues: [{ value: "5", label: "Surveys" }], jiraSchema: { type: "array", items: "option" } },
+          { fieldId: "customfield_3", name: "Approver", required: false, jiraSchema: { type: "user" } },
+        ],
+      });
+      expect(fields.map((field) => [field.fieldId, field.kind])).toEqual([
+        ["customfield_1", "text"],
+        ["priority", "option"],
+        ["customfield_2", "options"],
+        ["customfield_3", "unsupported"],
+      ]);
     });
   });
 

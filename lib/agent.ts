@@ -39,6 +39,7 @@ import {
   executeConfluencePageRead,
   executeConfluenceSearch,
   lookupCustomerTickets,
+  requestTypeGuidance,
 } from "@/lib/tools-integrations/atlassian";
 import {
   getSkillForOrg,
@@ -1193,6 +1194,9 @@ export async function buildInstructions(
     groundingRule +
     audienceBoundary +
     scopeBoundary +
+    // The desk's kinds of request and what each needs, read from Jira, so the
+    // worker collects that before it hands over. Empty unless it chooses them.
+    (await requestTypeGuidance(organizationId)) +
     (await buildSkillsBlock(
       profile.enabledSkills,
       organizationId,
