@@ -25,6 +25,9 @@ export function hasConnectionSettings(connection: IntegrationConnection): connec
 export function connectionSettingsNote(connection: Connection): string | undefined {
   if (connection.system !== "jira") return undefined;
   const settings = connection.settings as JiraConnectionSettings;
+  if (settings.projectKey && settings.workerChoosesRequestType) {
+    return `Handoffs raise tickets in ${settings.projectKey}; the worker picks the request type.`;
+  }
   const type = settings.requestTypeId ? settings.requestTypeName ?? "service request" : settings.issueType;
   return settings.projectKey && type
     ? `Handoffs raise tickets in ${settings.projectKey} (${type}).`
@@ -130,6 +133,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
   const [issueType, setIssueType] = useState(settings.issueType ?? "");
   const [requestTypeId, setRequestTypeId] = useState(settings.requestTypeId ?? "");
   const [createTicketOnHandoff, setCreateTicketOnHandoff] = useState(settings.createTicketOnHandoff);
+  const [workerChooses, setWorkerChooses] = useState(settings.workerChoosesRequestType);
   // Null while loading; "failed" falls back to typing the values in.
   const [projects, setProjects] = useState<JiraProject[] | "failed" | null>(null);
   const { saving, error, save } = useSave(integrationType, onSaved, onClose);
@@ -160,7 +164,8 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
           projectKey: projectKey.trim() || null,
           issueType: issueType.trim() || null,
           // Without the project list there's no way to change it, so keep what's saved.
-          requestTypeId: listed ? (asRequest && requestTypeId) || null : settings.requestTypeId,
+          requestTypeId: listed ? (asRequest && !workerChooses && requestTypeId) || null : settings.requestTypeId,
+          workerChoosesRequestType: listed ? asRequest && workerChooses : settings.workerChoosesRequestType,
           createTicketOnHandoff,
         });
       }}
@@ -208,10 +213,11 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
             <span className={labelClass}>Request type</span>
             <select
               className={`mt-1.5 ${fieldClass}`}
-              value={requestTypes.some((type) => type.id === requestTypeId) ? requestTypeId : ""}
+              value={workerChooses ? "" : requestTypes.some((type) => type.id === requestTypeId) ? requestTypeId : ""}
+              disabled={workerChooses}
               onChange={(event) => setRequestTypeId(event.target.value)}
             >
-              <option value="">Choose a request type</option>
+              <option value="">{workerChooses ? "Chosen per conversation" : "Choose a request type"}</option>
               {requestTypes.map((type) => (
                 <option key={type.id} value={type.id}>
                   {type.name}
@@ -252,10 +258,21 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
         {projects === "failed"
           ? "Couldn't load your Jira projects, so type them in. They're checked with Jira when you save."
           : asRequest
-            ? "This is a service desk, so handoffs go in as requests and show in its queues."
+            ? workerChooses
+              ? "The worker picks the request type that fits each conversation, from this desk's own list, and collects the fields it needs."
+              : "This is a service desk, so handoffs go in as requests and show in its queues."
             : "Only issue types that exist in the chosen project are listed."}
       </p>
-      <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
+      <div className="mt-5 space-y-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+        {asRequest && (
+          <SettingsToggleRow
+            title="Let the worker choose the request type"
+            description="It reads what each request type is for and what it needs. If its choice can't be used, the ticket fails in the Inbox instead of going in as the wrong type."
+            checked={workerChooses}
+            disabled={saving}
+            onChange={() => setWorkerChooses((value) => !value)}
+          />
+        )}
         <SettingsToggleRow
           title="Raise a ticket on handoff"
           description="The ticket gets the conversation, and the customer is told its number. Customers only ever see their own tickets."
