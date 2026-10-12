@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import type { AssistantCard } from "@/lib/assistant-cards";
+import type { CustomerCard } from "@/lib/customer-cards";
 import {
   boolean,
   index,
@@ -227,7 +228,8 @@ export const messages = pgTable(
     // Rich cards an admin Assistant reply showed (lib/assistant-cards.ts).
     // Unlike panels these are a snapshot of what the reply was about.
     // Always empty for customer/agent messages.
-    cards: jsonb("cards").$type<AssistantCard[]>().notNull().default(sql`'[]'::jsonb`),
+    // Customer replies keep theirs here too (lib/customer-cards.ts).
+    cards: jsonb("cards").$type<(AssistantCard | CustomerCard)[]>().notNull().default(sql`'[]'::jsonb`),
     // Email channel: the provider's message id (Nylas message id). Unique, so
     // a retried webhook delivery can't store (or answer) the same email twice;
     // it is also what a reply threads under.

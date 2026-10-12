@@ -4,9 +4,10 @@ import { conversations, messages } from "@/db/schema";
 import { getOrganizationName } from "@/lib/bootstrap";
 import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
-import { handoffToManager, runAgent, type RunAgentResult } from "@/lib/agent";
+import { handoffToManager, runAgent, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
 import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import type { CustomerCard } from "@/lib/customer-cards";
 
 /**
  * One customer-facing agent turn, shared by every channel (chat, widget,
@@ -130,9 +131,20 @@ export async function runCustomerTurn(input: {
     }
   }
 
+  // Before the ticket is raised, so the reply quoted on it matches what the customer saw.
+  result = { ...result, answer: withoutEmDashes(result.answer) };
+
   // A handoff raises (or updates) the helpdesk ticket here, in code, so it
   // can't be skipped or invented by the model. A Jira failure never blocks
   // the handoff itself: the customer still gets a person.
+  // Cards for the chat panel (quick replies, the ticket). Email can't show
+  // them, and its text already says everything.
+  const showsCards = conversation.channel !== "email";
+  const cards: CustomerCard[] = [];
+  if (showsCards && result.choices?.length) {
+    cards.push({ id: crypto.randomUUID(), kind: "choices", data: { options: result.choices.map(withoutEmDashes) } });
+  }
+
   if (result.escalate) {
     const ticket = await recordHandoffInJira({
       organizationId,
@@ -147,7 +159,16 @@ export async function runCustomerTurn(input: {
     });
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
-    if (isHandoffTicket(ticket)) result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket)}` };
+    if (isHandoffTicket(ticket)) {
+      result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket)}` };
+      if (showsCards) {
+        cards.push({
+          id: crypto.randomUUID(),
+          kind: "helpdesk_ticket",
+          data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created },
+        });
+      }
+    }
   }
 
   const [reply] = await db
@@ -158,6 +179,7 @@ export async function runCustomerTurn(input: {
       senderName: profile.displayName,
       body: result.answer,
       citations: result.citations,
+      cards,
     })
     .returning();
 

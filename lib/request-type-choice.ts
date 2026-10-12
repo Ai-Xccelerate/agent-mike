@@ -11,6 +11,8 @@ import type { RequestTypeChoice } from "@/lib/tools-integrations/atlassian";
  */
 
 const ChoiceSchema = z.object({
+  /** The ticket's title: what's wrong and where, not the customer's words. */
+  title: z.string(),
   requestTypeId: z.string().nullable(),
   fields: z.array(z.object({ fieldId: z.string(), values: z.array(z.string()) })),
 });
@@ -20,6 +22,8 @@ export async function chooseRequestType(args: {
   conversation: string;
   /** Why the last choice couldn't be used, so this one fixes it. */
   problem?: string;
+  /** The request type the last choice named, which this one must keep: only its fields are being fixed. */
+  keepRequestTypeId?: string | null;
 }): Promise<RequestTypeChoice | { problem: string }> {
   if (modelUnavailabilityReason()) return { problem: "No model is available to choose the request type" };
 
@@ -31,8 +35,13 @@ export async function chooseRequestType(args: {
       "description, and fill in its fields from what the conversation says. Use the field ids in square " +
       "brackets and, for fields with options, one of the listed options exactly. Judge fields like priority " +
       "yourself from the impact the customer describes. For text fields, write what the customer asked for in " +
-      "your own words. Never invent facts the conversation doesn't contain. Set requestTypeId to null only if " +
-      "no type fits at all.\n\n" +
+      "your own words, from what the conversation says (why someone needs something is usually clear from what " +
+      "they asked for). Never invent facts the conversation doesn't contain. Set requestTypeId to null only if " +
+      "no type fits at all.\n" +
+      "Also write the ticket's title: one line, under 80 characters, saying what's wrong or what's wanted and " +
+      "where, so the team knows the issue from the title alone (for example \"Login fails with server error for " +
+      "whole office since 9am\" or \"Add optional Pronouns field to Online Intake form\"). Never use the " +
+      "customer's opening words, greetings or a vague title like \"Error\" or \"Help\".\n\n" +
       `Request types (id in brackets after the dash):\n${args.catalogText}`,
     model: guardrailModel(),
     outputType: ChoiceSchema,
@@ -41,7 +50,12 @@ export async function chooseRequestType(args: {
 
   const prompt =
     `Conversation:\n${args.conversation}` +
-    (args.problem ? `\n\nYour last choice couldn't be used: ${args.problem}\nChoose again, fixing that.` : "");
+    (args.problem
+      ? `\n\nYour last choice couldn't be used: ${args.problem}\n` +
+        (args.keepRequestTypeId
+          ? `Keep request type ${args.keepRequestTypeId} and fix its fields. Don't switch to another type to avoid a field.`
+          : "Choose again, fixing that.")
+      : "");
 
   try {
     const result = await run(chooser, prompt, { maxTurns: 1 });

@@ -359,7 +359,14 @@ export type HandoffTicketInput = {
   workerReply?: string;
 };
 
-export type HandoffTicketResult = { key: string; created: boolean };
+export type HandoffTicketResult = {
+  key: string;
+  created: boolean;
+  /** The ticket's title, when this handoff raised it. */
+  title?: string;
+  /** The service desk request type it went in as, if it's a request. */
+  requestType?: string | null;
+};
 
 function clip(text: string, max: number): string {
   const value = text.trim();
@@ -533,7 +540,7 @@ export async function recordHandoffInJira(
     return raiseServiceRequest(input, settings.projectKey, "worker", connectedAccountId);
   }
   if (settings.requestTypeId) {
-    return raiseServiceRequest(input, settings.projectKey, settings.requestTypeId, connectedAccountId);
+    return raiseServiceRequest(input, settings.projectKey, settings.requestTypeId, connectedAccountId, settings.requestTypeName);
   }
   if (!settings.issueType) return null;
 
@@ -557,7 +564,7 @@ export async function recordHandoffInJira(
     return { failed: error };
   }
   await recordTicketOutcome(organizationId, conversation.id, { key });
-  return { key, created: true };
+  return { key, created: true, title: handoffTicketSummary(input), requestType: null };
 }
 
 /**
@@ -1196,7 +1203,12 @@ export type CatalogRequestType = { id: string; name: string; description: string
 export type RequestTypeCatalog = { serviceDeskId: string; projectKey: string; requestTypes: CatalogRequestType[] };
 
 /** What the worker picked: a request type, and a value for each field it filled in. */
-export type RequestTypeChoice = { requestTypeId: string | null; fields: { fieldId: string; values: string[] }[] };
+export type RequestTypeChoice = {
+  requestTypeId: string | null;
+  fields: { fieldId: string; values: string[] }[];
+  /** A descriptive ticket title the worker wrote, if it wrote one. */
+  title?: string;
+};
 
 type RawRequestField = {
   fieldId?: unknown;
@@ -1263,8 +1275,11 @@ export async function getRequestTypeCatalog(
 
   const types = await callJira(connectedAccountId, "GET", `/rest/servicedeskapi/servicedesk/${serviceDeskId}/requesttype?limit=100`);
   if (!types.ok) return { problem: `Couldn't read ${projectKey}'s request types: ${types.error}` };
-  const listed = pageValues<{ id?: unknown; name?: unknown; description?: unknown }>(types.data).filter(
-    (type) => type.id != null && typeof type.name === "string",
+  // A request type in no portal group (e.g. "Emailed request") isn't one a
+  // customer can ask for: it describes how a ticket arrived, not what it's about.
+  const listed = pageValues<{ id?: unknown; name?: unknown; description?: unknown; groupIds?: unknown }>(types.data).filter(
+    (type) =>
+      type.id != null && typeof type.name === "string" && !(Array.isArray(type.groupIds) && type.groupIds.length === 0),
   );
   if (listed.length === 0) return { problem: `${projectKey} has no request types` };
 
@@ -1335,8 +1350,11 @@ export async function requestTypeGuidance(organizationId: string): Promise<strin
       "pick a category, and never mention request types, ids or field names. If two kinds could fit, ask one plain " +
       "question that tells them apart (for example: did this work before, or is it something new? Is it stopping " +
       "everyone from working, or just this task?). Judge anything you can from what they've said yourself, such as " +
-      "how urgent it is from how much it stops their work; never ask the customer to choose a priority. Only ask for " +
-      "facts only they know, in plain words, and one or two at a time.\n" +
+      "how urgent it is from how much it stops their work; never ask the customer to choose a priority.\n" +
+      "Ask only what's necessary. Before each question, check whether the team could act on the ticket without " +
+      "coming back to the customer: what happened or what's wanted, where, who it affects, and what that kind of " +
+      "request needs. If the conversation already makes that clear, don't ask anything more. Ask only for facts " +
+      "only the customer knows, in plain words, one or two at a time.\n" +
       "Before you hand over, the conversation must contain what that kind of request needs. If something is missing, " +
       "ask for it and end that reply with [[FOLLOWUP]], not [[ESCALATE]]; hand over once you have it. This holds even " +
       "where other rules say to hand over, because a handoff without those details raises no ticket. The one " +
@@ -1413,7 +1431,21 @@ export function toJiraWikiMarkup(markdown: string): string {
   return markdown.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
 }
 
-type RequestTarget = { serviceDeskId: string; requestTypeId: string; values: Record<string, unknown> };
+type RequestTarget = {
+  serviceDeskId: string;
+  requestTypeId: string;
+  values: Record<string, unknown>;
+  title?: string;
+  requestTypeName?: string | null;
+};
+
+const TITLE_CHARS = 120;
+
+/** The worker's title, if it's a real one; otherwise the ticket keeps the conversation's own topic. */
+export function workerTitle(title: string | undefined): string | undefined {
+  const value = oneLine(title ?? "").replace(/^["']|["']$/g, "");
+  return value.length >= 8 ? clip(value, TITLE_CHARS) : undefined;
+}
 
 /** The conversation as the request type chooser reads it. */
 function conversationText(input: HandoffTicketInput): string {
@@ -1439,23 +1471,44 @@ async function workerChosenTarget(
   const catalogText = describeRequestTypes(catalog, { fieldIds: true });
   const conversation = conversationText(input);
   let problem: string | undefined;
+  // Once the worker has named a real request type, the retry is only for its
+  // fields: switching to a type that asks for less would be a fallback.
+  let keepType: string | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const choice = await chooseRequestType({ catalogText, conversation, problem });
+    const choice = await chooseRequestType({ catalogText, conversation, problem, keepRequestTypeId: keepType });
+    if (!("problem" in choice) && keepType && choice.requestTypeId !== keepType) {
+      problem = `It switched from request type ${keepType} to ${choice.requestTypeId ?? "none"} to get round a required field.`;
+      break;
+    }
     const resolved = "problem" in choice ? choice : requestFieldValuesFor(catalog, choice);
     if (!("problem" in resolved)) {
-      return { serviceDeskId: catalog.serviceDeskId, requestTypeId: resolved.requestTypeId, values: resolved.values };
+      return {
+        serviceDeskId: catalog.serviceDeskId,
+        requestTypeId: resolved.requestTypeId,
+        values: resolved.values,
+        title: "problem" in choice ? undefined : workerTitle(choice.title),
+        requestTypeName: resolved.name,
+      };
     }
     problem = resolved.problem;
+    if (!("problem" in choice) && catalog.requestTypes.some((type) => type.id === choice.requestTypeId)) {
+      keepType = choice.requestTypeId;
+    }
   }
   return { problem: `${input.workerName} couldn't choose a request type: ${problem}` };
 }
 
-async function fixedTarget(projectKey: string, requestTypeId: string, connectedAccountId: string): Promise<RequestTarget | { problem: string }> {
+async function fixedTarget(
+  projectKey: string,
+  requestTypeId: string,
+  connectedAccountId: string,
+  requestTypeName: string | null,
+): Promise<RequestTarget | { problem: string }> {
   const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
   if (!desks.ok) return { problem: `Couldn't find the ${projectKey} service desk: ${desks.error}` };
   const desk = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).find((entry) => entry.projectKey === projectKey);
   if (desk?.id == null) return { problem: `${projectKey} isn't a Jira Service Management project` };
-  return { serviceDeskId: String(desk.id), requestTypeId, values: {} };
+  return { serviceDeskId: String(desk.id), requestTypeId, values: {}, requestTypeName };
 }
 
 async function raiseServiceRequest(
@@ -1464,6 +1517,8 @@ async function raiseServiceRequest(
   /** A fixed request type id, or "worker" for the worker to choose one. */
   requestType: string,
   connectedAccountId: string,
+  /** The fixed request type's name, for showing it. */
+  requestTypeName: string | null = null,
 ): Promise<HandoffTicketResult | HandoffTicketFailure> {
   const { organizationId, conversation } = input;
   const fail = async (error: string): Promise<HandoffTicketFailure> => {
@@ -1474,7 +1529,7 @@ async function raiseServiceRequest(
   const target =
     requestType === "worker"
       ? await workerChosenTarget(input, projectKey, connectedAccountId)
-      : await fixedTarget(projectKey, requestType, connectedAccountId);
+      : await fixedTarget(projectKey, requestType, connectedAccountId, requestTypeName);
   if ("problem" in target) return fail(target.problem);
 
   const request = {
@@ -1482,7 +1537,7 @@ async function raiseServiceRequest(
     requestTypeId: target.requestTypeId,
     requestFieldValues: {
       ...target.values,
-      summary: handoffTicketSummary(input),
+      summary: target.title ?? handoffTicketSummary(input),
       description: toJiraWikiMarkup(handoffTicketDescription(input)),
     },
   };
@@ -1506,5 +1561,5 @@ async function raiseServiceRequest(
     update: { labels: [{ add: HANDOFF_TICKET_LABEL }] },
   });
   await recordTicketOutcome(organizationId, conversation.id, { key });
-  return { key, created: true };
+  return { key, created: true, title: request.requestFieldValues.summary, requestType: target.requestTypeName ?? null };
 }

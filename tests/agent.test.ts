@@ -4,6 +4,8 @@ import {
   buildAgentTools,
   buildInstructions,
   buildSkillsBlock,
+  withoutEmDashes,
+  choicesFrom,
   LOAD_SKILL_TOOL_NAME,
   CRM_LOOKUP_FAILURE_MESSAGE,
   CRM_LOOKUP_RETRY_BACKOFF_MS,
@@ -1663,5 +1665,26 @@ describe("agent instructions — KB grounding", () => {
     const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
     expect(instructions).toContain("When the reference material does answer it, give that answer and end with");
     expect(instructions).toContain('like "contact support" is part of the answer');
+  });
+});
+
+describe("withoutEmDashes", () => {
+  it("turns a dash between words into a comma and keeps ranges", () => {
+    expect(withoutEmDashes("I'm sorry—this is down")).toBe("I'm sorry, this is down");
+    expect(withoutEmDashes("Hand it over — now.")).toBe("Hand it over, now.");
+    expect(withoutEmDashes("— First step\n— Second step")).toBe("First step\nSecond step");
+    expect(withoutEmDashes("Open 9–5, Monday – Friday")).toBe("Open 9–5, Monday, Friday");
+    expect(withoutEmDashes("It ended —.")).toBe("It ended.");
+  });
+});
+
+describe("choicesFrom", () => {
+  it("reads the worker's quick replies, tidied", () => {
+    expect(choicesFrom("Did it work before? [[CHOICES: Worked before | Something new ]] [[FOLLOWUP]]")).toEqual(["Worked before", "Something new"]);
+    expect(choicesFrom("[[choices: Yes | yes | No]]")).toEqual(["Yes", "No"]);
+    // One option isn't a choice, and over-long ones are dropped.
+    expect(choicesFrom("[[CHOICES: Only one]]")).toEqual([]);
+    expect(choicesFrom(`[[CHOICES: ${"x".repeat(80)} | Short | Other]]`)).toEqual(["Short", "Other"]);
+    expect(choicesFrom("No tag here")).toEqual([]);
   });
 });

@@ -42,10 +42,10 @@ import {
   listConversationAttachments,
   type AssistantAttachment,
 } from "@/lib/assistant-attachments";
-import { createCustomSkill } from "@/lib/tools-integrations/custom-skills-repository";
+import { createCustomSkill, getCustomSkill, updateCustomSkill } from "@/lib/tools-integrations/custom-skills-repository";
 import { workerPatchSchema } from "@/lib/worker-patch";
 import { applyWorkerPatch, describePatchErrors } from "@/lib/worker-settings";
-import { customSkillCreateSchema, SKILL_BODY_MAX_LENGTH } from "@/lib/tools-integrations/custom-skill-schema";
+import { customSkillCreateSchema, customSkillPatchSchema, SKILL_BODY_MAX_LENGTH } from "@/lib/tools-integrations/custom-skill-schema";
 import { ConnectionFlowError, startIntegrationConnection, startMailboxConnection } from "@/lib/connection-flows";
 import { disconnectIntegration } from "@/lib/tools-integrations/disconnect";
 import { integrationStatuses, mergeIntegrationEnabled } from "@/lib/integrations";
@@ -120,6 +120,7 @@ export const SHOW_DRAFT_TOOL_NAME = "show_draft";
 export const PROPOSE_KNOWLEDGE_FROM_ATTACHMENT_TOOL_NAME = "propose_knowledge_from_attachment";
 export const PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME = "propose_skill_from_attachment";
 export const PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME = "propose_edit_knowledge_article";
+export const PROPOSE_EDIT_SKILL_TOOL_NAME = "propose_edit_custom_skill";
 export const CONFIRM_PENDING_CHANGE_TOOL_NAME = "confirm_pending_change";
 export const CANCEL_PENDING_CHANGE_TOOL_NAME = "cancel_pending_change";
 export const PROPOSE_INTEGRATION_ACTION_TOOL_NAME = "propose_integration_action";
@@ -167,6 +168,7 @@ const TOOL_CONFIGURE_INTERNAL_TOOL = "assistant_configure_internal_tool";
 const TOOL_CONFIGURE_KNOWLEDGE_FROM_ATTACHMENT = "assistant_configure_knowledge_from_attachment";
 const TOOL_CONFIGURE_SKILL_FROM_ATTACHMENT = "assistant_configure_skill_from_attachment";
 const TOOL_CONFIGURE_EDIT_KNOWLEDGE = "assistant_configure_edit_knowledge";
+const TOOL_CONFIGURE_EDIT_SKILL = "assistant_configure_edit_skill";
 const TOOL_ACTION_SEND_REPLY = "assistant_action_send_reply";
 const TOOL_ACTION_UPDATE_TICKET_STATUS = "assistant_action_update_ticket_status";
 const TOOL_ACTION_PUBLISH_KNOWLEDGE = "assistant_action_publish_knowledge";
@@ -189,6 +191,7 @@ const CONFIGURE_TOOL_IDS = new Set([
   TOOL_CONFIGURE_KNOWLEDGE_FROM_ATTACHMENT,
   TOOL_CONFIGURE_SKILL_FROM_ATTACHMENT,
   TOOL_CONFIGURE_EDIT_KNOWLEDGE,
+  TOOL_CONFIGURE_EDIT_SKILL,
 ]);
 
 /**
@@ -294,6 +297,8 @@ function describePendingChange(toolId: string, input: Record<string, unknown>): 
         : `add a new knowledge article "${input.title}" from ${input.filename}`;
     case TOOL_CONFIGURE_EDIT_KNOWLEDGE:
       return `edit the knowledge article "${input.title}"`;
+    case TOOL_CONFIGURE_EDIT_SKILL:
+      return `edit the custom skill "${input.name}"`;
     case TOOL_CONFIGURE_SKILL_FROM_ATTACHMENT:
       return `create a custom skill "${input.name}" from ${input.filename}${input.enable ? " and turn it on" : " (left off until you enable it)"}`;
     default:
@@ -380,6 +385,14 @@ export function pendingChangeDetails(toolId: string, input: Record<string, unkno
       if (input.find) lines.push(`Replace:\n${preview(input.find, 600)}`, "", `With:\n${preview(input.replaceWith, 600)}`);
       else if (input.newBody) lines.push(`New text:\n${preview(input.newBody, 1500)}`);
       lines.push("", "Keeps the article's id, description and tags, the same as editing it in Settings > Knowledge.");
+      return lines.join("\n");
+    }
+    case TOOL_CONFIGURE_EDIT_SKILL: {
+      const lines: string[] = [];
+      if (input.newDescription) lines.push(`Description:\n${preview(input.newDescription, 300)}`, "");
+      if (input.find) lines.push(`Replace:\n${preview(input.find, 600)}`, "", `With:\n${preview(input.replaceWith, 600)}`);
+      else if (input.newBody) lines.push(`New instructions:\n${preview(input.newBody, 1500)}`);
+      lines.push("", "Keeps the skill's name, what it needs connected and whether it's on, the same as editing it in Settings > Skills.");
       return lines.join("\n");
     }
     case TOOL_CONFIGURE_SKILL_FROM_ATTACHMENT: {
@@ -646,6 +659,29 @@ async function applyPendingChange(
     }
     const doc = await editKnowledgeDocument(organizationId, existing, input.title as string, content);
     return { conceptId: doc.conceptId, title: doc.title };
+  }
+  if (toolId === TOOL_CONFIGURE_EDIT_SKILL) {
+    const existing = await getCustomSkill(organizationId, input.skillId as string);
+    if (!existing) return { error: "that skill doesn't exist anymore." };
+    if (existing.updatedAt.toISOString() !== input.version) {
+      return { error: "the skill changed after I proposed this edit, so I left it alone. Ask me again and I'll work from the current text." };
+    }
+    let body = existing.body;
+    if (typeof input.find === "string") {
+      if (body.split(input.find).length !== 2) return { error: "the text to replace isn't in the skill exactly once anymore." };
+      body = body.replace(input.find, () => String(input.replaceWith ?? ""));
+    } else if (typeof input.newBody === "string") {
+      body = input.newBody;
+    }
+    // The same validation as Settings > Skills > Edit.
+    const parsed = customSkillPatchSchema.safeParse({
+      body,
+      ...(typeof input.newDescription === "string" ? { description: input.newDescription } : {}),
+    });
+    if (!parsed.success) return { error: parsed.error.issues.map((issue) => issue.message).join("; ") };
+    const saved = await updateCustomSkill(organizationId, existing.id, parsed.data);
+    if (!saved) return { error: "that skill doesn't exist anymore." };
+    return { skillId: saved.id, name: saved.name };
   }
   if (toolId === TOOL_CONFIGURE_SKILL_FROM_ATTACHMENT) {
     // The same validation as Settings > Skills > New skill.
@@ -1107,6 +1143,65 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
         ),
     }),
     tool({
+      name: PROPOSE_EDIT_SKILL_TOOL_NAME,
+      description:
+        "Propose editing one of this worker's custom skills (Settings > Skills > Custom skills), the way Edit does " +
+        "there: its name, what it needs connected and whether it's on stay as they are. Either replace one exact " +
+        "passage of its instructions (find + replaceWith; find must appear exactly once, copied from the skill), " +
+        "give the complete new instructions (newBody), and/or a new description. To read a skill's current text " +
+        "first, call this with only skillId and reason (everything else null): it returns the text and proposes " +
+        "nothing. get_worker_configuration lists skill ids; built-in catalog skills can't be edited. Does not apply anything.",
+      parameters: z.object({
+        skillId: z.string(),
+        find: z.string().nullable(),
+        replaceWith: z.string().nullable(),
+        newBody: z.string().nullable(),
+        newDescription: z.string().nullable(),
+        reason: z.string(),
+      }),
+      execute: async ({ skillId, find, replaceWith, newBody, newDescription, reason }) =>
+        loggedAssistantTool(organizationId, PROPOSE_EDIT_SKILL_TOOL_NAME, { skillId, find, replaceWith, newDescription, reason }, async () => {
+          const existing = await getCustomSkill(organizationId, skillId).catch(() => null);
+          if (!existing) {
+            return `Can't propose that: there's no custom skill with id "${skillId}". Built-in catalog skills can't be edited, only turned on or off.`;
+          }
+          const hasFind = find !== null && find !== undefined;
+          if (!hasFind && !newBody?.trim() && !newDescription?.trim()) {
+            return `The "${existing.name}" skill's current instructions:\n\n${existing.body}`;
+          }
+          if (hasFind) {
+            if (replaceWith === null || replaceWith === undefined) return "Can't propose that: give the replacement text (replaceWith).";
+            const occurrences = existing.body.split(find).length - 1;
+            if (occurrences === 0) {
+              return (
+                "Can't propose that: that exact text isn't in the skill. Copy the passage exactly from the current " +
+                `text and try again:\n\n${existing.body}`
+              );
+            }
+            if (occurrences > 1) {
+              return `Can't propose that: that text appears ${occurrences} times. Include more of the surrounding words so it matches once.`;
+            }
+          }
+          const nextBody = hasFind ? existing.body.replace(find, () => replaceWith ?? "") : newBody?.trim() ? newBody : existing.body;
+          if (nextBody.length > SKILL_BODY_MAX_LENGTH) {
+            return `Can't propose that: skill instructions can be at most ${SKILL_BODY_MAX_LENGTH.toLocaleString()} characters (that would be ${nextBody.length.toLocaleString()}).`;
+          }
+          const input = {
+            skillId,
+            name: existing.name,
+            find: hasFind ? find : null,
+            replaceWith: hasFind ? replaceWith : null,
+            newBody: hasFind ? null : newBody?.trim() ? newBody : null,
+            newDescription: newDescription?.trim() || null,
+            // Refuse to apply if the skill changes between proposal and approval.
+            version: existing.updatedAt.toISOString(),
+            reason,
+          };
+          const approval = await propose(TOOL_CONFIGURE_EDIT_SKILL, input);
+          return proposedText(approval, TOOL_CONFIGURE_EDIT_SKILL, input);
+        }),
+    }),
+    tool({
       name: PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME,
       description:
         "Propose editing an existing knowledge article's text in place, the way Settings > Knowledge does (same id, " +
@@ -1515,6 +1610,8 @@ function describeDone(toolId: string, input: Record<string, unknown>, result: Re
         : `I've added "${input.title}" to the knowledge base.`;
     case TOOL_CONFIGURE_EDIT_KNOWLEDGE:
       return `I've updated the "${input.title}" article.`;
+    case TOOL_CONFIGURE_EDIT_SKILL:
+      return `I've updated the "${input.name}" skill.`;
     case TOOL_CONFIGURE_SKILL_FROM_ATTACHMENT:
       return `I've created the "${input.name}" skill${input.enable ? " and turned it on" : ". It's off until you turn it on"}.`;
     case TOOL_ACTION_SEND_REPLY:
@@ -2060,7 +2157,7 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "escalation phrases, channels, skills, manager contact, email domains, and (propose_settings_change) names, " +
     "initials, accent colour, timezone, email signature, job description, additional instructions, model, max " +
     "turns, minimum confidence, user verification, internet search. You can also turn an attached file into a " +
-    "knowledge article or custom skill. You can also propose connecting or disconnecting a business system or " +
+    "knowledge article or custom skill, and propose edits to a knowledge article or a custom skill's instructions. You can also propose connecting or disconnecting a business system or " +
     "the mailbox (a sign-in window opens after approval) and turning internal tools on or off. These never " +
     "depend on 'Assistant actions'.\n" +
     "5. Act - propose sending a real reply, changing a ticket's status, or publishing a knowledge article, if " +
