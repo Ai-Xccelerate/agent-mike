@@ -610,6 +610,17 @@ describe("editing a custom skill", () => {
     expect(pendingChangeDetails("assistant_configure_edit_skill", input)).toContain("Keeps the skill's name");
   });
 
+  it("finds the skill by its name, and lists the real custom skills when nothing matches", async () => {
+    dbState.rows = [skill];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
+    const base = { find: "don't hold the ticket for it.", replaceWith: "collect first.", newBody: null, newDescription: null, reason: "x" };
+    await invoke(tools, PROPOSE_EDIT_SKILL_TOOL_NAME, { ...base, skillId: "raise a service desk ticket" });
+    expect(createMock.mock.calls[0][0].input).toMatchObject({ skillId: skill.id });
+
+    const missing = await invoke(tools, PROPOSE_EDIT_SKILL_TOOL_NAME, { ...base, skillId: "raise-a-ticket" });
+    expect(missing).toContain(`Raise a Service Desk ticket [${skill.id}]`);
+  });
+
   it("refuses text that isn't there exactly once, and instructions over the limit", async () => {
     dbState.rows = [{ ...skill, body: "a b a" }];
     const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
