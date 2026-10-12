@@ -4,7 +4,7 @@ import { conversations, messages } from "@/db/schema";
 import { getOrganizationName } from "@/lib/bootstrap";
 import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
-import { handoffToManager, runAgent, type RunAgentResult } from "@/lib/agent";
+import { handoffToManager, runAgent, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
 import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
@@ -129,6 +129,9 @@ export async function runCustomerTurn(input: {
       result = handoffToManager(profile);
     }
   }
+
+  // Before the ticket is raised, so the reply quoted on it matches what the customer saw.
+  result = { ...result, answer: withoutEmDashes(result.answer) };
 
   // A handoff raises (or updates) the helpdesk ticket here, in code, so it
   // can't be skipped or invented by the model. A Jira failure never blocks

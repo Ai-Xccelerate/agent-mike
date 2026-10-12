@@ -1263,8 +1263,11 @@ export async function getRequestTypeCatalog(
 
   const types = await callJira(connectedAccountId, "GET", `/rest/servicedeskapi/servicedesk/${serviceDeskId}/requesttype?limit=100`);
   if (!types.ok) return { problem: `Couldn't read ${projectKey}'s request types: ${types.error}` };
-  const listed = pageValues<{ id?: unknown; name?: unknown; description?: unknown }>(types.data).filter(
-    (type) => type.id != null && typeof type.name === "string",
+  // A request type in no portal group (e.g. "Emailed request") isn't one a
+  // customer can ask for: it describes how a ticket arrived, not what it's about.
+  const listed = pageValues<{ id?: unknown; name?: unknown; description?: unknown; groupIds?: unknown }>(types.data).filter(
+    (type) =>
+      type.id != null && typeof type.name === "string" && !(Array.isArray(type.groupIds) && type.groupIds.length === 0),
   );
   if (listed.length === 0) return { problem: `${projectKey} has no request types` };
 
@@ -1439,13 +1442,23 @@ async function workerChosenTarget(
   const catalogText = describeRequestTypes(catalog, { fieldIds: true });
   const conversation = conversationText(input);
   let problem: string | undefined;
+  // Once the worker has named a real request type, the retry is only for its
+  // fields: switching to a type that asks for less would be a fallback.
+  let keepType: string | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const choice = await chooseRequestType({ catalogText, conversation, problem });
+    const choice = await chooseRequestType({ catalogText, conversation, problem, keepRequestTypeId: keepType });
+    if (!("problem" in choice) && keepType && choice.requestTypeId !== keepType) {
+      problem = `It switched from request type ${keepType} to ${choice.requestTypeId ?? "none"} to get round a required field.`;
+      break;
+    }
     const resolved = "problem" in choice ? choice : requestFieldValuesFor(catalog, choice);
     if (!("problem" in resolved)) {
       return { serviceDeskId: catalog.serviceDeskId, requestTypeId: resolved.requestTypeId, values: resolved.values };
     }
     problem = resolved.problem;
+    if (!("problem" in choice) && catalog.requestTypes.some((type) => type.id === choice.requestTypeId)) {
+      keepType = choice.requestTypeId;
+    }
   }
   return { problem: `${input.workerName} couldn't choose a request type: ${problem}` };
 }
