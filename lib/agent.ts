@@ -1148,6 +1148,7 @@ export async function buildInstructions(
       : // Leaving the signature out wasn't enough on its own: the model still
         // closed chat replies with "Best, ..." by habit.
         "This is a live chat. Reply like a chat message: no sign-off, signature, or \"Best,\" closing.",
+    "Never use em dashes (—). Use a comma, a full stop or brackets instead.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -1207,6 +1208,21 @@ export async function buildInstructions(
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."
   );
+}
+
+/**
+ * Customer replies never contain em dashes, whatever the model writes: they
+ * read as machine-written. A dash between words becomes a comma; one opening
+ * a line is dropped. A spaced en dash used the same way goes too, but not one
+ * in a range like 9–5.
+ */
+export function withoutEmDashes(text: string): string {
+  return text
+    .replace(/^[ \t]*[—–][ \t]*/gm, "")
+    .replace(/[ \t]*—[ \t]*/g, ", ")
+    .replace(/[ \t]+–[ \t]+/g, ", ")
+    .replace(/,\s*,/g, ",")
+    .replace(/,\s*([.!?])/g, "$1");
 }
 
 export interface RunAgentResult {

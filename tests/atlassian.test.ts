@@ -926,6 +926,25 @@ describe("a handoff in chat", () => {
     );
   }
 
+  it("takes em dashes out of the reply, and out of the ticket that quotes it", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-12" } });
+    runAgentMock.mockResolvedValue({
+      answer: "I'm sorry—that sounds frustrating. I'm bringing in a teammate — they'll follow up.",
+      confidence: 0.3,
+      escalate: true,
+      citations: [],
+    });
+
+    const body = (await (await chat("My invoice is wrong")).json()) as { message: { body: string } };
+
+    expect(body.message.body).toBe(
+      "I'm sorry, that sounds frustrating. I'm bringing in a teammate, they'll follow up.\n\nI've logged this for the team as SUP-12, so you can quote that number if you follow up.",
+    );
+    const description = String((executeToolMock.mock.calls[0][1] as { description: string }).description);
+    expect(description).not.toContain("—");
+  });
+
   it("raises the ticket and tells the customer its number", async () => {
     connectionsFor({ helpdesk: jiraReady() });
     executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-12" } });
