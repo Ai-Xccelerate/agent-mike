@@ -42,7 +42,12 @@ import {
   listConversationAttachments,
   type AssistantAttachment,
 } from "@/lib/assistant-attachments";
-import { createCustomSkill, getCustomSkill, updateCustomSkill } from "@/lib/tools-integrations/custom-skills-repository";
+import {
+  createCustomSkill,
+  getCustomSkill,
+  listCustomSkills,
+  updateCustomSkill,
+} from "@/lib/tools-integrations/custom-skills-repository";
 import { workerPatchSchema } from "@/lib/worker-patch";
 import { applyWorkerPatch, describePatchErrors } from "@/lib/worker-settings";
 import { customSkillCreateSchema, customSkillPatchSchema, SKILL_BODY_MAX_LENGTH } from "@/lib/tools-integrations/custom-skill-schema";
@@ -1161,9 +1166,19 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
       }),
       execute: async ({ skillId, find, replaceWith, newBody, newDescription, reason }) =>
         loggedAssistantTool(organizationId, PROPOSE_EDIT_SKILL_TOOL_NAME, { skillId, find, replaceWith, newDescription, reason }, async () => {
-          const existing = await getCustomSkill(organizationId, skillId).catch(() => null);
+          // Found by id, or by its name: the model sometimes passes the name it
+          // sees in Settings rather than looking the id up first.
+          const custom = await listCustomSkills(organizationId);
+          const existing =
+            custom.find((skill) => skill.id === skillId) ??
+            custom.find((skill) => skill.name.trim().toLowerCase() === skillId.trim().toLowerCase()) ??
+            null;
           if (!existing) {
-            return `Can't propose that: there's no custom skill with id "${skillId}". Built-in catalog skills can't be edited, only turned on or off.`;
+            return (
+              `Can't propose that: no custom skill matches "${skillId}". This worker's custom skills: ` +
+              `${custom.map((skill) => `${skill.name} [${skill.id}]`).join(", ") || "none"}. ` +
+              "Built-in catalog skills (like collect-before-escalate) can't be edited, only turned on or off."
+            );
           }
           const hasFind = find !== null && find !== undefined;
           if (!hasFind && !newBody?.trim() && !newDescription?.trim()) {
@@ -1187,7 +1202,7 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
             return `Can't propose that: skill instructions can be at most ${SKILL_BODY_MAX_LENGTH.toLocaleString()} characters (that would be ${nextBody.length.toLocaleString()}).`;
           }
           const input = {
-            skillId,
+            skillId: existing.id,
             name: existing.name,
             find: hasFind ? find : null,
             replaceWith: hasFind ? replaceWith : null,
