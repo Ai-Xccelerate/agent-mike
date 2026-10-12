@@ -20,6 +20,8 @@ export async function chooseRequestType(args: {
   conversation: string;
   /** Why the last choice couldn't be used, so this one fixes it. */
   problem?: string;
+  /** The request type the last choice named, which this one must keep: only its fields are being fixed. */
+  keepRequestTypeId?: string | null;
 }): Promise<RequestTypeChoice | { problem: string }> {
   if (modelUnavailabilityReason()) return { problem: "No model is available to choose the request type" };
 
@@ -31,7 +33,8 @@ export async function chooseRequestType(args: {
       "description, and fill in its fields from what the conversation says. Use the field ids in square " +
       "brackets and, for fields with options, one of the listed options exactly. Judge fields like priority " +
       "yourself from the impact the customer describes. For text fields, write what the customer asked for in " +
-      "your own words. Never invent facts the conversation doesn't contain. Set requestTypeId to null only if " +
+      "your own words, from what the conversation says (why someone needs something is usually clear from what " +
+      "they asked for). Never invent facts the conversation doesn't contain. Set requestTypeId to null only if " +
       "no type fits at all.\n\n" +
       `Request types (id in brackets after the dash):\n${args.catalogText}`,
     model: guardrailModel(),
@@ -41,7 +44,12 @@ export async function chooseRequestType(args: {
 
   const prompt =
     `Conversation:\n${args.conversation}` +
-    (args.problem ? `\n\nYour last choice couldn't be used: ${args.problem}\nChoose again, fixing that.` : "");
+    (args.problem
+      ? `\n\nYour last choice couldn't be used: ${args.problem}\n` +
+        (args.keepRequestTypeId
+          ? `Keep request type ${args.keepRequestTypeId} and fix its fields. Don't switch to another type to avoid a field.`
+          : "Choose again, fixing that.")
+      : "");
 
   try {
     const result = await run(chooser, prompt, { maxTurns: 1 });

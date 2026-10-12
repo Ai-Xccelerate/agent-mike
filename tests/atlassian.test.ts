@@ -556,7 +556,25 @@ describe("raising a Jira ticket on handoff", () => {
       });
     });
 
-    it("sends a choice the desk can't take back once with the reason", async () => {
+    it("sends a choice the desk can't take back once with the reason, keeping its request type", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      deskAnswers();
+      chooseMock
+        .mockResolvedValueOnce({ requestTypeId: "21", fields: [] })
+        .mockResolvedValueOnce({ requestTypeId: "21", fields: [{ fieldId: "customfield_10050", values: ["Online Intake"] }] });
+      const row = await newConversation();
+
+      expect(await handoff(row)).toEqual({ key: "SUP-40", created: true });
+      expect(chooseMock).toHaveBeenCalledTimes(2);
+      expect(chooseMock.mock.calls[1][0]).toMatchObject({
+        problem: "Product is required for Request a New Feature.",
+        keepRequestTypeId: "21",
+      });
+      const create = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
+      expect(create.body).toMatchObject({ requestTypeId: "21", requestFieldValues: { customfield_10050: { id: "10002" } } });
+    });
+
+    it("won't switch to a type that asks for less just to get past a required field", async () => {
       connectionsFor({ helpdesk: workerChooses() });
       deskAnswers();
       chooseMock
@@ -564,11 +582,37 @@ describe("raising a Jira ticket on handoff", () => {
         .mockResolvedValueOnce({ requestTypeId: "20", fields: [] });
       const row = await newConversation();
 
-      expect(await handoff(row)).toEqual({ key: "SUP-40", created: true });
-      expect(chooseMock).toHaveBeenCalledTimes(2);
-      expect(chooseMock.mock.calls[1][0].problem).toBe("Product is required for Request a New Feature.");
-      const create = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
-      expect(create.body).toMatchObject({ requestTypeId: "20" });
+      const result = await handoff(row);
+
+      expect(result).toEqual({
+        failed: "Eva couldn't choose a request type: It switched from request type 21 to 20 to get round a required field.",
+      });
+      expect(proxyRequestMock.mock.calls.some(([call]) => call.method === "POST")).toBe(false);
+    });
+
+    it("only offers request types a customer can ask for in the portal", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      deskAnswers();
+      const base = proxyRequestMock.getMockImplementation()!;
+      proxyRequestMock.mockImplementation(async (call) => {
+        if (call.method === "GET" && call.endpoint.endsWith("/requesttype?limit=100")) {
+          return {
+            status: 200,
+            data: {
+              values: [
+                { id: "20", name: "System Unavailable", description: "System unavailable to one or more users", groupIds: ["1"] },
+                { id: "7", name: "Emailed request", description: "Request received from your email support channel.", groupIds: [] },
+              ],
+            },
+          };
+        }
+        return base(call);
+      });
+
+      const guidance = await requestTypeGuidance(orgId);
+
+      expect(guidance).toContain("System Unavailable");
+      expect(guidance).not.toContain("Emailed request");
     });
 
     it("raises no ticket rather than a wrong one, even with a default request type saved", async () => {
