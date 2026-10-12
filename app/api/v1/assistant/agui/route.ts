@@ -3,6 +3,7 @@ import { getIdentityAdapter } from "@/lib/identity";
 import { newReplyId, runAssistantTurn } from "@/lib/assistant-turn";
 import { cardToolName } from "@/lib/assistant-cards";
 import type { AssistantStreamEvent } from "@/lib/assistant-agent";
+import { AGUI_STREAM_HEADERS, lastUserText, type RunAgentInput } from "@/lib/agui";
 
 // Streams per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -26,29 +27,6 @@ export const dynamic = "force-dynamic";
  * forwardedProps under the JSON route's names. The server, not the client's
  * message list, is the source of truth for history.
  */
-
-type RunAgentInput = {
-  threadId?: unknown;
-  runId?: unknown;
-  messages?: unknown;
-  forwardedProps?: unknown;
-};
-
-function lastUserText(messages: unknown): string | undefined {
-  if (!Array.isArray(messages)) return undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i] as { role?: unknown; content?: unknown } | null;
-    if (message?.role !== "user") continue;
-    if (typeof message.content === "string") return message.content;
-    if (Array.isArray(message.content)) {
-      return message.content
-        .map((part: { type?: unknown; text?: unknown }) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
-        .join("");
-    }
-    return undefined;
-  }
-  return undefined;
-}
 
 export async function POST(req: NextRequest) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
@@ -132,12 +110,5 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  return new Response(stream, { headers: AGUI_STREAM_HEADERS });
 }

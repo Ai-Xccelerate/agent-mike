@@ -12,6 +12,7 @@ const forged = {
 describe("middleware on public routes", () => {
   it.each([
     ["/api/v1/chat", { "x-mike-site-token": "anything" }],
+    ["/api/v1/chat/agui", { "x-worker-site-token": "anything" }],
     ["/api/v1/worker", { "x-worker-site-token": "anything" }],
     ["/api/health", {}],
   ])("drops client-supplied x-aix-verified-* headers on %s", async (path, extra) => {

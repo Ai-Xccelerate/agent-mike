@@ -5,6 +5,7 @@ import {
   buildInstructions,
   buildSkillsBlock,
   withoutEmDashes,
+  choicesFrom,
   LOAD_SKILL_TOOL_NAME,
   CRM_LOOKUP_FAILURE_MESSAGE,
   CRM_LOOKUP_RETRY_BACKOFF_MS,
@@ -1674,5 +1675,16 @@ describe("withoutEmDashes", () => {
     expect(withoutEmDashes("— First step\n— Second step")).toBe("First step\nSecond step");
     expect(withoutEmDashes("Open 9–5, Monday – Friday")).toBe("Open 9–5, Monday, Friday");
     expect(withoutEmDashes("It ended —.")).toBe("It ended.");
+  });
+});
+
+describe("choicesFrom", () => {
+  it("reads the worker's quick replies, tidied", () => {
+    expect(choicesFrom("Did it work before? [[CHOICES: Worked before | Something new ]] [[FOLLOWUP]]")).toEqual(["Worked before", "Something new"]);
+    expect(choicesFrom("[[choices: Yes | yes | No]]")).toEqual(["Yes", "No"]);
+    // One option isn't a choice, and over-long ones are dropped.
+    expect(choicesFrom("[[CHOICES: Only one]]")).toEqual([]);
+    expect(choicesFrom(`[[CHOICES: ${"x".repeat(80)} | Short | Other]]`)).toEqual(["Short", "Other"]);
+    expect(choicesFrom("No tag here")).toEqual([]);
   });
 });

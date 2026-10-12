@@ -1,4 +1,5 @@
 import type { AssistantCard } from "@/lib/assistant-cards";
+import type { CustomerCard } from "@/lib/customer-cards";
 
 import { accessProblemFrom, reportAccessProblem } from "@/lib/access-state";
 import { getManagerToken } from "@/lib/manager-auth";
@@ -14,8 +15,8 @@ export type Message = {
   attachments?: MessageAttachment[];
   /** Interactive panels an admin Assistant reply shows (kinds only; data is fetched live). */
   panels?: AssistantPanelKind[];
-  /** Rich cards an admin Assistant reply shows (lib/assistant-cards.ts). */
-  cards?: AssistantCard[];
+  /** Rich cards an admin Assistant reply shows (lib/assistant-cards.ts), or a customer reply shows (lib/customer-cards.ts). */
+  cards?: (AssistantCard | CustomerCard)[];
   createdAt: string;
 };
 

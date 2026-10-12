@@ -96,7 +96,8 @@ export function cardToolName(kind: AssistantCardKind): string {
 
 /** Older replies stored only panel kinds; show those as panel cards too. */
 function cardsOf(message: Message): AssistantCard[] {
-  if (message.cards?.length) return message.cards;
+  // An Assistant chat only ever stores Assistant cards (customer cards live on customer chats).
+  if (message.cards?.length) return message.cards as AssistantCard[];
   return (message.panels ?? []).map((panel) => ({ id: `${message.id}-panel-${panel}`, kind: "panel" as const, data: { panel } }));
 }
 
