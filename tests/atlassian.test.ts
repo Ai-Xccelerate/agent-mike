@@ -7,6 +7,10 @@ import { ensureOrganization } from "@/lib/bootstrap";
 import { insertConversationWithTicket } from "@/lib/customer-turn";
 import { getIdentityAdapter, setIdentityAdapter, type IdentityAdapter } from "@/lib/identity";
 import { POST as postChat } from "@/app/api/v1/chat/route";
+import { POST as postChatAgui } from "@/app/api/v1/chat/agui/route";
+import { getOrCreateProfile } from "@/lib/bootstrap";
+import { runCustomerTurn } from "@/lib/customer-turn";
+import { messages as messagesTable } from "@/db/schema";
 import {
   buildKnowledgeCql,
   CONFLUENCE_CQL_SEARCH_SLUG,
@@ -210,7 +214,7 @@ describe("raising a Jira ticket on handoff", () => {
       latestMessage: "My invoice shows the wrong amount",
     });
 
-    expect(result).toEqual({ key: "SUP-7", created: true });
+    expect(result).toMatchObject({ key: "SUP-7", created: true });
     const [slug, args, options] = executeToolMock.mock.calls[0];
     expect(slug).toBe(JIRA_CREATE_ISSUE_SLUG);
     expect(args).toMatchObject({
@@ -240,7 +244,7 @@ describe("raising a Jira ticket on handoff", () => {
       latestMessage: "Still broken",
     });
 
-    expect(result).toEqual({ key: "SUP-7", created: false });
+    expect(result).toMatchObject({ key: "SUP-7", created: false });
     expect(executeToolMock).not.toHaveBeenCalled();
     const comment = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
     expect(comment.endpoint).toBe("https://api.atlassian.com/ex/jira/cloud-acme/rest/api/2/issue/SUP-7/comment");
@@ -300,7 +304,7 @@ describe("raising a Jira ticket on handoff", () => {
     expect(stored.externalTicketError).toBe("Issue type 'Support' is not valid for project 'SUP'.");
 
     executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-9" } });
-    expect(await recordHandoffInJira(input)).toEqual({ key: "SUP-9", created: true });
+    expect(await recordHandoffInJira(input)).toMatchObject({ key: "SUP-9", created: true });
     [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
     expect(stored.externalTicketKey).toBe("SUP-9");
     expect(stored.externalTicketError).toBeNull();
@@ -362,7 +366,7 @@ describe("raising a Jira ticket on handoff", () => {
         latestMessage: "The dashboard shows the wrong case counts",
       });
 
-      expect(result).toEqual({ key: "SUP-12", created: true });
+      expect(result).toMatchObject({ key: "SUP-12", created: true });
       expect(executeToolMock).not.toHaveBeenCalled();
       const create = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
       expect(create.endpoint).toBe(`${API}/rest/servicedeskapi/request`);
@@ -398,7 +402,7 @@ describe("raising a Jira ticket on handoff", () => {
         latestMessage: "Still wrong this morning",
       };
 
-      expect(await recordHandoffInJira(input)).toEqual({ key: "SUP-12", created: false });
+      expect(await recordHandoffInJira(input)).toMatchObject({ key: "SUP-12", created: false });
       const posts = () => proxyRequestMock.mock.calls.filter(([call]) => call.method === "POST").map(([call]) => call);
       expect(posts()).toHaveLength(1);
       expect(posts()[0]).toMatchObject({
@@ -412,7 +416,7 @@ describe("raising a Jira ticket on handoff", () => {
         if (method === "POST" && endpoint.includes("/servicedeskapi/")) return { status: 404, data: { errorMessage: "Not a request" } };
         return { status: 201, data: {} };
       });
-      expect(await recordHandoffInJira(input)).toEqual({ key: "SUP-12", created: false });
+      expect(await recordHandoffInJira(input)).toMatchObject({ key: "SUP-12", created: false });
       expect(posts().map((call) => call.endpoint)).toEqual([
         `${API}/rest/servicedeskapi/request/SUP-12/comment`,
         `${API}/rest/api/2/issue/SUP-12/comment`,
@@ -545,7 +549,7 @@ describe("raising a Jira ticket on handoff", () => {
       });
       const row = await newConversation();
 
-      expect(await handoff(row)).toEqual({ key: "SUP-40", created: true });
+      expect(await handoff(row)).toMatchObject({ key: "SUP-40", created: true });
 
       // The worker read the desk's own list, descriptions and needs included.
       const { catalogText, problem } = chooseMock.mock.calls[0][0];
@@ -570,7 +574,7 @@ describe("raising a Jira ticket on handoff", () => {
         .mockResolvedValueOnce({ requestTypeId: "21", fields: [{ fieldId: "customfield_10050", values: ["Online Intake"] }] });
       const row = await newConversation();
 
-      expect(await handoff(row)).toEqual({ key: "SUP-40", created: true });
+      expect(await handoff(row)).toMatchObject({ key: "SUP-40", created: true });
       expect(chooseMock).toHaveBeenCalledTimes(2);
       expect(chooseMock.mock.calls[1][0]).toMatchObject({
         problem: "Product is required for Request a New Feature.",
@@ -938,6 +942,98 @@ describe("a handoff in chat", () => {
       }),
     );
   }
+
+  it("shows the ticket as a card, and the worker's quick replies as buttons", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-12" } });
+    runAgentMock.mockResolvedValueOnce({
+      answer: "Did this work before, or is it something new?",
+      confidence: 0.8,
+      escalate: false,
+      citations: [],
+      choices: ["Worked before", "Something new"],
+    });
+    const first = (await (await chat("The report shows the wrong numbers")).json()) as {
+      conversation_id: string;
+      message: { cards: { kind: string; data: unknown }[] };
+    };
+    expect(first.message.cards).toEqual([expect.objectContaining({ kind: "choices", data: { options: ["Worked before", "Something new"] } })]);
+
+    runAgentMock.mockResolvedValueOnce({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const second = (await (
+      await postChat(
+        new NextRequest("http://localhost/api/v1/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Worked before", conversation_id: first.conversation_id }),
+          duplex: "half" as const,
+        }),
+      )
+    ).json()) as { message: { cards: { kind: string; data: Record<string, unknown> }[] } };
+    expect(second.message.cards).toEqual([
+      expect.objectContaining({
+        kind: "helpdesk_ticket",
+        data: { key: "SUP-12", title: "The report shows the wrong numbers", requestType: null, created: true },
+      }),
+    ]);
+  });
+
+  it("streams the reply, its cards and the turn over AG-UI", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-12" } });
+    runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+
+    const res = await postChatAgui(
+      new NextRequest("http://localhost/api/v1/chat/agui", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: "t", runId: "r", messages: [{ id: "u", role: "user", content: "My invoice is wrong" }], forwardedProps: {} }),
+        duplex: "half" as const,
+      }),
+    );
+    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    const events = (await res.text())
+      .split("\n\n")
+      .filter(Boolean)
+      .map((chunk) => JSON.parse(chunk.replace(/^data: /, "")) as { type: string; [key: string]: unknown });
+    expect(events.map((event) => event.type)).toEqual([
+      "RUN_STARTED",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "TOOL_CALL_START",
+      "TOOL_CALL_ARGS",
+      "TOOL_CALL_END",
+      "TOOL_CALL_RESULT",
+      "CUSTOM",
+      "RUN_FINISHED",
+    ]);
+    expect(events[4]).toMatchObject({ toolCallName: "show_helpdesk_ticket" });
+    expect(JSON.parse(String(events[5].delta))).toMatchObject({ key: "SUP-12", created: true });
+    expect(events[8]).toMatchObject({ name: "chat.turn", value: { escalated: true } });
+  });
+
+  it("gives an email reply no cards: its text says everything", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-12" } });
+    runAgentMock.mockResolvedValue({ answer: "Is it everyone, or just you?", confidence: 0.8, escalate: false, citations: [], choices: ["Everyone", "Just me"] });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "email", customerEmail: "ana@example.com" });
+    const [userMessage] = await db
+      .insert(messagesTable)
+      .values({ conversationId: conversation.id, senderType: "customer", senderName: "Ana", body: "It's broken" })
+      .returning();
+
+    const turn = await runCustomerTurn({
+      organizationId: orgId,
+      profile: await getOrCreateProfile(orgId),
+      conversation,
+      priorMessages: [],
+      userMessage,
+      speakerName: "Ana",
+    });
+
+    expect(turn.reply.cards).toEqual([]);
+  });
 
   it("takes em dashes out of the reply, and out of the ticket that quotes it", async () => {
     connectionsFor({ helpdesk: jiraReady() });

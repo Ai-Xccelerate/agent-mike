@@ -9,6 +9,10 @@ import { ArrowUpIcon, DocsIcon, MicrophoneIcon } from "@/icons";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
+import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
+import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/customer-cards/CustomerCopilot";
+import { CustomerCardsContext, LatestReplyContext } from "@/components/worker/customer-cards/CustomerCards";
+import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 const SAMPLE_PROMPTS = [
@@ -47,15 +51,7 @@ function welcomeMessage(profile: WorkerProfile | null): Message {
   };
 }
 
-export function ChatPanel({
-  compact = false,
-  onClose,
-  siteToken,
-  conversationId: externalConversationId = null,
-  onConversationCreated,
-  onConversationChanged,
-  onToggleRail,
-}: {
+type ChatPanelProps = {
   compact?: boolean;
   onClose?: () => void;
   /** Required for public widget embeds — org is resolved from this token. */
@@ -65,7 +61,32 @@ export function ChatPanel({
   onConversationCreated?: (id: string) => void;
   onConversationChanged?: () => void;
   onToggleRail?: () => void;
-}) {
+};
+
+/**
+ * The customer chat, for the website widget (compact) and the Playground.
+ * Replies come over AG-UI through CopilotKit, which renders their cards
+ * (quick replies, the ticket) under the text.
+ */
+export function ChatPanel(props: ChatPanelProps) {
+  return (
+    <CustomerCopilot siteToken={props.compact ? props.siteToken : undefined}>
+      <ChatPanelBody {...props} />
+    </CustomerCopilot>
+  );
+}
+
+function ChatPanelBody({
+  compact = false,
+  onClose,
+  siteToken,
+  conversationId: externalConversationId = null,
+  onConversationCreated,
+  onConversationChanged,
+  onToggleRail,
+}: ChatPanelProps) {
+  const { agent } = useAgent({ agentId: CUSTOMER_CHAT_AGENT_ID });
+  const renderToolCall = useRenderToolCall();
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [compactConversationId, setCompactConversationId] = useState<string>();
@@ -210,11 +231,26 @@ export function ChatPanel({
     setValue("");
     setLoading(true);
     try {
-      const response = await apiFetch<ChatResponse>("/chat", {
-        method: "POST",
-        widgetSiteToken: compact ? siteToken : undefined,
-        body: JSON.stringify({ message: trimmed, conversation_id: conversationId }),
-      });
+      // The server holds the history; the agent only carries this message.
+      agent.setMessages([{ id: crypto.randomUUID(), role: "user", content: trimmed }]);
+      let turn: ChatResponse | null = null;
+      let failure: string | null = null;
+      await agent.runAgent(
+        { forwardedProps: { conversation_id: conversationId } },
+        {
+          onCustomEvent: ({ event }) => {
+            if (event.name === "chat.turn") turn = event.value as ChatResponse;
+          },
+          onRunErrorEvent: ({ event }) => {
+            failure = event.message;
+          },
+          onRunFailed: ({ error }) => {
+            failure = error.message;
+          },
+        },
+      );
+      if (!turn) throw new Error(failure ?? "No reply came back");
+      const response: ChatResponse = turn;
       if (compact) {
         setCompactConversationId(response.conversation_id);
       } else {
@@ -256,6 +292,9 @@ export function ChatPanel({
   const visibleMessages = messages.map((message) =>
     message.id === "welcome" ? welcomeMessage(profile) : message,
   );
+  // Only the newest reply's quick replies can still be tapped.
+  const latestReplyId = [...visibleMessages].reverse().find((message) => message.senderType === "agent")?.id;
+  const cardActions = { busy: loading, onReply: (text: string) => void sendText(text) };
 
   if (compact && !siteToken?.trim()) {
     return (
@@ -321,6 +360,7 @@ export function ChatPanel({
         </div>
       </header>
 
+      <CustomerCardsContext.Provider value={cardActions}>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 [scrollbar-gutter:stable] dark:bg-gray-950/40 sm:p-5">
         {preview && (
           <div className="mx-auto max-w-md rounded-lg bg-warning-50 px-3 py-2 text-center text-xs text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
@@ -348,6 +388,15 @@ export function ChatPanel({
                 >
                   {isAgent ? <Markdown>{message.body}</Markdown> : <p className="whitespace-pre-wrap">{message.body}</p>}
                 </div>
+                {isAgent && (message.cards ?? []).some(isCustomerCard) && (
+                  <LatestReplyContext.Provider value={message.id === latestReplyId}>
+                    <div className="mt-2 flex flex-col gap-2">
+                      {(message.cards ?? []).filter(isCustomerCard).map((card) => (
+                        <div key={card.id}>{renderToolCall(cardToolCall(card))}</div>
+                      ))}
+                    </div>
+                  </LatestReplyContext.Provider>
+                )}
                 {message.citations.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {message.citations.map((citation, index) => {
@@ -400,6 +449,7 @@ export function ChatPanel({
         )}
         <div ref={bottomRef} />
       </div>
+      </CustomerCardsContext.Provider>
 
       <form
         onSubmit={(event: FormEvent) => {

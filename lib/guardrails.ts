@@ -319,7 +319,7 @@ export async function classifyCustomerOutput(args: {
       "OR the draft fulfills an out-of-scope request (general programming help, homework, or other " +
       "work outside the worker role / job description) instead of politely declining. A short " +
       "decline that redirects to product support is continue_intake or escalate as appropriate — not block.\n" +
-      "Internal end tags [[ESCALATE]] / [[RESOLVE]] / [[FOLLOWUP]] are control markers — not leaks.\n\n" +
+      "Internal end tags [[ESCALATE]] / [[RESOLVE]] / [[FOLLOWUP]] and a [[CHOICES: a | b]] tag of quick replies are control markers — not leaks.\n\n" +
       `${scopeLines}\n\n` +
       `Escalation themes: ${themes}` +
       groundingLine,

@@ -331,7 +331,8 @@ function historyTurn(m: MessageRow): AssistantHistoryTurn {
   return {
     senderType: m.senderType === "agent" ? "agent" : "manager",
     senderName: m.senderName,
-    body: [m.body, describeCards(m.cards ?? [])].filter(Boolean).join("\n"),
+    // An Assistant chat only ever stores Assistant cards (customer cards live on customer chats).
+    body: [m.body, describeCards((m.cards ?? []) as AssistantCard[])].filter(Boolean).join("\n"),
   };
 }
 

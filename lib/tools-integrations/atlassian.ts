@@ -359,7 +359,14 @@ export type HandoffTicketInput = {
   workerReply?: string;
 };
 
-export type HandoffTicketResult = { key: string; created: boolean };
+export type HandoffTicketResult = {
+  key: string;
+  created: boolean;
+  /** The ticket's title, when this handoff raised it. */
+  title?: string;
+  /** The service desk request type it went in as, if it's a request. */
+  requestType?: string | null;
+};
 
 function clip(text: string, max: number): string {
   const value = text.trim();
@@ -533,7 +540,7 @@ export async function recordHandoffInJira(
     return raiseServiceRequest(input, settings.projectKey, "worker", connectedAccountId);
   }
   if (settings.requestTypeId) {
-    return raiseServiceRequest(input, settings.projectKey, settings.requestTypeId, connectedAccountId);
+    return raiseServiceRequest(input, settings.projectKey, settings.requestTypeId, connectedAccountId, settings.requestTypeName);
   }
   if (!settings.issueType) return null;
 
@@ -557,7 +564,7 @@ export async function recordHandoffInJira(
     return { failed: error };
   }
   await recordTicketOutcome(organizationId, conversation.id, { key });
-  return { key, created: true };
+  return { key, created: true, title: handoffTicketSummary(input), requestType: null };
 }
 
 /**
@@ -1424,7 +1431,13 @@ export function toJiraWikiMarkup(markdown: string): string {
   return markdown.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
 }
 
-type RequestTarget = { serviceDeskId: string; requestTypeId: string; values: Record<string, unknown>; title?: string };
+type RequestTarget = {
+  serviceDeskId: string;
+  requestTypeId: string;
+  values: Record<string, unknown>;
+  title?: string;
+  requestTypeName?: string | null;
+};
 
 const TITLE_CHARS = 120;
 
@@ -1474,6 +1487,7 @@ async function workerChosenTarget(
         requestTypeId: resolved.requestTypeId,
         values: resolved.values,
         title: "problem" in choice ? undefined : workerTitle(choice.title),
+        requestTypeName: resolved.name,
       };
     }
     problem = resolved.problem;
@@ -1484,12 +1498,17 @@ async function workerChosenTarget(
   return { problem: `${input.workerName} couldn't choose a request type: ${problem}` };
 }
 
-async function fixedTarget(projectKey: string, requestTypeId: string, connectedAccountId: string): Promise<RequestTarget | { problem: string }> {
+async function fixedTarget(
+  projectKey: string,
+  requestTypeId: string,
+  connectedAccountId: string,
+  requestTypeName: string | null,
+): Promise<RequestTarget | { problem: string }> {
   const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
   if (!desks.ok) return { problem: `Couldn't find the ${projectKey} service desk: ${desks.error}` };
   const desk = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).find((entry) => entry.projectKey === projectKey);
   if (desk?.id == null) return { problem: `${projectKey} isn't a Jira Service Management project` };
-  return { serviceDeskId: String(desk.id), requestTypeId, values: {} };
+  return { serviceDeskId: String(desk.id), requestTypeId, values: {}, requestTypeName };
 }
 
 async function raiseServiceRequest(
@@ -1498,6 +1517,8 @@ async function raiseServiceRequest(
   /** A fixed request type id, or "worker" for the worker to choose one. */
   requestType: string,
   connectedAccountId: string,
+  /** The fixed request type's name, for showing it. */
+  requestTypeName: string | null = null,
 ): Promise<HandoffTicketResult | HandoffTicketFailure> {
   const { organizationId, conversation } = input;
   const fail = async (error: string): Promise<HandoffTicketFailure> => {
@@ -1508,7 +1529,7 @@ async function raiseServiceRequest(
   const target =
     requestType === "worker"
       ? await workerChosenTarget(input, projectKey, connectedAccountId)
-      : await fixedTarget(projectKey, requestType, connectedAccountId);
+      : await fixedTarget(projectKey, requestType, connectedAccountId, requestTypeName);
   if ("problem" in target) return fail(target.problem);
 
   const request = {
@@ -1540,5 +1561,5 @@ async function raiseServiceRequest(
     update: { labels: [{ add: HANDOFF_TICKET_LABEL }] },
   });
   await recordTicketOutcome(organizationId, conversation.id, { key });
-  return { key, created: true };
+  return { key, created: true, title: request.requestFieldValues.summary, requestType: target.requestTypeName ?? null };
 }

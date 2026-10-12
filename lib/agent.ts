@@ -3,6 +3,7 @@ import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { modelUnavailabilityReason } from "@/lib/env";
+import { cleanChoices } from "@/lib/customer-cards";
 import { CUSTOMER_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
 import { buildInputWithHistory, type HistoryTurn } from "@/lib/conversation-memory";
 import {
@@ -1204,6 +1205,14 @@ export async function buildInstructions(
       readAgentSkillsSettings(profile.integrationsConfig).enabled &&
         Boolean(await resolveSkillsCredentials(organizationId)),
     )) +
+    (isEmail
+      ? ""
+      : "\n\nQuick replies: when you ask a question that has two to six short, obvious answers, end your reply " +
+        "with [[CHOICES: first answer | second answer]] so the customer can tap one instead of typing. Keep each " +
+        "answer to a few words, in the customer's terms (for example [[CHOICES: Worked before | Something new]] or " +
+        "[[CHOICES: Everyone | Just me]]). When you ask for something the service desk lists options for, use " +
+        "those options. Don't add choices to an open question, an answer, or a handoff. Still write the question " +
+        "itself in your reply: the customer can always type instead.") +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."
@@ -1230,6 +1239,17 @@ export interface RunAgentResult {
   confidence: number;
   escalate: boolean;
   citations: string[];
+  /** Quick replies the worker offered for its question ([[CHOICES: a | b]]); shown as buttons, never on email. */
+  choices?: string[];
+}
+
+const CHOICES_TAG = /\[\[CHOICES:([^\]]*)\]\]/gi;
+
+/** The options in the reply's [[CHOICES: a | b]] tag, if it has one. */
+export function choicesFrom(raw: string): string[] {
+  const options: string[] = [];
+  for (const match of raw.matchAll(CHOICES_TAG)) options.push(...match[1].split("|"));
+  return cleanChoices(options);
 }
 
 /** Same customer-facing handoff as a guardrail escalation. */
@@ -1247,7 +1267,9 @@ export function handoffToManager(
 function parseAnswer(raw: string, threshold: number, classifiedConfidence?: number | null): RunAgentResult {
   const escalate = /\[\[ESCALATE\]\]/i.test(raw);
   const resolved = /\[\[RESOLVE\]\]/i.test(raw);
-  const answer = raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP)\]\]/gi, "").trim();
+  // A handoff isn't a question, so it never offers quick replies.
+  const choices = escalate ? [] : choicesFrom(raw);
+  const answer = raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP)\]\]/gi, "").replace(CHOICES_TAG, "").trim();
   if (escalate) {
     return {
       answer,
@@ -1263,7 +1285,7 @@ function parseAnswer(raw: string, threshold: number, classifiedConfidence?: numb
       : resolved
         ? 0.9
         : 0.75;
-  return { answer, confidence, escalate: false, citations: [] };
+  return { answer, confidence, escalate: false, citations: [], ...(choices.length ? { choices } : {}) };
 }
 
 function intentConfidenceFromRun(result: {
