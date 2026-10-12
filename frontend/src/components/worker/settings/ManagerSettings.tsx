@@ -1,6 +1,7 @@
 "use client";
 
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
+import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import { cardClass, fieldClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
@@ -13,7 +14,7 @@ export default function ManagerSettings() {
       <SettingsPageHeader
         title="Human manager"
         description="This worker routes sensitive or unsupported conversations to this person."
-        onSave={() => save(["managerName", "managerEmail"])}
+        onSave={() => save(["managerName", "managerEmail", "emailManagerOnHandoff"])}
         onDiscard={discard}
         dirty={dirty}
         saving={saving}
@@ -36,6 +37,19 @@ export default function ManagerSettings() {
               className={`${fieldClass} mt-2`}
             />
           </label>
+        </div>
+        <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
+          <SettingsToggleRow
+            title="Email me when a conversation is handed over"
+            description={
+              profile.managerEmail
+                ? `Sent to ${profile.managerEmail} from this worker's connected mailbox, once per conversation. Customers never see it.`
+                : "Add a manager email above to get these."
+            }
+            checked={profile.emailManagerOnHandoff}
+            disabled={saving}
+            onChange={() => update("emailManagerOnHandoff", !profile.emailManagerOnHandoff)}
+          />
         </div>
       </section>
     </>

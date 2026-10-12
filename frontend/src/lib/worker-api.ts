@@ -106,6 +106,8 @@ export type WorkerProfile = {
   managerName: string;
   managerEmail: string | null;
   autoReply: boolean;
+  /** Email the manager when the worker hands a conversation over. */
+  emailManagerOnHandoff: boolean;
   /** Settings > Email domains: on = the worker may only email approved domains. */
   restrictEmailDomains: boolean;
   toolsConfig: ToolsConfig;
