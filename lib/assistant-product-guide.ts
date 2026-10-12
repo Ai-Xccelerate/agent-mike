@@ -101,7 +101,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   skills: [
     "Settings > Skills (/settings/skills).",
     "- A skill is a named set of instructions the worker loads when relevant. Built-in: collect-before-escalate, stay-on-topic, verify-customer (needs CRM).",
-    "- Custom skills are written per organization (Settings > Skills > New skill, or from an uploaded file in this Assistant).",
+    "- Custom skills are written per organization (Settings > Skills > New skill, or from an uploaded file in this Assistant), and can be edited in Settings > Skills or by asking this Assistant.",
     "- A skill that needs an integration stays off until that integration is connected; one enabled earlier but whose integration was later disconnected is silently skipped.",
     "- Skill repository card: lets the worker search a shared skills library (needs an API key).",
   ].join("\n"),
@@ -146,7 +146,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "This Assistant can:",
     "- Answer: look up conversations, summarize one by ticket number, search knowledge, report and audit the worker's configuration, explain any setting.",
     "- Draft: replies, knowledge articles, emails (shown in chat; nothing is saved or sent by drafting).",
-    "- Configure (always after your explicit confirmation): role, tone, escalation phrases, channels, skills on/off, manager name/email, email domains, customer-facing and internal name, initials, accent colour, timezone, email signature, job description, additional instructions, model, max turns, minimum confidence, user verification, internet search; plus knowledge articles and custom skills from uploaded files.",
+    "- Configure (always after your explicit confirmation): role, tone, escalation phrases, channels, skills on/off, manager name/email, email domains, customer-facing and internal name, initials, accent colour, timezone, email signature, job description, additional instructions, model, max turns, minimum confidence, user verification, internet search; plus knowledge articles and custom skills from uploaded files, and edits to existing knowledge articles and custom skills.",
     "- Act (only if 'Let the Assistant take actions' is on, and always after confirmation): send a reply on a ticket, change a ticket's status, publish a knowledge article.",
     "- Files: attach up to 5 files (PDF, Markdown, text, CSV, JSON, HTML, YAML; 8 MB each) and choose: use in this chat, add to knowledge base, or turn into a skill. Word/PowerPoint/Excel files and scanned PDFs without a text layer aren't supported yet.",
     "- Panels: it can show interactive panels for skills, knowledge, integrations (including the mailbox), tools, channels and email domains, with buttons to turn things on/off or connect them. Every button still goes through your approval; connecting opens a sign-in window after you approve.",
