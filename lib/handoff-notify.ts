@@ -84,8 +84,18 @@ export async function buildHandoffBrief(input: {
   };
 }
 
-export async function notifyManager(conversation: ConversationRow, organizationId: string, reason: string) {
+export async function notifyManager(
+  conversation: ConversationRow,
+  organizationId: string,
+  reason: string,
+  /** A handoff follows the manager's on/off switch; a problem (a reply that couldn't be sent) always goes out. */
+  kind: "handoff" | "problem" = "handoff",
+) {
   const profile = await getOrCreateProfile(organizationId);
+  if (kind === "handoff" && !profile.emailManagerOnHandoff) {
+    console.info(`[handoff] handoff emails are off, so nobody was emailed about conversation ${conversation.id}`);
+    return;
+  }
   if (!profile.managerEmail) {
     console.info(`[handoff] no manager email set, so nobody was notified about conversation ${conversation.id}`);
     return;

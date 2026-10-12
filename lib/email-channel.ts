@@ -350,6 +350,7 @@ export async function processInboundEmail(stored: Extract<InboundOutcome, { kind
       `${profile.displayName} answered an email but the reply could not be sent: ${
         error instanceof Error ? error.message : String(error)
       }`,
+      "problem",
     );
     return;
   }

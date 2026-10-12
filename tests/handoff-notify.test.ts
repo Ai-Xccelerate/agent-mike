@@ -5,6 +5,7 @@ import { conversations, messages, workerProfiles } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 import { sendAsWorker } from "@/lib/outbound";
+import { notifyManager } from "@/lib/handoff-notify";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 
@@ -31,9 +32,12 @@ const handoff = { answer: "I'm bringing in a teammate.", confidence: 0.3, escala
 
 let orgId: string;
 
-async function setManager(email: string | null) {
+async function setManager(email: string | null, emailManagerOnHandoff = true) {
   await getOrCreateProfile(orgId);
-  await db.update(workerProfiles).set({ managerName: "EAP Expert Support Team", managerEmail: email }).where(eq(workerProfiles.organizationId, orgId));
+  await db
+    .update(workerProfiles)
+    .set({ managerName: "EAP Expert Support Team", managerEmail: email, emailManagerOnHandoff })
+    .where(eq(workerProfiles.organizationId, orgId));
 }
 
 async function turn(conversationId: string, body: string) {
@@ -79,6 +83,25 @@ describe("emailing a person when the worker hands over", () => {
     const email = await insertConversationWithTicket({ organizationId: orgId, channel: "email", customerEmail: "ana@example.com" });
     await turn(email.id, "Help");
     expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when the manager has turned handoff emails off", async () => {
+    await setManager("support@eapexpert.example", false);
+    runAgentMock.mockResolvedValue(handoff);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+
+    await turn(conversation.id, "Nobody can log in");
+
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("still emails about a problem, like a reply that couldn't be sent, with handoff emails off", async () => {
+    await setManager("support@eapexpert.example", false);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "email" });
+
+    await notifyManager(conversation, orgId, "Eva answered an email but the reply could not be sent: no mailbox", "problem");
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
   });
 
   it("never fails the customer's reply when the email can't go out", async () => {
