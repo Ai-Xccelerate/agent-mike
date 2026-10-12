@@ -31,7 +31,7 @@ export function ChoicesView({ data }: { data: ChoicesCard }) {
           type="button"
           disabled={busy}
           onClick={() => onReply(option)}
-          className="rounded-full border border-brand-200 bg-white px-3 py-1.5 text-xs font-medium text-brand-600 transition-colors hover:border-brand-400 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-500/30 dark:bg-white/[0.03] dark:text-brand-300 dark:hover:bg-brand-500/10"
+          className="rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-medium text-brand-600 transition-colors hover:border-brand-400 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-500/30 dark:bg-white/[0.03] dark:text-brand-300 dark:hover:bg-brand-500/10"
         >
           {option}
         </button>
