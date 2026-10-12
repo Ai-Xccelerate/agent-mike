@@ -37,6 +37,7 @@ import {
   type RequestTypeCatalog,
 } from "@/lib/tools-integrations/atlassian";
 import { chooseRequestType } from "@/lib/request-type-choice";
+import { workerTitle } from "@/lib/tools-integrations/atlassian";
 import { executeRunAction, executeSearchActions } from "@/lib/tools-integrations/composio-actions";
 import { getConnectionForOrg, type IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
 import {
@@ -537,7 +538,11 @@ describe("raising a Jira ticket on handoff", () => {
     it("raises the request as the type the worker chose, with the fields it filled in", async () => {
       connectionsFor({ helpdesk: workerChooses() });
       deskAnswers();
-      chooseMock.mockResolvedValue({ requestTypeId: "21", fields: [{ fieldId: "customfield_10050", values: ["eap expert v3"] }] });
+      chooseMock.mockResolvedValue({
+        title: "Add optional Pronouns field to Online Intake form",
+        requestTypeId: "21",
+        fields: [{ fieldId: "customfield_10050", values: ["eap expert v3"] }],
+      });
       const row = await newConversation();
 
       expect(await handoff(row)).toEqual({ key: "SUP-40", created: true });
@@ -552,7 +557,8 @@ describe("raising a Jira ticket on handoff", () => {
       expect(create.body).toMatchObject({
         serviceDeskId: "1",
         requestTypeId: "21",
-        requestFieldValues: { customfield_10050: { id: "10001" }, summary: "Nobody in our office can log in to EAP Expert" },
+        // The worker's title, not the customer's opening words.
+        requestFieldValues: { customfield_10050: { id: "10001" }, summary: "Add optional Pronouns field to Online Intake form" },
       });
     });
 
@@ -662,6 +668,13 @@ describe("raising a Jira ticket on handoff", () => {
       connection("helpdesk", "jira", {
         metadata: { settings: { projectKey: "SUP", issueType: null, requestTypeId: "8", createTicketOnHandoff: true } },
       });
+
+    it("keeps the conversation's own topic when the worker's title is missing or too vague", () => {
+      expect(workerTitle(undefined)).toBeUndefined();
+      expect(workerTitle("Error")).toBeUndefined();
+      expect(workerTitle('  "Login fails for whole office since 9am"  ')).toBe("Login fails for whole office since 9am");
+      expect(workerTitle("x".repeat(200))).toHaveLength(121);
+    });
 
     it("checks a choice field by field", () => {
       expect(requestFieldValuesFor(catalog, { requestTypeId: "21", fields: [{ fieldId: "customfield_10050", values: ["10002"] }] })).toEqual({

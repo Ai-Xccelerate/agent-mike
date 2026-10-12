@@ -1196,7 +1196,12 @@ export type CatalogRequestType = { id: string; name: string; description: string
 export type RequestTypeCatalog = { serviceDeskId: string; projectKey: string; requestTypes: CatalogRequestType[] };
 
 /** What the worker picked: a request type, and a value for each field it filled in. */
-export type RequestTypeChoice = { requestTypeId: string | null; fields: { fieldId: string; values: string[] }[] };
+export type RequestTypeChoice = {
+  requestTypeId: string | null;
+  fields: { fieldId: string; values: string[] }[];
+  /** A descriptive ticket title the worker wrote, if it wrote one. */
+  title?: string;
+};
 
 type RawRequestField = {
   fieldId?: unknown;
@@ -1338,8 +1343,11 @@ export async function requestTypeGuidance(organizationId: string): Promise<strin
       "pick a category, and never mention request types, ids or field names. If two kinds could fit, ask one plain " +
       "question that tells them apart (for example: did this work before, or is it something new? Is it stopping " +
       "everyone from working, or just this task?). Judge anything you can from what they've said yourself, such as " +
-      "how urgent it is from how much it stops their work; never ask the customer to choose a priority. Only ask for " +
-      "facts only they know, in plain words, and one or two at a time.\n" +
+      "how urgent it is from how much it stops their work; never ask the customer to choose a priority.\n" +
+      "Ask only what's necessary. Before each question, check whether the team could act on the ticket without " +
+      "coming back to the customer: what happened or what's wanted, where, who it affects, and what that kind of " +
+      "request needs. If the conversation already makes that clear, don't ask anything more. Ask only for facts " +
+      "only the customer knows, in plain words, one or two at a time.\n" +
       "Before you hand over, the conversation must contain what that kind of request needs. If something is missing, " +
       "ask for it and end that reply with [[FOLLOWUP]], not [[ESCALATE]]; hand over once you have it. This holds even " +
       "where other rules say to hand over, because a handoff without those details raises no ticket. The one " +
@@ -1416,7 +1424,15 @@ export function toJiraWikiMarkup(markdown: string): string {
   return markdown.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
 }
 
-type RequestTarget = { serviceDeskId: string; requestTypeId: string; values: Record<string, unknown> };
+type RequestTarget = { serviceDeskId: string; requestTypeId: string; values: Record<string, unknown>; title?: string };
+
+const TITLE_CHARS = 120;
+
+/** The worker's title, if it's a real one; otherwise the ticket keeps the conversation's own topic. */
+export function workerTitle(title: string | undefined): string | undefined {
+  const value = oneLine(title ?? "").replace(/^["']|["']$/g, "");
+  return value.length >= 8 ? clip(value, TITLE_CHARS) : undefined;
+}
 
 /** The conversation as the request type chooser reads it. */
 function conversationText(input: HandoffTicketInput): string {
@@ -1453,7 +1469,12 @@ async function workerChosenTarget(
     }
     const resolved = "problem" in choice ? choice : requestFieldValuesFor(catalog, choice);
     if (!("problem" in resolved)) {
-      return { serviceDeskId: catalog.serviceDeskId, requestTypeId: resolved.requestTypeId, values: resolved.values };
+      return {
+        serviceDeskId: catalog.serviceDeskId,
+        requestTypeId: resolved.requestTypeId,
+        values: resolved.values,
+        title: "problem" in choice ? undefined : workerTitle(choice.title),
+      };
     }
     problem = resolved.problem;
     if (!("problem" in choice) && catalog.requestTypes.some((type) => type.id === choice.requestTypeId)) {
@@ -1495,7 +1516,7 @@ async function raiseServiceRequest(
     requestTypeId: target.requestTypeId,
     requestFieldValues: {
       ...target.values,
-      summary: handoffTicketSummary(input),
+      summary: target.title ?? handoffTicketSummary(input),
       description: toJiraWikiMarkup(handoffTicketDescription(input)),
     },
   };

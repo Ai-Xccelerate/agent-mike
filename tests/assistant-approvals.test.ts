@@ -60,6 +60,7 @@ import {
   PENDING_APPROVAL_TTL_MS,
   PROPOSE_CHANNEL_CHANGE_TOOL_NAME,
   PROPOSE_EDIT_KNOWLEDGE_TOOL_NAME,
+  PROPOSE_EDIT_SKILL_TOOL_NAME,
   PROPOSE_SKILL_FROM_ATTACHMENT_TOOL_NAME,
   READ_ONLY_REPLY,
   PROPOSE_EMAIL_DOMAIN_CHANGE_TOOL_NAME,
@@ -568,6 +569,83 @@ describe("editing a knowledge article in place", () => {
     const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["e1"], managerMessage: "yes, go ahead" });
     const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
     expect(out).toContain("the article changed after I proposed this edit");
+  });
+});
+
+describe("editing a custom skill", () => {
+  const updatedAt = new Date("2026-10-12T10:00:00Z");
+  const skill = {
+    id: "8a6f1c1e-1111-4222-8333-944455556666",
+    organizationId: "org-1",
+    name: "Raise a Service Desk ticket",
+    description: "Use when a customer's issue needs the team.",
+    requires: ["helpdesk"],
+    body: "Hand over once you have the email; don't hold the ticket for it.\nMore steps.",
+    createdAt: updatedAt,
+    updatedAt,
+  };
+
+  it("shows the current instructions when asked to read, and proposes nothing", async () => {
+    dbState.rows = [skill];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "show me the skill" });
+    const out = await invoke(tools, PROPOSE_EDIT_SKILL_TOOL_NAME, { skillId: skill.id, find: null, replaceWith: null, newBody: null, newDescription: null, reason: "read" });
+    expect(out).toContain("don't hold the ticket for it");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("proposes replacing one exact passage, keeping a version to detect later edits", async () => {
+    dbState.rows = [skill];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
+    const out = await invoke(tools, PROPOSE_EDIT_SKILL_TOOL_NAME, {
+      skillId: skill.id,
+      find: "don't hold the ticket for it.",
+      replaceWith: "collect what the service desk requires first.",
+      newBody: null,
+      newDescription: null,
+      reason: "asked",
+    });
+    expect(out).toContain('edit the custom skill "Raise a Service Desk ticket"');
+    const input = createMock.mock.calls[0][0].input;
+    expect(input).toMatchObject({ version: updatedAt.toISOString(), find: "don't hold the ticket for it." });
+    expect(pendingChangeDetails("assistant_configure_edit_skill", input)).toContain("Keeps the skill's name");
+  });
+
+  it("refuses text that isn't there exactly once, and instructions over the limit", async () => {
+    dbState.rows = [{ ...skill, body: "a b a" }];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { managerMessage: "yes, go ahead" });
+    const base = { skillId: skill.id, newDescription: null, reason: "x" };
+    expect(await invoke(tools, PROPOSE_EDIT_SKILL_TOOL_NAME, { ...base, find: "zzz", replaceWith: "y", newBody: null })).toContain("isn't in the skill");
+    expect(await invoke(tools, PROPOSE_EDIT_SKILL_TOOL_NAME, { ...base, find: "a", replaceWith: "y", newBody: null })).toContain("appears 2 times");
+    expect(await invoke(tools, PROPOSE_EDIT_SKILL_TOOL_NAME, { ...base, find: null, replaceWith: null, newBody: "x".repeat(6001) })).toContain("at most 6,000 characters");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it("saves the edit once it's approved", async () => {
+    listMock.mockResolvedValue([
+      approval("s2", "assistant_configure_edit_skill", {
+        skillId: skill.id,
+        name: skill.name,
+        find: "don't hold the ticket for it.",
+        replaceWith: "collect what the service desk requires first.",
+        version: updatedAt.toISOString(),
+      }),
+    ]);
+    dbState.rows = [skill];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["s2"], managerMessage: "yes, go ahead" });
+    const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
+    expect(out).toContain('updated the "Raise a Service Desk ticket" skill');
+    expect(dbState.writes).toContain("update");
+  });
+
+  it("won't apply if the skill changed after it was proposed", async () => {
+    listMock.mockResolvedValue([
+      approval("s1", "assistant_configure_edit_skill", { skillId: skill.id, name: skill.name, find: "a", replaceWith: "b", version: "2026-01-01T00:00:00.000Z" }),
+    ]);
+    dbState.rows = [skill];
+    const tools = buildAssistantTools(profile(), "org-1", "conv-1", { priorPendingIds: ["s1"], managerMessage: "yes, go ahead" });
+    const out = await invoke(tools, CONFIRM_PENDING_CHANGE_TOOL_NAME, {});
+    expect(out).toContain("the skill changed after I proposed this edit");
+    expect(dbState.writes).not.toContain("update");
   });
 });
 
