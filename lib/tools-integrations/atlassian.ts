@@ -6,6 +6,7 @@ import type { KnowledgeMatch } from "@/lib/knowledge";
 import { executeTool, getAccountSite, proxyRequest } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg, type IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
+import { chooseRequestType } from "@/lib/request-type-choice";
 
 /**
  * Jira and Confluence, shared by every agent that talks to them.
@@ -243,6 +244,13 @@ export const jiraSettingsSchema = z.object({
   requestTypeName: z.string().trim().min(1).max(120).nullable(),
   /** Raise a ticket the moment the worker hands a conversation to a person. */
   createTicketOnHandoff: z.boolean(),
+  /**
+   * The worker picks the request type for each handoff from the desk's own
+   * list (and fills in the fields it requires), instead of every handoff
+   * going in as `requestTypeId`. A choice Jira wouldn't take is never swapped
+   * for a default: the ticket fails visibly instead.
+   */
+  workerChoosesRequestType: z.boolean(),
 });
 
 export type JiraSettings = z.infer<typeof jiraSettingsSchema>;
@@ -261,7 +269,14 @@ export const confluenceSettingsSchema = z.object({
 export type ConfluenceSettings = z.infer<typeof confluenceSettingsSchema>;
 
 export function jiraSettingsDefaults(): JiraSettings {
-  return { projectKey: null, issueType: null, requestTypeId: null, requestTypeName: null, createTicketOnHandoff: true };
+  return {
+    projectKey: null,
+    issueType: null,
+    requestTypeId: null,
+    requestTypeName: null,
+    createTicketOnHandoff: true,
+    workerChoosesRequestType: false,
+  };
 }
 
 export function confluenceSettingsDefaults(): ConfluenceSettings {
@@ -502,7 +517,7 @@ export async function recordHandoffInJira(
     const commented = await commentOnHandoffTicket(
       input,
       conversation.externalTicketKey,
-      Boolean(settings.requestTypeId),
+      Boolean(settings.requestTypeId) || settings.workerChoosesRequestType,
       connectedAccountId,
     );
     if (!commented.ok) {
@@ -514,6 +529,9 @@ export async function recordHandoffInJira(
   }
 
   if (!settings.createTicketOnHandoff || !settings.projectKey) return null;
+  if (settings.workerChoosesRequestType) {
+    return raiseServiceRequest(input, settings.projectKey, "worker", connectedAccountId);
+  }
   if (settings.requestTypeId) {
     return raiseServiceRequest(input, settings.projectKey, settings.requestTypeId, connectedAccountId);
   }
@@ -1152,15 +1170,299 @@ export function serviceRequestTarget(
   return { name: type.name };
 }
 
+// ---------------------------------------------------------------------------
+// The worker choosing the request type. The desk's request types, what each
+// is for and the fields each needs are read from Jira, never written into
+// the code or the prompt by hand, so a new client's desk works as it is.
+// ---------------------------------------------------------------------------
+
+/** Filled in by the code on every request, so never asked of the worker. */
+const BUILT_IN_REQUEST_FIELDS = new Set(["summary", "description", "attachment"]);
+const CATALOG_TTL_MS = 10 * 60 * 1000;
+const FIELD_VALUE_CHARS = 2000;
+
+export type RequestFieldKind = "text" | "number" | "option" | "options" | "unsupported";
+
+export type RequestTypeField = {
+  fieldId: string;
+  name: string;
+  required: boolean;
+  kind: RequestFieldKind;
+  /** For option fields: what Jira accepts (`value`, an option id) and what people see (`label`). */
+  options: { value: string; label: string }[];
+};
+
+export type CatalogRequestType = { id: string; name: string; description: string; fields: RequestTypeField[] };
+export type RequestTypeCatalog = { serviceDeskId: string; projectKey: string; requestTypes: CatalogRequestType[] };
+
+/** What the worker picked: a request type, and a value for each field it filled in. */
+export type RequestTypeChoice = { requestTypeId: string | null; fields: { fieldId: string; values: string[] }[] };
+
+type RawRequestField = {
+  fieldId?: unknown;
+  name?: unknown;
+  required?: unknown;
+  validValues?: { value?: unknown; label?: unknown }[];
+  jiraSchema?: { type?: unknown; items?: unknown };
+};
+
+function fieldKind(schema: RawRequestField["jiraSchema"], hasOptions: boolean): RequestFieldKind {
+  const type = typeof schema?.type === "string" ? schema.type : "";
+  if (type === "string") return hasOptions ? "option" : "text";
+  if (type === "number") return "number";
+  if (type === "option" || type === "priority") return "option";
+  if (type === "array" && hasOptions) return "options";
+  return "unsupported";
+}
+
+export function requestTypeFieldsFrom(data: unknown): RequestTypeField[] {
+  const raw = (data as { requestTypeFields?: unknown } | null)?.requestTypeFields;
+  if (!Array.isArray(raw)) return [];
+  return (raw as RawRequestField[])
+    .filter((field) => typeof field.fieldId === "string" && !BUILT_IN_REQUEST_FIELDS.has(field.fieldId))
+    .map((field) => {
+      const options = (field.validValues ?? [])
+        .filter((option) => option.value != null && typeof option.label === "string")
+        .map((option) => ({ value: String(option.value), label: option.label as string }));
+      return {
+        fieldId: field.fieldId as string,
+        name: typeof field.name === "string" ? field.name : (field.fieldId as string),
+        required: field.required === true,
+        kind: fieldKind(field.jiraSchema, options.length > 0),
+        options,
+      };
+    });
+}
+
+const catalogs = new Map<string, { at: number; catalog: RequestTypeCatalog }>();
+
+/** Tests start from an empty cache. */
+export function clearRequestTypeCatalogCache(): void {
+  catalogs.clear();
+}
+
+/**
+ * The project's request types with what each is for and the fields each
+ * needs, as the desk shows them in its portal. Cached for a few minutes: it's
+ * read on every customer turn. { problem } if Jira can't be reached or the
+ * project isn't a service desk.
+ */
+export async function getRequestTypeCatalog(
+  connectedAccountId: string,
+  projectKey: string,
+): Promise<RequestTypeCatalog | { problem: string }> {
+  const cacheKey = `${connectedAccountId}:${projectKey}`;
+  const cached = catalogs.get(cacheKey);
+  if (cached && Date.now() - cached.at < CATALOG_TTL_MS) return cached.catalog;
+
+  const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
+  if (!desks.ok) return { problem: `Couldn't find the ${projectKey} service desk: ${desks.error}` };
+  const desk = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).find((entry) => entry.projectKey === projectKey);
+  if (desk?.id == null) return { problem: `${projectKey} isn't a Jira Service Management project` };
+  const serviceDeskId = String(desk.id);
+
+  const types = await callJira(connectedAccountId, "GET", `/rest/servicedeskapi/servicedesk/${serviceDeskId}/requesttype?limit=100`);
+  if (!types.ok) return { problem: `Couldn't read ${projectKey}'s request types: ${types.error}` };
+  const listed = pageValues<{ id?: unknown; name?: unknown; description?: unknown }>(types.data).filter(
+    (type) => type.id != null && typeof type.name === "string",
+  );
+  if (listed.length === 0) return { problem: `${projectKey} has no request types` };
+
+  const requestTypes: CatalogRequestType[] = [];
+  for (const type of listed) {
+    const id = String(type.id);
+    const fields = await callJira(connectedAccountId, "GET", `/rest/servicedeskapi/servicedesk/${serviceDeskId}/requesttype/${id}/field`);
+    if (!fields.ok) return { problem: `Couldn't read the fields of "${String(type.name)}": ${fields.error}` };
+    requestTypes.push({
+      id,
+      name: type.name as string,
+      description: typeof type.description === "string" ? oneLine(type.description) : "",
+      fields: requestTypeFieldsFrom(fields.data),
+    });
+  }
+  const catalog = { serviceDeskId, projectKey, requestTypes };
+  catalogs.set(cacheKey, { at: Date.now(), catalog });
+  return catalog;
+}
+
+function describeField(field: RequestTypeField, withIds: boolean): string {
+  const name = withIds ? `${field.name} [${field.fieldId}]` : field.name;
+  if (!field.options.length) return name;
+  const labels = field.options.map((option) => option.label).join(", ");
+  return `${name} (${field.kind === "options" ? "one or more of" : "one of"}: ${labels})`;
+}
+
+/**
+ * The desk's request types as the worker reads them: id, name, what it's for,
+ * and what it needs. With field ids for the chooser, which fills them in;
+ * without for the conversation, where only the names matter.
+ */
+export function describeRequestTypes(catalog: RequestTypeCatalog, options: { fieldIds?: boolean } = {}): string {
+  const withIds = options.fieldIds === true;
+  return catalog.requestTypes
+    .map((type) => {
+      const required = type.fields.filter((field) => field.required);
+      const optional = type.fields.filter((field) => !field.required && field.kind !== "unsupported");
+      return [
+        `- [${type.id}] ${type.name}${type.description ? `: ${type.description}` : ""}`,
+        required.length ? `  Needs: ${required.map((field) => describeField(field, withIds)).join("; ")}` : "",
+        optional.length ? `  Optional: ${optional.map((field) => describeField(field, withIds)).join("; ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n");
+}
+
+/**
+ * The part of the customer agent's instructions that tells it which kinds of
+ * ticket the desk takes and what each needs, so it collects that before it
+ * hands over. Empty when the worker doesn't choose request types, or the desk
+ * can't be read (the handoff then fails visibly, never silently).
+ */
+export async function requestTypeGuidance(organizationId: string): Promise<string> {
+  try {
+    const connection = await getConnectionForOrg(organizationId, "helpdesk");
+    const connectedAccountId = activeAccount(connection, "jira");
+    if (!connection || !connectedAccountId) return "";
+    const settings = readJiraSettings(connection.metadata);
+    if (!settings.workerChoosesRequestType || !settings.createTicketOnHandoff || !settings.projectKey) return "";
+    const catalog = await getRequestTypeCatalog(connectedAccountId, settings.projectKey);
+    if ("problem" in catalog) return "";
+    return (
+      "\n\nHelpdesk tickets: when you hand a conversation to a person, a ticket is raised on the team's service desk " +
+      "under the kind of request below that fits it. Work out which kind it is yourself: never ask the customer to " +
+      "pick a category, and never mention request types, ids or field names. If two kinds could fit, ask one plain " +
+      "question that tells them apart (for example: did this work before, or is it something new? Is it stopping " +
+      "everyone from working, or just this task?). Judge anything you can from what they've said yourself, such as " +
+      "how urgent it is from how much it stops their work; never ask the customer to choose a priority. Only ask for " +
+      "facts only they know, in plain words, and one or two at a time.\n" +
+      "Before you hand over, the conversation must contain what that kind of request needs. If something is missing, " +
+      "ask for it and end that reply with [[FOLLOWUP]], not [[ESCALATE]]; hand over once you have it. This holds even " +
+      "where other rules say to hand over, because a handoff without those details raises no ticket. The one " +
+      "exception: if something is down for the customer's users, hand over straight away.\n" +
+      `Kinds of request:\n${describeRequestTypes(catalog)}`
+    );
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Turns the worker's choice into what Jira's request API takes, or says
+ * what's wrong with it in words the worker can act on: a request type the
+ * desk doesn't have, a required field left out, an option that isn't offered.
+ */
+export function requestFieldValuesFor(
+  catalog: RequestTypeCatalog,
+  choice: RequestTypeChoice,
+): { requestTypeId: string; name: string; values: Record<string, unknown> } | { problem: string } {
+  const type = catalog.requestTypes.find((entry) => entry.id === choice.requestTypeId);
+  if (!type) {
+    return {
+      problem: choice.requestTypeId
+        ? `There's no request type ${choice.requestTypeId}. Choose one of the ids listed.`
+        : "No request type was chosen. Choose one of the ids listed.",
+    };
+  }
+  const given = new Map(
+    choice.fields
+      .map((field) => [field.fieldId, field.values.map((value) => value.trim()).filter(Boolean)] as const)
+      .filter(([, values]) => values.length > 0),
+  );
+  const values: Record<string, unknown> = {};
+  const problems: string[] = [];
+  for (const field of type.fields) {
+    const raw = given.get(field.fieldId);
+    if (!raw) {
+      if (field.required) problems.push(`${field.name} is required for ${type.name}`);
+      continue;
+    }
+    if (field.kind === "unsupported") {
+      if (field.required) problems.push(`${field.name} can't be filled in by the worker`);
+      continue;
+    }
+    if (field.kind === "text") {
+      values[field.fieldId] = clip(raw.join("\n"), FIELD_VALUE_CHARS);
+      continue;
+    }
+    if (field.kind === "number") {
+      const number = Number(raw[0]);
+      if (Number.isFinite(number)) values[field.fieldId] = number;
+      else problems.push(`${field.name} must be a number`);
+      continue;
+    }
+    const picked = raw.map((value) =>
+      field.options.find(
+        (option) => option.value === value || option.label.toLowerCase() === value.toLowerCase(),
+      ),
+    );
+    if (picked.some((option) => !option)) {
+      problems.push(`${field.name} must be one of: ${field.options.map((option) => option.label).join(", ")}`);
+      continue;
+    }
+    const ids = picked.map((option) => ({ id: option!.value }));
+    values[field.fieldId] = field.kind === "options" ? ids : ids[0];
+  }
+  if (problems.length) return { problem: `${problems.join("; ")}.` };
+  return { requestTypeId: type.id, name: type.name, values };
+}
+
 /** The ticket description in Jira's wiki markup, which the request API renders (bold is *x*, not **x**). */
 export function toJiraWikiMarkup(markdown: string): string {
   return markdown.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
 }
 
+type RequestTarget = { serviceDeskId: string; requestTypeId: string; values: Record<string, unknown> };
+
+/** The conversation as the request type chooser reads it. */
+function conversationText(input: HandoffTicketInput): string {
+  const turns = input.workerReply ? [...input.transcript, { speaker: input.workerName, body: input.workerReply }] : input.transcript;
+  return turns
+    .slice(-HANDOFF_TRANSCRIPT_MESSAGES)
+    .map((turn) => `${turn.speaker}: ${clip(turn.body, HANDOFF_MESSAGE_CHARS)}`)
+    .join("\n");
+}
+
+/**
+ * The worker's request type for this handoff, checked against the desk. A
+ * choice the desk can't take goes back once with the reason; if the second
+ * one can't be used either, there's no ticket rather than a wrong one.
+ */
+async function workerChosenTarget(
+  input: HandoffTicketInput,
+  projectKey: string,
+  connectedAccountId: string,
+): Promise<RequestTarget | { problem: string }> {
+  const catalog = await getRequestTypeCatalog(connectedAccountId, projectKey);
+  if ("problem" in catalog) return catalog;
+  const catalogText = describeRequestTypes(catalog, { fieldIds: true });
+  const conversation = conversationText(input);
+  let problem: string | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const choice = await chooseRequestType({ catalogText, conversation, problem });
+    const resolved = "problem" in choice ? choice : requestFieldValuesFor(catalog, choice);
+    if (!("problem" in resolved)) {
+      return { serviceDeskId: catalog.serviceDeskId, requestTypeId: resolved.requestTypeId, values: resolved.values };
+    }
+    problem = resolved.problem;
+  }
+  return { problem: `${input.workerName} couldn't choose a request type: ${problem}` };
+}
+
+async function fixedTarget(projectKey: string, requestTypeId: string, connectedAccountId: string): Promise<RequestTarget | { problem: string }> {
+  const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
+  if (!desks.ok) return { problem: `Couldn't find the ${projectKey} service desk: ${desks.error}` };
+  const desk = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).find((entry) => entry.projectKey === projectKey);
+  if (desk?.id == null) return { problem: `${projectKey} isn't a Jira Service Management project` };
+  return { serviceDeskId: String(desk.id), requestTypeId, values: {} };
+}
+
 async function raiseServiceRequest(
   input: HandoffTicketInput,
   projectKey: string,
-  requestTypeId: string,
+  /** A fixed request type id, or "worker" for the worker to choose one. */
+  requestType: string,
   connectedAccountId: string,
 ): Promise<HandoffTicketResult | HandoffTicketFailure> {
   const { organizationId, conversation } = input;
@@ -1169,15 +1471,17 @@ async function raiseServiceRequest(
     return { failed: error };
   };
 
-  const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
-  if (!desks.ok) return fail(`Couldn't find the ${projectKey} service desk: ${desks.error}`);
-  const desk = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).find((entry) => entry.projectKey === projectKey);
-  if (desk?.id == null) return fail(`${projectKey} isn't a Jira Service Management project`);
+  const target =
+    requestType === "worker"
+      ? await workerChosenTarget(input, projectKey, connectedAccountId)
+      : await fixedTarget(projectKey, requestType, connectedAccountId);
+  if ("problem" in target) return fail(target.problem);
 
   const request = {
-    serviceDeskId: String(desk.id),
-    requestTypeId,
+    serviceDeskId: target.serviceDeskId,
+    requestTypeId: target.requestTypeId,
     requestFieldValues: {
+      ...target.values,
       summary: handoffTicketSummary(input),
       description: toJiraWikiMarkup(handoffTicketDescription(input)),
     },

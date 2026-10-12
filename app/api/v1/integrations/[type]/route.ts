@@ -11,6 +11,7 @@ import {
   type IntegrationConnection,
 } from "@/lib/tools-integrations/connection-repository";
 import {
+  clearRequestTypeCatalogCache,
   connectionSettingsSchema,
   jiraSettingsProblem,
   listJiraProjects,
@@ -103,8 +104,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { type: stri
   const jira = merged as JiraSettings;
   if (row.system === "jira") {
     if (!jira.requestTypeId) jira.requestTypeName = null;
-    const changesTarget = ["projectKey", "issueType", "requestTypeId"].some((field) => field in changes);
-    if (changesTarget && jira.projectKey && (jira.issueType || jira.requestTypeId)) {
+    const changesTarget = ["projectKey", "issueType", "requestTypeId", "workerChoosesRequestType"].some(
+      (field) => field in changes,
+    );
+    if (changesTarget && jira.projectKey && (jira.issueType || jira.requestTypeId || jira.workerChoosesRequestType)) {
       if (row.status !== "active" || !row.composioConnectedAccountId) {
         return NextResponse.json({ error: "Finish connecting Jira first." }, { status: 409 });
       }
@@ -112,7 +115,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { type: stri
         { error: "Couldn't check the project with Jira. Try again in a moment." },
         { status: 502 },
       );
-      if (jira.requestTypeId) {
+      if (jira.workerChoosesRequestType) {
+        // The worker picks from the desk's own list, so the project only has
+        // to be a service desk with something to pick from.
+        const desks = await listServiceDesks(tenant.orgId, row.composioConnectedAccountId);
+        if (!desks) return unreachable;
+        const desk = desks.find((entry) => entry.projectKey === jira.projectKey);
+        if (!desk?.requestTypes.length) {
+          return NextResponse.json(
+            { error: `${jira.projectKey} isn't a Jira Service Management project with request types, so the worker has nothing to choose from.` },
+            { status: 400 },
+          );
+        }
+      } else if (jira.requestTypeId) {
         const desks = await listServiceDesks(tenant.orgId, row.composioConnectedAccountId);
         if (!desks) return unreachable;
         const target = serviceRequestTarget(desks, jira.projectKey, jira.requestTypeId);
@@ -127,6 +142,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { type: stri
     }
   }
   const saved = await saveConnectionSettings(row.id, merged as Record<string, unknown>);
+  // A changed project or desk shows up in the worker's next answer, not in ten minutes.
+  if (row.system === "jira") clearRequestTypeCatalogCache();
   return NextResponse.json(withSettings(saved));
 }
 
