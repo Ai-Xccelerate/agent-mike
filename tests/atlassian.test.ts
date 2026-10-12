@@ -515,6 +515,7 @@ describe("raising a Jira ticket on handoff", () => {
           };
         }
         if (method === "GET" && endpoint.includes("/servicedeskapi/servicedesk")) return { status: 200, data: { values: [{ id: "1", projectKey: "SUP" }] } };
+        if (method === "GET" && endpoint.includes("/rest/api/3/issue/")) return { status: 200, data: { fields: { priority: { name: "Informational" } } } };
         if (method === "POST") return post;
         return { status: 204, data: null };
       });
@@ -564,6 +565,9 @@ describe("raising a Jira ticket on handoff", () => {
         // The worker's title, not the customer's opening words.
         requestFieldValues: { customfield_10050: { id: "10001" }, summary: "Add optional Pronouns field to Online Intake form" },
       });
+      // Kept for the Overview: what it went in as, and the priority Jira gave it.
+      const [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+      expect(stored).toMatchObject({ externalTicketKey: "SUP-40", externalTicketType: "Request a New Feature", externalTicketPriority: "Informational" });
     });
 
     it("sends a choice the desk can't take back once with the reason, keeping its request type", async () => {

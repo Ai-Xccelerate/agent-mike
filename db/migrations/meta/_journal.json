@@ -225,6 +225,13 @@
       "when": 1790660000012,
       "tag": "0031_email_manager_on_handoff",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790660000013,
+      "tag": "0032_overview_ticket_details",
+      "breakpoints": true
     }
   ]
 }

@@ -1,243 +1,258 @@
 "use client";
 
-import WorkerHero from "@/components/aix/WorkerHero";
-import StatCard from "@/components/aix/StatCard";
-import Badge from "@/components/ui/badge/Badge";
-import Button from "@/components/ui/button/Button";
-import { ChatIcon, CheckCircleIcon, DocsIcon, MailIcon, UserCircleIcon } from "@/icons";
 import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
-import { apiFetch, Conversation, KnowledgeDocument, WorkerProfile } from "@/lib/worker-api";
+import { apiFetch, type OverviewPeriod, type OverviewRecentOutcome, type WorkerOverview } from "@/lib/worker-api";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-function relativeTime(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const minutes = Math.round(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+/**
+ * The Overview: how much customer traffic this worker had, how much it
+ * answered itself, what it handed to the team (broken down by the connected
+ * helpdesk's own request types and priorities), and what it did lately. The
+ * numbers come from /worker/overview; nothing here knows any one customer's
+ * helpdesk.
+ */
+
+const PERIODS: { id: OverviewPeriod; label: string }[] = [
+  { id: "24h", label: "24 hours" },
+  { id: "7d", label: "7 days" },
+  { id: "30d", label: "30 days" },
+];
+
+const cardClass = "rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]";
+const headingClass = "text-base font-semibold text-gray-800 dark:text-white/90";
+const mutedClass = "text-sm text-gray-500 dark:text-gray-400";
+
+// Priorities come in the helpdesk's own order, most urgent first.
+// Red and amber for the two most urgent, then greys: orange stays the brand accent.
+const PRIORITY_COLORS = ["bg-error-500", "bg-warning-500", "bg-gray-500", "bg-gray-400", "bg-gray-300 dark:bg-gray-600"];
+
+function timeOfDay(iso: string, period: OverviewPeriod) {
+  const date = new Date(iso);
+  return period === "24h"
+    ? date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : date.toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
+function channelLine(byChannel: Record<string, number>) {
+  const parts = Object.entries(byChannel).map(([channel, count]) => `${channel} ${count}`);
+  return parts.length ? parts.join(" · ") : "No customer conversations yet";
+}
+
+function Stat({ label, value, note }: { label: string; value: string; note: React.ReactNode }) {
+  return (
+    <div className={`${cardClass} flex flex-col gap-1 p-5 md:p-6`}>
+      <span className={mutedClass}>{label}</span>
+      <span className="font-display text-3xl font-semibold tabular-nums text-gray-800 dark:text-white/90">{value}</span>
+      <span className="text-xs text-gray-500 dark:text-gray-400">{note}</span>
+    </div>
+  );
+}
+
+function Outcome({ outcome }: { outcome: OverviewRecentOutcome }) {
+  if (outcome.kind === "ticket") {
+    return (
+      <span>
+        Raised <span className="font-semibold text-gray-800 dark:text-white/90">{outcome.key}</span>
+        {outcome.type ? ` as ${outcome.type}` : ""}
+      </span>
+    );
+  }
+  if (outcome.kind === "answered") return <span>{outcome.source ? `Answered from: ${outcome.source}` : "Answered"}</span>;
+  if (outcome.kind === "handed_over") return <span>Handed to a person</span>;
+  return <span>In progress</span>;
 }
 
 export default function WorkerDashboard() {
-  const [profile, setProfile] = useState<WorkerProfile | null>(null);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [knowledge, setKnowledge] = useState<KnowledgeDocument[]>([]);
-  const [connected, setConnected] = useState(false);
-  // Name/avatar come from the shared identity (cached seed until "/worker"
-  // resolves), not this page's own fetch, so a reload doesn't flash "AW".
-  const identity = useWorkerIdentityDisplay();
-  const { displayName: subtitleName } = useWorkerIdentityDisplay("this worker");
+  const [period, setPeriod] = useState<OverviewPeriod>("24h");
+  const [overview, setOverview] = useState<WorkerOverview | null>(null);
+  const [failed, setFailed] = useState(false);
+  const { displayName } = useWorkerIdentityDisplay("This worker");
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      try {
-        const data = await apiFetch<WorkerProfile>("/worker");
+    apiFetch<WorkerOverview>(`/worker/overview?period=${period}`)
+      .then((data) => {
         if (cancelled) return;
-        setProfile(data);
-        setConnected(true);
-      } catch {
-        if (!cancelled) setConnected(false);
-      }
-      try {
-        const items = await apiFetch<Conversation[]>("/conversations");
-        if (!cancelled) setConversations(items);
-      } catch {
-        /* keep empty */
-      }
-      try {
-        const docs = await apiFetch<KnowledgeDocument[]>("/knowledge");
-        if (!cancelled) setKnowledge(docs);
-      } catch {
-        /* keep empty */
-      }
-    }
-    void load();
+        setOverview(data);
+        setFailed(false);
+      })
+      .catch(() => !cancelled && setFailed(true));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [period]);
 
-  const recent = useMemo(
-    () => conversations.filter((c) => c.status !== "resolved" && c.status !== "closed").slice(0, 5),
-    [conversations],
-  );
-  const stats = useMemo(() => {
-    const total = conversations.length;
-    const resolved = conversations.filter((c) => c.status === "resolved").length;
-    const needsHuman = conversations.filter((c) => c.status === "needs_human").length;
-    const confidences = conversations.map((c) => c.confidence).filter((c): c is number => c != null);
-    const avgConfidence = confidences.length
-      ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 100)
-      : 0;
-    return {
-      open: total - resolved - conversations.filter((c) => c.status === "closed").length,
-      resolved,
-      needsHuman,
-      autoResolutionRate: total ? Math.round((resolved / total) * 100) : 0,
-      avgConfidence,
-    };
-  }, [conversations]);
-  const lastActivity = conversations[0]?.updatedAt;
+  const total = overview?.conversations.total ?? 0;
+  const answered = overview?.answeredByWorker ?? 0;
+  const answeredPct = total ? Math.round((answered / total) * 100) : 0;
+  const helpdesk = overview?.tickets.helpdesk ?? null;
+  const target = overview?.firstReply.targetHours ?? null;
+  const maxType = Math.max(1, ...(overview?.tickets.byType.map((entry) => entry.count) ?? [1]));
+  const priorityTotal = overview?.tickets.byPriority.reduce((sum, entry) => sum + entry.count, 0) ?? 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 md:gap-6">
-      <WorkerHero
-        displayName={identity.displayName}
-        avatarInitials={identity.avatarInitials}
-        accentColor={identity.accentColor}
-        avatarUrl={identity.avatarUrl}
-        status={identity.status}
-        tagline={profile?.role ?? "Configure this worker's role under Settings."}
-        stats={[
-          { label: "Auto-resolved", value: `${stats.autoResolutionRate}%` },
-          { label: "Avg. confidence", value: `${stats.avgConfidence}%` },
-          {
-            label: "Coverage",
-            value: `${knowledge.length} ${knowledge.length === 1 ? "concept" : "concepts"}`,
-          },
-        ]}
-      />
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-xl font-semibold text-gray-800 dark:text-white/90">Overview</h1>
+          <p className={mutedClass}>What {displayName} handled, and what it passed to your team.</p>
+        </div>
+        <div role="group" aria-label="Period" className="flex gap-2">
+          {PERIODS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              aria-pressed={period === entry.id}
+              onClick={() => setPeriod(entry.id)}
+              className={`rounded-lg border px-3.5 py-2 text-sm transition-colors ${
+                period === entry.id
+                  ? "border-brand-500 bg-brand-50 font-semibold text-brand-600 dark:bg-brand-500/10 dark:text-brand-400"
+                  : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-white/[0.03] dark:text-gray-300"
+              }`}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      </header>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 md:gap-6">
-        <StatCard label="Open conversations" value={String(stats.open)} icon={<ChatIcon className="size-5" />} />
-        <StatCard label="Resolved" value={String(stats.resolved)} icon={<CheckCircleIcon className="size-5" />} />
-        <StatCard
-          label="Needs your review"
-          value={String(stats.needsHuman)}
-          icon={<UserCircleIcon className="size-5" />}
+      {failed && (
+        <p className="rounded-lg bg-warning-50 px-4 py-3 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
+          Couldn&apos;t load the numbers. Try again in a moment.
+        </p>
+      )}
+
+      <section aria-label="Key numbers" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 md:gap-6">
+        <Stat label="Conversations" value={overview ? String(total) : "…"} note={overview ? channelLine(overview.conversations.byChannel) : ""} />
+        <Stat
+          label={`Answered by ${displayName}`}
+          value={overview ? `${answeredPct}%` : "…"}
+          note={overview ? `${answered} of ${total}, without a person` : ""}
         />
-        <StatCard label="Knowledge concepts" value={String(knowledge.length)} icon={<DocsIcon className="size-5" />} />
-      </div>
-
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.75fr)] md:gap-6">
-        <section className="flex flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-          <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-gray-800 md:px-6">
-            <div>
-              <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Recent conversations</h2>
-              <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                What {subtitleName || "this worker"} is handling right now.
-              </p>
-            </div>
-            <Link href="/inbox" className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
-              View inbox
-            </Link>
-          </div>
-          <div className="flex-1 divide-y divide-gray-100 dark:divide-gray-800">
-            {!recent.length && (
-              <p className="px-5 py-12 text-center text-sm text-gray-500 md:px-6">
-                No conversations yet. They appear here once a customer reaches out over chat or the website widget.
-              </p>
-            )}
-            {recent.map((conversation) => (
-              <Link
-                key={conversation.id}
-                href="/inbox"
-                className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.02] md:px-6"
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                  {conversation.customerName
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">
-                      {conversation.customerName}
-                    </p>
-                    <span className="text-gray-300 dark:text-gray-700">·</span>
-                    <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                      {conversation.channel === "email" ? (
-                        <MailIcon className="size-3.5" />
-                      ) : (
-                        <ChatIcon className="size-3.5" />
-                      )}
-                      {conversation.channel}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 truncate text-sm text-gray-500 dark:text-gray-400">{conversation.subject}</p>
-                </div>
-                <div className="hidden text-right sm:block">
-                  <Badge
-                    size="sm"
-                    color={
-                      conversation.status === "needs_human"
-                        ? conversation.priority === "high"
-                          ? "warning"
-                          : "info"
-                        : conversation.status === "resolved"
-                          ? "success"
-                          : conversation.status === "closed"
-                            ? "light"
-                            : "info"
-                    }
-                  >
-                    {conversation.status === "needs_human"
-                      ? conversation.priority === "high"
-                        ? "Needs review"
-                        : "Follow-up"
-                      : conversation.status === "resolved"
-                        ? "Resolved"
-                        : conversation.status === "closed"
-                          ? "Closed"
-                          : "Open"}
-                  </Badge>
-                  <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {Math.round((conversation.confidence || 0) * 100)}% confidence
-                  </p>
-                </div>
+        <Stat
+          label={helpdesk ? "Tickets raised" : "Handed to your team"}
+          value={overview ? String(helpdesk ? overview.tickets.raised : overview.handedOver) : "…"}
+          note={helpdesk ? `in ${helpdesk.project}` : "waiting for a person in the Inbox"}
+        />
+        <Stat
+          label="First reply within target"
+          value="Not measured yet"
+          note={
+            <>
+              {target ? `Target: ${target} ${target === 1 ? "hour" : "hours"}. ` : "No target set. "}
+              <Link href="/settings/manager" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+                {target ? "Change" : "Set one"}
               </Link>
-            ))}
-          </div>
-        </section>
+              {helpdesk ? ". Reply times come from your helpdesk." : ""}
+            </>
+          }
+        />
+      </section>
 
-        <aside className="space-y-5">
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Worker health</h2>
-              <Badge size="sm" color={connected ? "success" : "warning"}>
-                {connected ? "Operational" : "Offline"}
-              </Badge>
-            </div>
-            <div className="mt-5 flex items-center gap-4">
-              <span className="text-sm font-semibold text-gray-800 dark:text-white/90">
-                {connected ? "Ready for new work" : "Waiting for API"}
-              </span>
-            </div>
-            <dl className="mt-5 space-y-3 border-t border-gray-100 pt-4 text-sm dark:border-gray-800">
-              <div className="flex justify-between">
-                <dt className="text-gray-500 dark:text-gray-400">API</dt>
-                <dd className="font-medium text-gray-800 dark:text-gray-200">
-                  {connected ? "Connected" : "Unavailable"}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500 dark:text-gray-400">Knowledge index</dt>
-                <dd className="font-medium text-gray-800 dark:text-gray-200">{knowledge.length ? "Ready" : "Empty"}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500 dark:text-gray-400">Last activity</dt>
-                <dd className="font-medium text-gray-800 dark:text-gray-200">
-                  {lastActivity ? relativeTime(lastActivity) : "No activity yet"}
-                </dd>
-              </div>
+      {helpdesk ? (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 md:gap-6">
+          <section aria-labelledby="by-type" className={`${cardClass} p-5 md:p-6`}>
+            <h2 id="by-type" className={headingClass}>Tickets by request type</h2>
+            <p className={mutedClass}>The request types of your connected service desk ({helpdesk.project}).</p>
+            <dl className="mt-4 grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_2rem] items-center gap-x-3 gap-y-2.5 text-sm">
+              {overview?.tickets.byType.map((entry) => (
+                <div key={entry.name} className="contents">
+                  <dt className={entry.count ? "text-gray-800 dark:text-white/90" : "text-gray-500 dark:text-gray-400"}>{entry.name}</dt>
+                  <dd className="h-2 rounded-full bg-gray-100 dark:bg-white/5" aria-hidden="true">
+                    <span className="block h-2 rounded-full bg-gray-700 dark:bg-gray-300" style={{ width: `${(entry.count / maxType) * 100}%` }} />
+                  </dd>
+                  <dd className="text-right font-semibold tabular-nums text-gray-800 dark:text-white/90">{entry.count}</dd>
+                </div>
+              ))}
+              {!overview?.tickets.byType.length && <p className={`${mutedClass} col-span-3`}>No tickets in this period.</p>}
             </dl>
           </section>
 
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6">
-            <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Try it</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Test a customer question against the current role, guardrails, and knowledge.
-            </p>
-            <Link href="/playground" className="mt-4 block">
-              <Button className="w-full">Open test conversation</Button>
-            </Link>
+          <section aria-labelledby="by-priority" className={`${cardClass} p-5 md:p-6`}>
+            <h2 id="by-priority" className={headingClass}>By priority</h2>
+            <p className={mutedClass}>Your service desk&apos;s priorities. {displayName} sets them from the impact the customer describes.</p>
+            <div
+              role="img"
+              aria-label={overview?.tickets.byPriority.map((entry) => `${entry.name} ${entry.count}`).join(", ")}
+              className="mt-4 flex h-3 gap-0.5 overflow-hidden rounded-full bg-gray-100 dark:bg-white/5"
+            >
+              {overview?.tickets.byPriority.map((entry, index) =>
+                entry.count ? (
+                  <span
+                    key={entry.name}
+                    className={PRIORITY_COLORS[Math.min(index, PRIORITY_COLORS.length - 1)]}
+                    style={{ width: `${(entry.count / Math.max(1, priorityTotal)) * 100}%` }}
+                  />
+                ) : null,
+              )}
+            </div>
+            <ul className="mt-4 grid grid-cols-2 gap-2 text-sm">
+              {overview?.tickets.byPriority.map((entry, index) => (
+                <li key={entry.name} className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                  <span className={`size-2 rounded-full ${PRIORITY_COLORS[Math.min(index, PRIORITY_COLORS.length - 1)]}`} aria-hidden="true" />
+                  {entry.name} {entry.count}
+                </li>
+              ))}
+            </ul>
           </section>
-        </aside>
-      </div>
+        </div>
+      ) : (
+        <section aria-labelledby="topics" className={`${cardClass} p-5 md:p-6`}>
+          <h2 id="topics" className={headingClass}>Handed over by topic</h2>
+          <p className={mutedClass}>
+            Connect a helpdesk under{" "}
+            <Link href="/settings/integrations" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+              Integrations
+            </Link>{" "}
+            to see these by request type and priority.
+          </p>
+          <ul className="mt-4 space-y-2 text-sm text-gray-700 dark:text-gray-300">
+            {overview?.handedOverTopics.map((topic) => <li key={topic}>{topic}</li>)}
+            {overview && !overview.handedOverTopics.length && <li className={mutedClass}>Nothing handed over in this period.</li>}
+          </ul>
+        </section>
+      )}
+
+      <section aria-labelledby="recent" className={`${cardClass} flex flex-col`}>
+        <div className="flex items-center justify-between px-5 pt-5 md:px-6">
+          <h2 id="recent" className={headingClass}>Recent activity</h2>
+          <Link href="/inbox" className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+            View inbox
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm tabular-nums">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+                <th scope="col" className="px-5 py-3 font-medium md:px-6">When</th>
+                <th scope="col" className="px-2 py-3 font-medium">Customer asked</th>
+                <th scope="col" className="px-5 py-3 font-medium md:px-6">What {displayName} did</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {overview?.recent.map((entry) => (
+                <tr key={entry.conversationId}>
+                  <td className="whitespace-nowrap px-5 py-3 text-gray-500 dark:text-gray-400 md:px-6">{timeOfDay(entry.at, overview.period)}</td>
+                  <td className="px-2 py-3 text-gray-800 dark:text-white/90">
+                    <Link href={`/inbox?conversation=${entry.conversationId}`} className="hover:text-brand-600">
+                      {entry.asked || "(no message)"}
+                    </Link>
+                  </td>
+                  <td className="px-5 py-3 text-gray-600 dark:text-gray-300 md:px-6">
+                    <Outcome outcome={entry.outcome} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {overview && !overview.recent.length && (
+            <p className="px-5 py-10 text-center text-sm text-gray-500 md:px-6">
+              No customer conversations in this period. They appear here once someone writes in over the website widget or email.
+            </p>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
