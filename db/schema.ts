@@ -98,6 +98,8 @@ export const workerProfiles = pgTable(
     managerName: text("manager_name").notNull().default("Manager"),
     managerEmail: text("manager_email"),
     autoReply: boolean("auto_reply").notNull().default(true),
+    // Email the manager when the worker hands a conversation over (any channel).
+    emailManagerOnHandoff: boolean("email_manager_on_handoff").notNull().default(true),
     // Settings > Email domains: on = the worker may only email approved
     // domains; off (default) = any domain.
     restrictEmailDomains: boolean("restrict_email_domains").notNull().default(false),

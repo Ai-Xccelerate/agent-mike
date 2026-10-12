@@ -218,6 +218,13 @@
       "when": 1790660000011,
       "tag": "0030_integration_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790660000012,
+      "tag": "0031_email_manager_on_handoff",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { handoffToManager, runAgent, withoutEmDashes, type RunAgentResult } from
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
 import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import type { CustomerCard } from "@/lib/customer-cards";
+import { notifyManager } from "@/lib/handoff-notify";
 
 /**
  * One customer-facing agent turn, shared by every channel (chat, widget,
@@ -206,6 +207,16 @@ export async function runCustomerTurn(input: {
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversation.id));
+
+  // A person is told the moment a conversation first needs them, whatever
+  // the channel, not on every message while it waits. The email channel
+  // sends its own (it also covers replies that couldn't be sent).
+  if (result.escalate && conversation.status !== "needs_human" && conversation.channel !== "email") {
+    const where = conversation.channel === "widget" ? "website chat" : "chat";
+    await notifyManager(conversation, organizationId, `${profile.displayName} handed a ${where} conversation to you.`).catch(
+      (error: unknown) => console.warn("[handoff] manager email failed:", error instanceof Error ? error.message : error),
+    );
+  }
 
   return { reply, result, status, knowledgeSources };
 }
