@@ -38,6 +38,7 @@ export const workerPatchSchema = z
     managerEmail: emptyToNull(z.string().email().nullable()),
     autoReply: z.boolean(),
     emailManagerOnHandoff: z.boolean(),
+    firstReplyTargetHours: z.number().int().min(1).max(720).nullable(),
     // Settings > Email domains: on = only approved domains may be emailed.
     restrictEmailDomains: z.boolean(),
     toolsConfig: z.record(z.string(), z.boolean()),

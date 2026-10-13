@@ -108,6 +108,8 @@ export type WorkerProfile = {
   autoReply: boolean;
   /** Email the manager when the worker hands a conversation over. */
   emailManagerOnHandoff: boolean;
+  /** The team's first-reply target in hours, shown on the Overview. */
+  firstReplyTargetHours: number | null;
   /** Settings > Email domains: on = the worker may only email approved domains. */
   restrictEmailDomains: boolean;
   toolsConfig: ToolsConfig;
@@ -894,4 +896,30 @@ export type AgentSkillsPatch = {
 export type SkillsCredentialsInput = {
   apiKey: string;
   apiUrl?: string;
+};
+
+/** The Overview page's numbers (GET /worker/overview?period=). */
+export type OverviewPeriod = "24h" | "7d" | "30d";
+
+export type OverviewRecentOutcome =
+  | { kind: "answered"; source: string | null }
+  | { kind: "ticket"; key: string; type: string | null }
+  | { kind: "handed_over" }
+  | { kind: "in_progress" };
+
+export type WorkerOverview = {
+  period: OverviewPeriod;
+  since: string;
+  conversations: { total: number; byChannel: Record<string, number> };
+  answeredByWorker: number;
+  handedOver: number;
+  tickets: {
+    raised: number;
+    helpdesk: { project: string } | null;
+    byType: { name: string; count: number }[];
+    byPriority: { name: string; count: number }[];
+  };
+  handedOverTopics: string[];
+  firstReply: { targetHours: number | null; measured: null };
+  recent: { conversationId: string; at: string; channel: string; asked: string; outcome: OverviewRecentOutcome }[];
 };
