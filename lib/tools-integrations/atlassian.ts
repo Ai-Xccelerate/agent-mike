@@ -489,7 +489,7 @@ export function isHandoffTicket(outcome: HandoffTicketResult | HandoffTicketFail
 async function recordTicketOutcome(
   organizationId: string,
   conversationId: string,
-  outcome: { key: string } | { error: string },
+  outcome: { key: string; type?: string | null; priority?: string | null } | { error: string },
 ): Promise<void> {
   const scope = and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId));
   if ("error" in outcome) {
@@ -499,7 +499,12 @@ async function recordTicketOutcome(
   // Only the first handoff's ticket is kept, if two ever race.
   await db
     .update(conversations)
-    .set({ externalTicketKey: sql`coalesce(${conversations.externalTicketKey}, ${outcome.key})`, externalTicketError: null })
+    .set({
+      externalTicketKey: sql`coalesce(${conversations.externalTicketKey}, ${outcome.key})`,
+      externalTicketType: sql`coalesce(${conversations.externalTicketType}, ${outcome.type ?? null})`,
+      externalTicketPriority: sql`coalesce(${conversations.externalTicketPriority}, ${outcome.priority ?? null})`,
+      externalTicketError: null,
+    })
     .where(scope);
 }
 
@@ -563,7 +568,11 @@ export async function recordHandoffInJira(
     await recordTicketOutcome(organizationId, conversation.id, { error });
     return { failed: error };
   }
-  await recordTicketOutcome(organizationId, conversation.id, { key });
+  await recordTicketOutcome(organizationId, conversation.id, {
+    key,
+    type: settings.issueType,
+    priority: await ticketPriority(connectedAccountId, key),
+  });
   return { key, created: true, title: handoffTicketSummary(input), requestType: null };
 }
 
@@ -1123,6 +1132,43 @@ function pageValues<T>(data: unknown): T[] {
   return Array.isArray(values) ? (values as T[]) : [];
 }
 
+/**
+ * The priority Jira gave a new ticket (a request type's preset, or what the
+ * worker chose), for the Overview. Null if Jira doesn't say.
+ */
+async function ticketPriority(connectedAccountId: string, key: string): Promise<string | null> {
+  const issue = await callJira(connectedAccountId, "GET", `/rest/api/3/issue/${key}?fields=priority`);
+  const name = issue.ok ? (issue.data as { fields?: { priority?: { name?: unknown } } } | null)?.fields?.priority?.name : null;
+  return typeof name === "string" ? name : null;
+}
+
+/**
+ * What the connected helpdesk offers, for the Overview's breakdowns: the
+ * desk's request types (or the issue type tickets go in as) and the site's
+ * priorities, in Jira's order. Null when no helpdesk is set up for handoffs.
+ */
+export async function helpdeskBreakdownSource(
+  organizationId: string,
+): Promise<{ project: string; types: string[]; priorities: string[] } | null> {
+  const connection = await getConnectionForOrg(organizationId, "helpdesk");
+  const connectedAccountId = activeAccount(connection, "jira");
+  if (!connection || !connectedAccountId) return null;
+  const settings = readJiraSettings(connection.metadata);
+  if (!settings.projectKey) return null;
+  let types: string[] = settings.issueType ? [settings.issueType] : [];
+  if (settings.workerChoosesRequestType || settings.requestTypeId) {
+    const catalog = await getRequestTypeCatalog(connectedAccountId, settings.projectKey);
+    if (!("problem" in catalog)) types = catalog.requestTypes.map((type) => type.name);
+    else if (settings.requestTypeName) types = [settings.requestTypeName];
+  }
+  const listed = await callJira(connectedAccountId, "GET", "/rest/api/3/priority");
+  const priorities =
+    listed.ok && Array.isArray(listed.data)
+      ? (listed.data as { name?: unknown }[]).map((entry) => entry.name).filter((name): name is string => typeof name === "string")
+      : [];
+  return { project: settings.projectKey, types, priorities };
+}
+
 export type ServiceDesk = { id: string; projectKey: string; requestTypes: { id: string; name: string }[] };
 
 /**
@@ -1560,6 +1606,10 @@ async function raiseServiceRequest(
   await callJira(connectedAccountId, "PUT", `/rest/api/3/issue/${key}`, {
     update: { labels: [{ add: HANDOFF_TICKET_LABEL }] },
   });
-  await recordTicketOutcome(organizationId, conversation.id, { key });
+  await recordTicketOutcome(organizationId, conversation.id, {
+    key,
+    type: target.requestTypeName ?? null,
+    priority: await ticketPriority(connectedAccountId, key),
+  });
   return { key, created: true, title: request.requestFieldValues.summary, requestType: target.requestTypeName ?? null };
 }

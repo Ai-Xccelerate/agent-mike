@@ -100,6 +100,8 @@ export const workerProfiles = pgTable(
     autoReply: boolean("auto_reply").notNull().default(true),
     // Email the manager when the worker hands a conversation over (any channel).
     emailManagerOnHandoff: boolean("email_manager_on_handoff").notNull().default(true),
+    // The team's first-reply target in hours, shown on the Overview. Null = none.
+    firstReplyTargetHours: integer("first_reply_target_hours"),
     // Settings > Email domains: on = the worker may only email approved
     // domains; off (default) = any domain.
     restrictEmailDomains: boolean("restrict_email_domains").notNull().default(false),
@@ -186,6 +188,9 @@ export const conversations = pgTable(
     // person (e.g. Jira "SUP-12"). Also what the customer agent may look up:
     // a customer sees only tickets recorded on their own conversations.
     externalTicketKey: text("external_ticket_key"),
+    // What the ticket went in as, for the Overview's breakdowns.
+    externalTicketType: text("external_ticket_type"),
+    externalTicketPriority: text("external_ticket_priority"),
     // Why the helpdesk refused the last ticket for this conversation (e.g. an
     // issue type the project doesn't have). Cleared once a ticket goes through.
     externalTicketError: text("external_ticket_error"),
