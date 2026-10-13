@@ -4,17 +4,20 @@ import AgentAvatar from "@/components/aix/AgentAvatar";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import InboxApprovals from "@/components/worker/InboxApprovals";
 import Markdown from "@/components/worker/Markdown";
-import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
 import { Dropdown } from "@/components/ui/dropdown/Dropdown";
 import { DropdownItem } from "@/components/ui/dropdown/DropdownItem";
 import {
+  AlertIcon,
   ArrowUpIcon,
+  ChatIcon,
   CheckLineIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   DocsIcon,
   FilterLinesIcon,
+  MailIcon,
   MoreDotIcon,
 } from "@/icons";
 import {
@@ -25,17 +28,35 @@ import {
   type ConversationReadMap,
 } from "@/lib/conversation-read-state";
 import { apiFetch, Conversation, WorkerApiError, WorkerProfile } from "@/lib/worker-api";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const REPLY_MAX_LENGTH = 4000;
 const CHANNEL_LABEL: Record<Conversation["channel"], string> = {
   chat: "Chat",
-  widget: "Widget",
+  widget: "Chat widget",
   email: "Email",
   // Inbox's own query already excludes assistant conversations; this label
   // only matters if that filter is ever bypassed (e.g. a future debug view).
   assistant: "Assistant",
 };
+
+type StatusFilter = "all" | "needs_human" | "agent" | "closed";
+type ChannelFilter = "all" | "widget" | "email";
+
+const CLOSED_STATUSES = new Set(["resolved", "closed"]);
+
+function matchesStatus(conversation: Conversation, filter: StatusFilter) {
+  switch (filter) {
+    case "needs_human":
+      return conversation.status === "needs_human";
+    case "agent":
+      return conversation.status === "open" && !conversation.humanControlled;
+    case "closed":
+      return CLOSED_STATUSES.has(conversation.status);
+    default:
+      return !CLOSED_STATUSES.has(conversation.status);
+  }
+}
 
 function relativeTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -47,22 +68,11 @@ function relativeTime(iso: string) {
   return `${Math.round(hours / 24)}d`;
 }
 
-type BadgeInfo = { label: string; color: "info" | "success" | "warning" | "primary" | "light" };
-
-const statusDetails: Record<string, BadgeInfo> = {
-  open: { label: "Open", color: "info" },
-  resolved: { label: "Resolved", color: "success" },
-  needs_human: { label: "Needs review", color: "warning" },
-  closed: { label: "Closed", color: "light" },
-};
-
-function badgeFor(conversation: Conversation): BadgeInfo {
-  if (conversation.status === "needs_human") {
-    return conversation.priority === "high"
-      ? { label: "Needs review", color: "warning" }
-      : { label: "Follow-up", color: "info" };
-  }
-  return statusDetails[conversation.status] ?? { label: conversation.status, color: "light" };
+function messageTime(iso: string) {
+  const date = new Date(iso);
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (date.toDateString() === new Date().toDateString()) return time;
+  return `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
 
 function initials(name: string) {
@@ -72,43 +82,94 @@ function initials(name: string) {
 function lastMessagePreview(conversation: Conversation) {
   const last = conversation.messages[conversation.messages.length - 1];
   if (!last) return conversation.subject ?? "No messages yet";
-  return last.senderType === "manager" ? `You: ${last.body}` : last.body;
+  if (last.senderType === "manager") return `You: ${last.body}`;
+  if (last.senderType === "agent") return `${last.senderName}: ${last.body}`;
+  return last.body;
 }
 
-const ACTIVE_HIDDEN = new Set(["resolved", "closed"]);
+/** The one status chip a row or thread shows, if any. */
+function statusTag(conversation: Conversation): { label: string; tone: "warning" | "brand" | "muted" } | null {
+  if (conversation.status === "needs_human") return { label: "Needs you", tone: "warning" };
+  if (CLOSED_STATUSES.has(conversation.status)) {
+    return { label: conversation.status === "resolved" ? "Resolved" : "Closed", tone: "muted" };
+  }
+  if (conversation.humanControlled) return { label: "You're handling", tone: "brand" };
+  return null;
+}
 
-function FilterRow({
+const TAG_TONE = {
+  warning: "bg-warning-50 text-warning-700 dark:bg-warning-500/15 dark:text-warning-400",
+  brand: "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-400",
+  muted: "bg-gray-100 text-gray-600 dark:bg-white/[0.06] dark:text-gray-400",
+};
+
+function StatusTag({ conversation }: { conversation: Conversation }) {
+  const tag = statusTag(conversation);
+  if (!tag) return null;
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-theme-xs font-medium ${TAG_TONE[tag.tone]}`}>
+      {tag.label}
+    </span>
+  );
+}
+
+function ChannelIcon({ channel, className }: { channel: Conversation["channel"]; className?: string }) {
+  const Icon = channel === "email" ? MailIcon : ChatIcon;
+  return <Icon className={className} aria-label={CHANNEL_LABEL[channel]} />;
+}
+
+/** Customer avatar: brand-orange ring around initials, matching Jules. */
+function CustomerAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
+  const sizeClass = size === "lg" ? "size-11 text-sm" : size === "sm" ? "size-9 text-xs" : "size-10 text-[13px]";
+  return (
+    <span
+      className={`flex shrink-0 items-center justify-center rounded-full border-[1.5px] border-brand-500 font-medium text-brand-600 dark:text-brand-400 ${sizeClass}`}
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
+function FilterOption({
   label,
+  count,
   active,
   onClick,
 }: {
   label: string;
+  count?: number;
   active: boolean;
   onClick: () => void;
 }) {
   return (
     <button
+      role="menuitemradio"
+      aria-checked={active}
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
+      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
         active
-          ? "bg-brand-50 font-medium text-brand-700 dark:bg-brand-500/10 dark:text-brand-400"
-          : "text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5"
+          ? "bg-gray-100 font-medium text-gray-900 dark:bg-white/[0.06] dark:text-white"
+          : "text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.04]"
       }`}
     >
-      <span className={`flex size-4 shrink-0 items-center justify-center ${active ? "" : "opacity-0"}`}>
+      <span className={`flex size-4 shrink-0 items-center justify-center text-brand-500 ${active ? "" : "opacity-0"}`}>
         <CheckLineIcon className="size-3.5" />
       </span>
-      {label}
+      <span className="flex-1">{label}</span>
+      {count !== undefined && <span className="text-xs tabular-nums text-gray-400 dark:text-gray-500">{count}</span>}
     </button>
   );
 }
+
+const outlineControl =
+  "inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white/60 text-sm font-medium text-gray-700 transition-colors hover:bg-white disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]";
 
 export default function WorkerInbox() {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [filter, setFilter] = useState<"active" | "needs_human" | "closed">("active");
-  const [channelFilter, setChannelFilter] = useState<"all" | "widget" | "email">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [kebabOpen, setKebabOpen] = useState(false);
@@ -133,7 +194,9 @@ export default function WorkerInbox() {
         const wanted = new URLSearchParams(window.location.search).get("conversation");
         const hit = wanted ? data.find((item) => item.id === wanted) : undefined;
         if (hit) {
-          setFilter(hit.status === "needs_human" ? "needs_human" : ACTIVE_HIDDEN.has(hit.status) ? "closed" : "active");
+          setStatusFilter(
+            hit.status === "needs_human" ? "needs_human" : CLOSED_STATUSES.has(hit.status) ? "closed" : "all",
+          );
           setSelectedId(hit.id);
           setMobileView("thread");
         }
@@ -145,35 +208,38 @@ export default function WorkerInbox() {
     };
   }, []);
 
+  const agentName = profile?.displayName || "AI Worker";
+
   const ticketRef = (conversation: Conversation) =>
     `${profile?.ticketPrefix ?? "TCK"}-${conversation.ticketNumber}`;
 
-  const needsHumanCount = useMemo(
-    () => conversations.filter((item) => item.status === "needs_human").length,
-    [conversations],
-  );
+  // Counts in the filter menu follow the channel filter, so each status shows
+  // how many conversations picking it would actually list.
+  const statusCounts = useMemo(() => {
+    const inChannel =
+      channelFilter === "all" ? conversations : conversations.filter((item) => item.channel === channelFilter);
+    const count = (filter: StatusFilter) => inChannel.filter((item) => matchesStatus(item, filter)).length;
+    return { all: count("all"), needs_human: count("needs_human"), agent: count("agent"), closed: count("closed") };
+  }, [conversations, channelFilter]);
 
   const visible = useMemo(() => {
-    const byStatus =
-      filter === "needs_human"
-        ? conversations.filter((item) => item.status === "needs_human")
-        : filter === "closed"
-          ? conversations.filter((item) => ACTIVE_HIDDEN.has(item.status))
-          : conversations.filter((item) => !ACTIVE_HIDDEN.has(item.status));
+    const byStatus = conversations.filter((item) => matchesStatus(item, statusFilter));
     const byChannel = channelFilter === "all" ? byStatus : byStatus.filter((item) => item.channel === channelFilter);
     const query = search.trim().toLowerCase();
     if (!query) return byChannel;
     return byChannel.filter((item) => {
       return (
         item.customerName.toLowerCase().includes(query) ||
+        (item.customerEmail ?? "").toLowerCase().includes(query) ||
         ticketRef(item).toLowerCase().includes(query) ||
         (item.subject ?? "").toLowerCase().includes(query)
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, filter, channelFilter, search]);
+  }, [conversations, statusFilter, channelFilter, search]);
   const selected = conversations.find((item) => item.id === selectedId);
-  const filtersActive = filter !== "active" || channelFilter !== "all";
+  const activeFilterCount = (statusFilter !== "all" ? 1 : 0) + (channelFilter !== "all" ? 1 : 0);
+  const isClosed = selected ? CLOSED_STATUSES.has(selected.status) : false;
 
   useEffect(() => {
     if (selectedId && conversations.some((item) => item.id === selectedId)) return;
@@ -185,7 +251,10 @@ export default function WorkerInbox() {
     const conversation = conversations.find((item) => item.id === selectedId);
     if (!conversation) return;
 
-    const mark = () => setReadMap((prev) => markConversationRead(conversation, prev));
+    // Persist outside a state updater: markConversationRead broadcasts an event
+    // that NotificationDropdown handles with its own setState, which React
+    // rejects if it fires mid-render.
+    const mark = () => setReadMap(markConversationRead(conversation, loadConversationReadMap()));
 
     // Mobile keeps the list up until the manager opens a thread.
     if (mobileView === "thread") {
@@ -197,9 +266,22 @@ export default function WorkerInbox() {
     }
   }, [selectedId, conversations, mobileView]);
 
+  // Open each thread at its newest message, and follow new replies.
+  const threadRef = useRef<HTMLDivElement>(null);
+  const messageCount = selected?.messages.length ?? 0;
+  useEffect(() => {
+    const thread = threadRef.current;
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }, [selectedId, messageCount, mobileView]);
+
   function selectConversation(id: string) {
     setSelectedId(id);
     setMobileView("thread");
+    setNotice("");
+  }
+
+  function replaceConversation(updated: Conversation) {
+    setConversations((items) => items.map((item) => (item.id === updated.id ? updated : item)));
   }
 
   async function setStatus(status: Conversation["status"]) {
@@ -211,7 +293,7 @@ export default function WorkerInbox() {
         method: "PATCH",
         body: JSON.stringify({ status }),
       });
-      setConversations((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+      replaceConversation(updated);
     } catch {
       setNotice("Could not update status.");
     } finally {
@@ -227,7 +309,7 @@ export default function WorkerInbox() {
         method: "PATCH",
         body: JSON.stringify({ humanControlled }),
       });
-      setConversations((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+      replaceConversation(updated);
     } catch {
       setNotice(humanControlled ? "Could not take over this conversation." : "Could not hand this conversation back.");
     } finally {
@@ -250,17 +332,25 @@ export default function WorkerInbox() {
     }
   }
 
+  // Replying takes over: the agent stops answering this conversation before
+  // the manager's message lands, so the two never talk over each other.
   async function sendManagerReply() {
     if (!reply.trim() || !selected) return;
     const body = reply.trim();
     setUpdating(true);
     setNotice("");
     try {
+      if (!selected.humanControlled) {
+        await apiFetch<Conversation>(`/conversations/${selected.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ humanControlled: true }),
+        });
+      }
       const result = await apiFetch<{ conversation: Conversation }>(`/conversations/${selected.id}/messages`, {
         method: "POST",
         body: JSON.stringify({ body }),
       });
-      setConversations((items) => items.map((item) => (item.id === result.conversation.id ? result.conversation : item)));
+      replaceConversation(result.conversation);
       setReply("");
     } catch (error) {
       // An email that couldn't be sent says why (no mailbox, a blocked domain).
@@ -271,23 +361,83 @@ export default function WorkerInbox() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900/95">
-      <aside
-        className={`w-full shrink-0 border-r border-gray-200 lg:flex lg:w-[340px] lg:min-h-0 lg:flex-col dark:border-gray-800 ${
-          mobileView === "list" ? "flex flex-col" : "hidden"
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <header
+        className={`shrink-0 flex-wrap items-start justify-between gap-4 pb-5 pt-2 lg:flex ${
+          mobileView === "thread" ? "hidden" : "flex"
         }`}
       >
-        <div className="shrink-0 border-b border-gray-200 p-4 dark:border-gray-800">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg font-semibold text-gray-800 dark:text-white/90">Inbox</h1>
-            <Badge size="sm" color="warning">
-              {needsHumanCount} need you
-            </Badge>
-          </div>
-          <div className="mt-4 flex items-center gap-2">
-            <div className="relative flex-1">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" className="fill-gray-400 dark:fill-gray-500">
+        <div className="min-w-0">
+          <h1 className="font-display text-title-sm font-semibold tracking-tight text-gray-900 dark:text-white/90">Inbox</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Conversations {agentName} is handling across chat and email.
+          </p>
+        </div>
+        <div className="relative">
+          <button
+            onClick={() => setFilterOpen((open) => !open)}
+            aria-haspopup="menu"
+            aria-expanded={filterOpen}
+            className={`dropdown-toggle ${outlineControl} px-4 ${
+              filterOpen || activeFilterCount ? "!border-brand-500 dark:!border-brand-500" : ""
+            }`}
+          >
+            <FilterLinesIcon className="size-4" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="min-w-[18px] rounded-full bg-brand-500 px-1.5 text-center text-[11px] font-semibold leading-[18px] text-white">
+                {activeFilterCount}
+              </span>
+            )}
+            <ChevronDownIcon className="size-3.5" />
+          </button>
+          <Dropdown isOpen={filterOpen} onClose={() => setFilterOpen(false)} className="w-64 p-2 shadow-theme-lg">
+            <p className="px-2.5 pb-1 pt-1.5 text-xs font-semibold text-gray-400 dark:text-gray-500">Status</p>
+            <div className="flex flex-col gap-0.5">
+              <FilterOption label="All open" count={statusCounts.all} active={statusFilter === "all"} onClick={() => setStatusFilter("all")} />
+              <FilterOption label="Needs you" count={statusCounts.needs_human} active={statusFilter === "needs_human"} onClick={() => setStatusFilter("needs_human")} />
+              <FilterOption label={`${agentName} handling`} count={statusCounts.agent} active={statusFilter === "agent"} onClick={() => setStatusFilter("agent")} />
+              <FilterOption label="Closed" count={statusCounts.closed} active={statusFilter === "closed"} onClick={() => setStatusFilter("closed")} />
+            </div>
+            <div className="mx-1 my-1.5 h-px bg-gray-100 dark:bg-white/[0.08]" />
+            <p className="px-2.5 pb-1 pt-1.5 text-xs font-semibold text-gray-400 dark:text-gray-500">Channel</p>
+            <div className="flex flex-col gap-0.5">
+              <FilterOption label="All channels" active={channelFilter === "all"} onClick={() => setChannelFilter("all")} />
+              <FilterOption label="Chat widget" active={channelFilter === "widget"} onClick={() => setChannelFilter("widget")} />
+              <FilterOption label="Email" active={channelFilter === "email"} onClick={() => setChannelFilter("email")} />
+            </div>
+            {activeFilterCount > 0 && (
+              <>
+                <div className="mx-1 my-1.5 h-px bg-gray-100 dark:bg-white/[0.08]" />
+                <button
+                  onClick={() => {
+                    setStatusFilter("all");
+                    setChannelFilter("all");
+                  }}
+                  className="w-full rounded-lg py-2 text-center text-xs font-medium text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  Clear filters
+                </button>
+              </>
+            )}
+          </Dropdown>
+        </div>
+      </header>
+
+      <div
+        className={`flex min-h-0 flex-1 overflow-hidden border-gray-200 lg:border-t dark:border-white/[0.08] ${
+          mobileView === "list" ? "border-t" : ""
+        }`}
+      >
+        <aside
+          className={`w-full shrink-0 border-r border-gray-200 lg:flex lg:w-[400px] lg:min-h-0 lg:flex-col dark:border-white/[0.08] ${
+            mobileView === "list" ? "flex flex-col" : "hidden"
+          }`}
+        >
+          <div className="shrink-0 border-b border-gray-200 py-3 lg:pr-4 dark:border-white/[0.08]">
+            <label className="relative flex items-center">
+              <span className="pointer-events-none absolute left-3.5">
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" className="fill-gray-400 dark:fill-gray-500" aria-hidden="true">
                   <path
                     fillRule="evenodd"
                     clipRule="evenodd"
@@ -298,329 +448,317 @@ export default function WorkerInbox() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search name, ticket, or ID"
-                className="h-9 w-full rounded-lg border border-gray-200 bg-transparent pl-9 pr-3 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-white/[0.03] dark:text-white/90"
+                placeholder="Search conversations"
+                aria-label="Search conversations"
+                className="h-11 w-full rounded-lg border border-gray-200 bg-white/60 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 dark:border-white/[0.12] dark:bg-white/[0.03] dark:text-white/90"
               />
-            </div>
-            <div className="relative">
-              <button
-                onClick={() => setFilterOpen((open) => !open)}
-                aria-label="Filter conversations"
-                className={`dropdown-toggle relative flex size-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
-                  filterOpen
-                    ? "border-brand-300 bg-brand-50 text-brand-600 dark:border-brand-800 dark:bg-brand-500/10"
-                    : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-white/5"
-                }`}
-              >
-                <FilterLinesIcon className="size-4" />
-                {filtersActive && (
-                  <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-white bg-brand-500 dark:border-gray-900" />
-                )}
-              </button>
-              <Dropdown isOpen={filterOpen} onClose={() => setFilterOpen(false)} className="w-56 p-3">
-                <p className="px-2 pb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                  Status
-                </p>
-                <div className="flex flex-col gap-0.5">
-                  <FilterRow label="Active" active={filter === "active"} onClick={() => setFilter("active")} />
-                  <FilterRow label="Needs review" active={filter === "needs_human"} onClick={() => setFilter("needs_human")} />
-                  <FilterRow label="Closed" active={filter === "closed"} onClick={() => setFilter("closed")} />
-                </div>
-                <p className="mt-3 px-2 pb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                  Channel
-                </p>
-                <div className="flex flex-col gap-0.5">
-                  <FilterRow label="All channels" active={channelFilter === "all"} onClick={() => setChannelFilter("all")} />
-                  <FilterRow label="Widget" active={channelFilter === "widget"} onClick={() => setChannelFilter("widget")} />
-                  <FilterRow label="Email" active={channelFilter === "email"} onClick={() => setChannelFilter("email")} />
-                </div>
-                {filtersActive && (
-                  <button
-                    onClick={() => {
-                      setFilter("active");
-                      setChannelFilter("all");
-                    }}
-                    className="mt-3 w-full border-t border-gray-100 pt-2.5 text-center text-xs font-medium text-gray-500 hover:text-gray-700 dark:border-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </Dropdown>
-            </div>
+            </label>
           </div>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          {!visible.length && (
-            <p className="px-4 py-10 text-center text-sm text-gray-500">
-              {search.trim()
-                ? "No conversations match your search."
-                : filter === "needs_human"
-                  ? "Nothing needs your review."
-                  : filter === "closed"
-                    ? "No resolved or closed tickets."
-                    : "No active tickets."}
-            </p>
-          )}
-          {visible.map((conversation) => {
-            const active = conversation.id === selected?.id;
-            const unread = isConversationUnread(conversation, readMap);
-            return (
-              <button
-                key={conversation.id}
-                onClick={() => selectConversation(conversation.id)}
-                aria-label={
-                  unread
-                    ? `${conversation.customerName}, unread`
-                    : conversation.customerName
-                }
-                className={`w-full border-b border-gray-100 px-4 py-3 text-left transition-colors dark:border-gray-800 ${
-                  active ? "bg-brand-25 dark:bg-brand-500/10" : "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="relative flex shrink-0">
-                    <span className="flex size-10 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                      {initials(conversation.customerName)}
-                    </span>
-                    {conversation.status === "needs_human" && (
-                      <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-white bg-warning-500 dark:border-gray-900" />
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p
-                        className={`truncate text-sm ${
-                          unread
-                            ? "font-semibold text-gray-900 dark:text-white"
-                            : "font-medium text-gray-700 dark:text-white/80"
-                        }`}
-                      >
-                        {conversation.customerName}
-                      </p>
-                      <span className="flex shrink-0 items-center gap-2">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {!visible.length && (
+              <p className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                {search.trim()
+                  ? "No conversations match your search."
+                  : activeFilterCount
+                    ? "No conversations match these filters."
+                    : "No open conversations."}
+              </p>
+            )}
+            {visible.map((conversation) => {
+              const active = conversation.id === selected?.id;
+              const unread = isConversationUnread(conversation, readMap);
+              return (
+                <button
+                  key={conversation.id}
+                  onClick={() => selectConversation(conversation.id)}
+                  aria-label={unread ? `${conversation.customerName}, unread` : conversation.customerName}
+                  aria-current={active ? "true" : undefined}
+                  className={`relative flex w-full items-start gap-3.5 border-b border-gray-100 py-4 pl-4 pr-4 text-left transition-colors dark:border-white/[0.06] ${
+                    active
+                      ? "bg-brand-500/[0.08] dark:bg-brand-500/[0.12]"
+                      : "hover:bg-gray-900/[0.03] dark:hover:bg-white/[0.03]"
+                  }`}
+                >
+                  {active && <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[3px] bg-brand-500" />}
+                  <CustomerAvatar name={conversation.customerName} />
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        {unread && <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-brand-500" />}
                         <span
-                          className={`text-[11px] ${
-                            unread
-                              ? "font-medium text-gray-500 dark:text-gray-400"
-                              : "text-gray-400 dark:text-gray-500"
+                          className={`truncate text-[15px] ${unread || active ? "font-semibold" : "font-medium"} ${
+                            active ? "text-brand-600 dark:text-brand-400" : "text-gray-900 dark:text-white/90"
                           }`}
                         >
-                          {relativeTime(conversation.updatedAt)}
+                          {conversation.customerName}
                         </span>
-                        {unread && (
-                          <span
-                            className="size-2 rounded-full bg-brand-500"
-                            aria-hidden="true"
-                          />
-                        )}
                       </span>
-                    </div>
-                    <p
-                      className={`mt-0.5 truncate text-sm ${
-                        unread
-                          ? "font-medium text-gray-700 dark:text-gray-300"
-                          : "text-gray-500 dark:text-gray-400"
+                      <span
+                        className={`shrink-0 text-xs ${
+                          unread ? "font-semibold text-brand-600 dark:text-brand-400" : "text-gray-500 dark:text-gray-400"
+                        }`}
+                      >
+                        {relativeTime(conversation.updatedAt)}
+                      </span>
+                    </span>
+                    <span
+                      className={`truncate text-sm ${
+                        unread ? "text-gray-700 dark:text-gray-300" : "text-gray-500 dark:text-gray-400"
                       }`}
                     >
                       {lastMessagePreview(conversation)}
-                    </p>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
+                    </span>
+                    <span className="mt-1.5 flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                      <ChannelIcon channel={conversation.channel} className="size-3.5" />
+                      <StatusTag conversation={conversation} />
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
 
-      {selected ? (
-        <main
-          className={`min-h-0 min-w-0 flex-1 flex-col lg:flex ${mobileView === "thread" ? "flex" : "hidden"}`}
-        >
-          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800 md:px-6">
-            <div className="flex min-w-0 items-center gap-3">
-              <button
-                onClick={() => setMobileView("list")}
-                aria-label="Back to conversations"
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 lg:hidden dark:text-gray-400 dark:hover:bg-white/5"
-              >
-                <ChevronLeftIcon className="size-5" />
-              </button>
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                {initials(selected.customerName)}
-              </span>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">{selected.customerName}</p>
-                  <Badge size="sm" color={badgeFor(selected).color}>
-                    {badgeFor(selected).label}
-                  </Badge>
-                  {selected.humanControlled && (
-                    <Badge size="sm" color="primary">
-                      Human-controlled
-                    </Badge>
+        {selected ? (
+          <main className={`min-h-0 min-w-0 flex-1 flex-col lg:flex ${mobileView === "thread" ? "flex" : "hidden"}`}>
+            <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-200 py-3.5 lg:pl-7 dark:border-white/[0.08]">
+              <div className="flex min-w-0 items-center gap-3.5">
+                <button
+                  onClick={() => setMobileView("list")}
+                  aria-label="Back to conversations"
+                  className="flex size-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-900/[0.04] lg:hidden dark:text-gray-400 dark:hover:bg-white/5"
+                >
+                  <ChevronLeftIcon className="size-5" />
+                </button>
+                <CustomerAvatar name={selected.customerName} size="lg" />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-base font-semibold text-gray-900 dark:text-white/90">{selected.customerName}</p>
+                    <StatusTag conversation={selected} />
+                  </div>
+                  <p className="mt-0.5 truncate text-sm text-gray-500 dark:text-gray-400">
+                    {[selected.customerEmail, CHANNEL_LABEL[selected.channel]].filter(Boolean).join(" · ")}
+                    {selected.externalTicketKey ? (
+                      <>
+                        {" "}
+                        &middot; Jira <span className="font-mono">{selected.externalTicketKey}</span>
+                      </>
+                    ) : null}
+                  </p>
+                  {selected.externalTicketError && (
+                    <p
+                      className="mt-1 line-clamp-2 text-xs font-medium text-error-600 dark:text-error-400"
+                      title={selected.externalTicketError}
+                    >
+                      Couldn&rsquo;t raise a Jira ticket: {selected.externalTicketError}
+                    </p>
                   )}
                 </div>
-                <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
-                  {CHANNEL_LABEL[selected.channel]} &middot; <span className="font-mono">{ticketRef(selected)}</span>
-                  {selected.subject ? <> &middot; {selected.subject}</> : null}
-                  {selected.externalTicketKey ? (
-                    <>
-                      {" "}
-                      &middot; Jira <span className="font-mono">{selected.externalTicketKey}</span>
-                    </>
-                  ) : null}
-                </p>
-                {selected.externalTicketError && (
-                  <p
-                    className="mt-1 line-clamp-2 text-xs font-medium text-error-600 dark:text-error-400"
-                    title={selected.externalTicketError}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {selected.humanControlled && !isClosed ? (
+                  <button disabled={updating} onClick={() => setHumanControlled(false)} className={`${outlineControl} px-4`}>
+                    Hand back to {agentName}
+                  </button>
+                ) : isClosed ? (
+                  <button disabled={updating} onClick={() => setStatus("open")} className={`${outlineControl} px-4`}>
+                    Reopen
+                  </button>
+                ) : (
+                  <button disabled={updating} onClick={() => setStatus("closed")} className={`${outlineControl} px-4`}>
+                    <CheckLineIcon className="size-4" />
+                    Close conversation
+                  </button>
+                )}
+                <div className="relative">
+                  <button
+                    onClick={() => setKebabOpen((open) => !open)}
+                    aria-label="More actions"
+                    className={`dropdown-toggle ${outlineControl} w-10`}
                   >
-                    Couldn&rsquo;t raise a Jira ticket: {selected.externalTicketError}
-                  </p>
+                    <MoreDotIcon className="size-4" />
+                  </button>
+                  <Dropdown isOpen={kebabOpen} onClose={() => setKebabOpen(false)} className="w-52 p-1.5 shadow-theme-lg">
+                    {!selected.humanControlled && !isClosed && (
+                      <DropdownItem
+                        onClick={() => {
+                          setKebabOpen(false);
+                          setHumanControlled(true);
+                        }}
+                        className="rounded-lg"
+                      >
+                        Take over
+                      </DropdownItem>
+                    )}
+                    {selected.status !== "resolved" && (
+                      <DropdownItem onClick={() => setStatus("resolved")} className="rounded-lg">
+                        Mark resolved
+                      </DropdownItem>
+                    )}
+                    <DropdownItem
+                      onClick={() => {
+                        setKebabOpen(false);
+                        setDeleteOpen(true);
+                      }}
+                      className="rounded-lg text-error-600 hover:bg-error-50 dark:text-error-400 dark:hover:bg-error-500/10"
+                    >
+                      Delete conversation
+                    </DropdownItem>
+                  </Dropdown>
+                </div>
+              </div>
+            </header>
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div ref={threadRef} className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain py-6 [scrollbar-gutter:stable] lg:pl-7 lg:pr-2">
+                {selected.summary && (
+                  <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm leading-6 text-gray-700 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300">
+                    <p className="mb-1 font-semibold text-gray-900 dark:text-white/90">Summary</p>
+                    {selected.summary}
+                  </div>
+                )}
+
+                {selected.messages.map((message) => {
+                  if (message.senderType === "customer") {
+                    return (
+                      <article key={message.id} className="flex gap-3 pr-8 md:pr-16">
+                        <span className="mt-7">
+                          <CustomerAvatar name={message.senderName} size="sm" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="mb-1.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                            <span className="text-sm font-medium text-gray-900 dark:text-white/90">{message.senderName}</span>
+                            {messageTime(message.createdAt)}
+                          </div>
+                          <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[15px] leading-6 text-gray-800 dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-gray-200">
+                            <p className="whitespace-pre-wrap">{message.body}</p>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  }
+
+                  const isAgent = message.senderType === "agent";
+                  return (
+                    <article key={message.id} className="flex justify-end gap-3 pl-8 md:pl-16">
+                      <div className="flex min-w-0 flex-col items-end">
+                        <div className="mb-1.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                          {messageTime(message.createdAt)}
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-theme-xs font-medium text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
+                            {isAgent ? "AI" : "You"}
+                          </span>
+                          <span className="text-sm font-medium text-gray-900 dark:text-white/90">{message.senderName}</span>
+                        </div>
+                        <div
+                          className={`rounded-2xl px-4 py-3 text-left text-[15px] leading-6 ${
+                            isAgent
+                              ? "bg-brand-500 text-white"
+                              : "border border-brand-200 bg-brand-50 text-gray-800 dark:border-brand-500/30 dark:bg-brand-500/15 dark:text-white/90"
+                          }`}
+                        >
+                          {isAgent ? <Markdown>{message.body}</Markdown> : <p className="whitespace-pre-wrap">{message.body}</p>}
+                          {message.citations.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {message.citations.map((citation, index) => {
+                                const label = typeof citation === "string" ? citation : (citation as { title?: string })?.title ?? "Source";
+                                return (
+                                  <span
+                                    key={`${message.id}-${index}-${label}`}
+                                    className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-xs font-medium text-white"
+                                  >
+                                    <DocsIcon className="size-3.5" />
+                                    {label}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span className="mt-7 shrink-0">
+                        {isAgent ? (
+                          <AgentAvatar
+                            initials={profile?.avatarInitials ?? "AW"}
+                            size="sm"
+                            accentColor={profile?.accentColor}
+                            avatarUrl={profile?.avatarUrl}
+                          />
+                        ) : (
+                          <span className="flex size-8 items-center justify-center rounded-full bg-gray-800 text-[11px] font-semibold text-white dark:bg-white/[0.12]">
+                            {initials(message.senderName)}
+                          </span>
+                        )}
+                      </span>
+                    </article>
+                  );
+                })}
+
+                {selected.status === "needs_human" && (
+                  <div className="flex items-center gap-3 text-xs text-warning-700 dark:text-warning-400">
+                    <span className="h-px flex-1 bg-gray-200 dark:bg-white/[0.08]" />
+                    <span className="flex items-center gap-1.5">
+                      <AlertIcon className="size-3.5" />
+                      {agentName} asked for your help
+                    </span>
+                    <span className="h-px flex-1 bg-gray-200 dark:bg-white/[0.08]" />
+                  </div>
+                )}
+
+                <InboxApprovals key={selected.id} conversationId={selected.id} refreshKey={selected.messages.length} />
+              </div>
+
+              <div className="shrink-0 pb-1 pt-2 lg:pl-7 lg:pr-2">
+                {notice && <p className="mb-2 text-xs text-warning-700 dark:text-warning-400">{notice}</p>}
+                {isClosed ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-gray-300 px-4 py-3 text-sm text-gray-500 dark:border-white/[0.12] dark:text-gray-400">
+                    This conversation is closed.
+                    <Button size="sm" variant="outline" disabled={updating} onClick={() => setStatus("open")}>
+                      Reopen
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-gray-200 bg-white focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-white/[0.12] dark:bg-white/[0.03]">
+                    <AutoGrowTextarea
+                      value={reply}
+                      onChange={(event) => setReply(event.target.value)}
+                      minRows={2}
+                      maxRows={8}
+                      maxLength={REPLY_MAX_LENGTH}
+                      aria-label="Reply"
+                      placeholder={`Reply to ${selected.customerName.split(" ")[0]}…`}
+                      className="block w-full resize-none bg-transparent px-4 py-3 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 py-2.5 pl-4 pr-2.5 dark:border-white/[0.08]">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {selected.humanControlled
+                          ? `You're handling this. ${agentName} won't reply until you hand it back.`
+                          : `Sending a reply takes over from ${agentName}.`}
+                        {reply.length > REPLY_MAX_LENGTH * 0.9 && (
+                          <span className="ml-2 tabular-nums">
+                            {reply.length}/{REPLY_MAX_LENGTH}
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        onClick={sendManagerReply}
+                        disabled={!reply.trim() || updating}
+                        className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-brand-500 px-4 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(244,121,32,0.25)] transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 disabled:shadow-none dark:disabled:bg-brand-500/40"
+                      >
+                        Send
+                        <ArrowUpIcon className="size-4" />
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {selected.humanControlled ? (
-                <Button size="sm" variant="outline" disabled={updating} onClick={() => setHumanControlled(false)}>
-                  Hand back to AI
-                </Button>
-              ) : (
-                <Button size="sm" disabled={updating} onClick={() => setHumanControlled(true)}>
-                  Take over
-                </Button>
-              )}
-              <div className="relative">
-                <button
-                  onClick={() => setKebabOpen((open) => !open)}
-                  aria-label="More actions"
-                  className="dropdown-toggle flex size-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-white/5"
-                >
-                  <MoreDotIcon className="size-4" />
-                </button>
-                <Dropdown isOpen={kebabOpen} onClose={() => setKebabOpen(false)} className="w-52 p-1.5">
-                  {selected.status !== "resolved" && selected.status !== "closed" && (
-                    <DropdownItem onClick={() => setStatus("resolved")} className="rounded-lg">
-                      Resolve
-                    </DropdownItem>
-                  )}
-                  {selected.status !== "closed" && (
-                    <DropdownItem onClick={() => setStatus("closed")} className="rounded-lg">
-                      Close
-                    </DropdownItem>
-                  )}
-                  {(selected.status === "resolved" || selected.status === "closed") && (
-                    <DropdownItem onClick={() => setStatus("open")} className="rounded-lg">
-                      Reopen
-                    </DropdownItem>
-                  )}
-                  <DropdownItem
-                    onClick={() => {
-                      setKebabOpen(false);
-                      setDeleteOpen(true);
-                    }}
-                    className="rounded-lg text-error-600 hover:bg-error-50 dark:text-error-400 dark:hover:bg-error-500/10"
-                  >
-                    Delete conversation
-                  </DropdownItem>
-                </Dropdown>
-              </div>
-            </div>
-          </header>
-
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 [scrollbar-gutter:stable] dark:bg-gray-950/40 md:p-6">
-              {selected.messages.map((message) => {
-                const isAgent = message.senderType === "agent";
-                const isManager = message.senderType === "manager";
-                const outgoing = message.senderType !== "customer";
-                return (
-                  <article key={message.id} className={`flex gap-3 ${outgoing ? "flex-row-reverse" : ""}`}>
-                    {isAgent ? (
-                      <AgentAvatar
-                        initials={profile?.avatarInitials ?? "AW"}
-                        size="sm"
-                        accentColor={profile?.accentColor}
-                        avatarUrl={profile?.avatarUrl}
-                      />
-                    ) : (
-                      <span
-                        className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
-                          isManager ? "bg-brand-500 text-white" : "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-200"
-                        }`}
-                      >
-                        {isManager ? "MG" : initials(message.senderName)}
-                      </span>
-                    )}
-                    <div className={`max-w-[78%] ${outgoing ? "text-right" : ""}`}>
-                      <div className={`mb-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ${outgoing ? "justify-end" : ""}`}>
-                        <span className="font-medium text-gray-700 dark:text-gray-300">{message.senderName}</span>
-                      </div>
-                      <div
-                        className={`px-4 py-3 text-left text-sm leading-6 ${
-                          outgoing ? "rounded-2xl rounded-br-md" : "rounded-2xl rounded-bl-md border"
-                        } ${
-                          message.senderType === "customer"
-                            ? "border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-200"
-                            : isManager
-                              ? "bg-brand-500 text-white"
-                              : "bg-blue-light-50 text-gray-800 dark:bg-blue-light-500/10 dark:text-gray-200"
-                        }`}
-                      >
-                        {isAgent ? <Markdown>{message.body}</Markdown> : <p className="whitespace-pre-wrap">{message.body}</p>}
-                        {message.citations.length > 0 && (
-                          <div className="mt-3 border-t border-current/10 pt-2">
-                            {message.citations.map((citation, index) => {
-                              const label = typeof citation === "string" ? citation : (citation as { title?: string })?.title ?? "Source";
-                              return (
-                              <span key={`${message.id}-${index}-${label}`} className="mr-2 inline-flex items-center gap-1 text-xs font-medium text-blue-light-700 dark:text-blue-light-300">
-                                <DocsIcon className="size-3.5" />
-                                {label}
-                              </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-              <InboxApprovals key={selected.id} conversationId={selected.id} refreshKey={selected.messages.length} />
-            </div>
-
-            <div className="shrink-0 border-t border-gray-200 p-4 dark:border-gray-800 md:p-5">
-              {notice && <p className="mb-2 text-xs text-warning-700 dark:text-warning-400">{notice}</p>}
-              <div className="flex items-end gap-3 rounded-xl border border-gray-300 bg-white p-2 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
-                <AutoGrowTextarea
-                  value={reply}
-                  onChange={(event) => setReply(event.target.value)}
-                  minRows={2}
-                  maxRows={8}
-                  maxLength={REPLY_MAX_LENGTH}
-                  placeholder="Reply as the manager…"
-                  className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
-                />
-                <button
-                  onClick={sendManagerReply}
-                  disabled={!reply.trim() || updating}
-                  aria-label="Send reply"
-                  className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
-                >
-                  <ArrowUpIcon className="size-4" />
-                </button>
-              </div>
-              {reply.length > REPLY_MAX_LENGTH * 0.9 && (
-                <p className="mt-1 text-right text-[11px] tabular-nums text-gray-500 dark:text-gray-400">
-                  {reply.length}/{REPLY_MAX_LENGTH}
-                </p>
-              )}
-            </div>
+          </main>
+        ) : (
+          <div className="hidden flex-1 items-center justify-center text-sm text-gray-500 lg:flex dark:text-gray-400">
+            Select a conversation to read it.
           </div>
-        </main>
-      ) : (
-        <div className="hidden flex-1 items-center justify-center text-sm text-gray-500 lg:flex">No conversations in this view.</div>
-      )}
+        )}
+      </div>
 
       <Modal
         isOpen={deleteOpen}
