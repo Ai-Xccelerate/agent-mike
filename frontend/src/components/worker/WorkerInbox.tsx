@@ -15,6 +15,7 @@ import {
   CheckLineIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
+  CopyIcon,
   DocsIcon,
   FilterLinesIcon,
   MailIcon,
@@ -93,6 +94,51 @@ function lastMessagePreview(conversation: Conversation) {
 }
 
 /** The one status chip a row or thread shows, if any. */
+/**
+ * One plain sentence for why a Jira ticket wasn't raised. The raw error stays
+ * one click away under Details, for whoever has to fix it.
+ */
+function ticketErrorReason(raw: string) {
+  if (/no credits|insufficient_quota|billing/i.test(raw)) return "The AI provider is out of credits. Add credits to fix this.";
+  if (/\b429\b|rate limit/i.test(raw)) return "The AI provider is busy. Try again in a few minutes.";
+  if (/\b40[13]\b|unauthori[sz]ed|forbidden|permission/i.test(raw)) return "Jira refused the request. Check the Jira connection in Settings.";
+  if (/request type/i.test(raw)) return "No Jira request type could be picked for this conversation.";
+  if (/jira site|connection/i.test(raw)) return "The Jira connection needs attention in Settings.";
+  return "Something went wrong while talking to Jira.";
+}
+
+function TicketErrorNotice({ error }: { error: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <details className="group rounded-2xl border border-warning-200 bg-warning-25 text-sm dark:border-warning-500/25 dark:bg-warning-500/[0.08]">
+      <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3.5 py-2.5 [&::-webkit-details-marker]:hidden">
+        <AlertIcon className="size-4 shrink-0 text-warning-600 dark:text-warning-400" />
+        <span className="min-w-0 flex-1">
+          <span className="font-medium text-gray-900 dark:text-white/90">Jira ticket wasn&rsquo;t created.</span>{" "}
+          <span className="text-gray-600 dark:text-gray-300">{ticketErrorReason(error)}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+          Details
+          <ChevronDownIcon className="size-3.5 transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="flex items-start gap-2 border-t border-warning-200 px-3.5 py-2.5 dark:border-warning-500/20">
+        <p className="min-w-0 flex-1 break-words font-mono text-xs leading-5 text-gray-600 dark:text-gray-400">{error}</p>
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard?.writeText(error).then(() => setCopied(true));
+          }}
+          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-900/[0.04] hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+        >
+          <CopyIcon className="size-3.5" />
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </details>
+  );
+}
+
 function statusTag(conversation: Conversation): { label: string; tone: "warning" | "brand" | "muted" } | null {
   if (conversation.status === "needs_human") return { label: "Needs you", tone: "warning" };
   if (CLOSED_STATUSES.has(conversation.status)) {
@@ -550,14 +596,6 @@ export default function WorkerInbox() {
                       </>
                     ) : null}
                   </p>
-                  {selected.externalTicketError && (
-                    <p
-                      className="mt-1 line-clamp-2 text-xs font-medium text-error-600 dark:text-error-400"
-                      title={selected.externalTicketError}
-                    >
-                      Couldn&rsquo;t raise a Jira ticket: {selected.externalTicketError}
-                    </p>
-                  )}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -616,6 +654,10 @@ export default function WorkerInbox() {
 
             <div className="flex min-h-0 flex-1 flex-col">
               <div ref={threadRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain py-5 [scrollbar-gutter:stable] lg:pl-6 lg:pr-2">
+                {selected.externalTicketError && (
+                  <TicketErrorNotice key={selected.id} error={selected.externalTicketError} />
+                )}
+
                 {selected.summary && (
                   <div className="rounded-2xl border border-gray-200 bg-white px-3.5 py-3 text-sm leading-6 text-gray-700 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300">
                     <p className="mb-1 font-semibold text-gray-900 dark:text-white/90">Summary</p>
