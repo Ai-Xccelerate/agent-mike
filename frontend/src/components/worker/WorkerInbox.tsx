@@ -75,6 +75,11 @@ function messageTime(iso: string) {
   return `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
 
+// The backend names a conversation "Website visitor" until the customer says who they are.
+function isPlaceholderName(name: string) {
+  return name.trim().toLowerCase() === "website visitor";
+}
+
 function initials(name: string) {
   return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
@@ -120,7 +125,7 @@ function ChannelIcon({ channel, className }: { channel: Conversation["channel"];
 
 /** Customer avatar: brand-orange ring around initials, matching Jules. */
 function CustomerAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
-  const sizeClass = size === "lg" ? "size-11 text-sm" : size === "sm" ? "size-9 text-xs" : "size-10 text-[13px]";
+  const sizeClass = size === "lg" ? "size-10 text-[13px]" : size === "sm" ? "size-8 text-[11px]" : "size-9 text-xs";
   return (
     <span
       className={`flex shrink-0 items-center justify-center rounded-full border-[1.5px] border-brand-500 font-medium text-brand-600 dark:text-brand-400 ${sizeClass}`}
@@ -162,7 +167,7 @@ function FilterOption({
 }
 
 const outlineControl =
-  "inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white/60 text-sm font-medium text-gray-700 transition-colors hover:bg-white disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]";
+  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white/60 text-sm font-medium text-gray-700 transition-colors hover:bg-white disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]";
 
 export default function WorkerInbox() {
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
@@ -363,13 +368,13 @@ export default function WorkerInbox() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <header
-        className={`shrink-0 flex-wrap items-start justify-between gap-4 pb-5 pt-2 lg:flex ${
+        className={`shrink-0 flex-wrap items-start justify-between gap-4 pb-4 lg:flex ${
           mobileView === "thread" ? "hidden" : "flex"
         }`}
       >
         <div className="min-w-0">
-          <h1 className="font-display text-title-sm font-semibold tracking-tight text-gray-900 dark:text-white/90">Inbox</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <h1 className="font-display text-xl font-semibold tracking-tight text-gray-900 dark:text-white/90">Inbox</h1>
+          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
             Conversations {agentName} is handling across chat and email.
           </p>
         </div>
@@ -378,7 +383,7 @@ export default function WorkerInbox() {
             onClick={() => setFilterOpen((open) => !open)}
             aria-haspopup="menu"
             aria-expanded={filterOpen}
-            className={`dropdown-toggle ${outlineControl} px-4 ${
+            className={`dropdown-toggle ${outlineControl} px-3 ${
               filterOpen || activeFilterCount ? "!border-brand-500 dark:!border-brand-500" : ""
             }`}
           >
@@ -430,13 +435,13 @@ export default function WorkerInbox() {
         }`}
       >
         <aside
-          className={`w-full shrink-0 border-r border-gray-200 lg:flex lg:w-[400px] lg:min-h-0 lg:flex-col dark:border-white/[0.08] ${
+          className={`w-full shrink-0 border-r border-gray-200 lg:flex lg:w-[360px] lg:min-h-0 lg:flex-col dark:border-white/[0.08] ${
             mobileView === "list" ? "flex flex-col" : "hidden"
           }`}
         >
-          <div className="shrink-0 border-b border-gray-200 py-3 lg:pr-4 dark:border-white/[0.08]">
+          <div className="shrink-0 border-b border-gray-200 py-2.5 lg:pr-3 dark:border-white/[0.08]">
             <label className="relative flex items-center">
-              <span className="pointer-events-none absolute left-3.5">
+              <span className="pointer-events-none absolute left-3">
                 <svg width="15" height="15" viewBox="0 0 20 20" fill="none" className="fill-gray-400 dark:fill-gray-500" aria-hidden="true">
                   <path
                     fillRule="evenodd"
@@ -450,7 +455,7 @@ export default function WorkerInbox() {
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search conversations"
                 aria-label="Search conversations"
-                className="h-11 w-full rounded-lg border border-gray-200 bg-white/60 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 dark:border-white/[0.12] dark:bg-white/[0.03] dark:text-white/90"
+                className="h-9 w-full rounded-lg border border-gray-200 bg-white/60 pl-9 pr-3 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 dark:border-white/[0.12] dark:bg-white/[0.03] dark:text-white/90"
               />
             </label>
           </div>
@@ -473,7 +478,7 @@ export default function WorkerInbox() {
                   onClick={() => selectConversation(conversation.id)}
                   aria-label={unread ? `${conversation.customerName}, unread` : conversation.customerName}
                   aria-current={active ? "true" : undefined}
-                  className={`relative flex w-full items-start gap-3.5 border-b border-gray-100 py-4 pl-4 pr-4 text-left transition-colors dark:border-white/[0.06] ${
+                  className={`relative flex w-full items-start gap-3 border-b border-gray-100 py-3 pl-4 pr-3 text-left transition-colors dark:border-white/[0.06] ${
                     active
                       ? "bg-brand-500/[0.08] dark:bg-brand-500/[0.12]"
                       : "hover:bg-gray-900/[0.03] dark:hover:bg-white/[0.03]"
@@ -486,7 +491,7 @@ export default function WorkerInbox() {
                       <span className="flex min-w-0 items-center gap-1.5">
                         {unread && <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-brand-500" />}
                         <span
-                          className={`truncate text-[15px] ${unread || active ? "font-semibold" : "font-medium"} ${
+                          className={`truncate text-sm ${unread || active ? "font-semibold" : "font-medium"} ${
                             active ? "text-brand-600 dark:text-brand-400" : "text-gray-900 dark:text-white/90"
                           }`}
                         >
@@ -508,7 +513,7 @@ export default function WorkerInbox() {
                     >
                       {lastMessagePreview(conversation)}
                     </span>
-                    <span className="mt-1.5 flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                    <span className="mt-1 flex items-center gap-2 text-gray-400 dark:text-gray-500">
                       <ChannelIcon channel={conversation.channel} className="size-3.5" />
                       <StatusTag conversation={conversation} />
                     </span>
@@ -521,22 +526,22 @@ export default function WorkerInbox() {
 
         {selected ? (
           <main className={`min-h-0 min-w-0 flex-1 flex-col lg:flex ${mobileView === "thread" ? "flex" : "hidden"}`}>
-            <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-200 py-3.5 lg:pl-7 dark:border-white/[0.08]">
+            <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-200 py-3 lg:pl-6 dark:border-white/[0.08]">
               <div className="flex min-w-0 items-center gap-3.5">
                 <button
                   onClick={() => setMobileView("list")}
                   aria-label="Back to conversations"
-                  className="flex size-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-900/[0.04] lg:hidden dark:text-gray-400 dark:hover:bg-white/5"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-900/[0.04] lg:hidden dark:text-gray-400 dark:hover:bg-white/5"
                 >
                   <ChevronLeftIcon className="size-5" />
                 </button>
                 <CustomerAvatar name={selected.customerName} size="lg" />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-base font-semibold text-gray-900 dark:text-white/90">{selected.customerName}</p>
+                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-white/90">{selected.customerName}</p>
                     <StatusTag conversation={selected} />
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-gray-500 dark:text-gray-400">
+                  <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
                     {[selected.customerEmail, CHANNEL_LABEL[selected.channel]].filter(Boolean).join(" · ")}
                     {selected.externalTicketKey ? (
                       <>
@@ -557,15 +562,15 @@ export default function WorkerInbox() {
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {selected.humanControlled && !isClosed ? (
-                  <button disabled={updating} onClick={() => setHumanControlled(false)} className={`${outlineControl} px-4`}>
+                  <button disabled={updating} onClick={() => setHumanControlled(false)} className={`${outlineControl} px-3`}>
                     Hand back to {agentName}
                   </button>
                 ) : isClosed ? (
-                  <button disabled={updating} onClick={() => setStatus("open")} className={`${outlineControl} px-4`}>
+                  <button disabled={updating} onClick={() => setStatus("open")} className={`${outlineControl} px-3`}>
                     Reopen
                   </button>
                 ) : (
-                  <button disabled={updating} onClick={() => setStatus("closed")} className={`${outlineControl} px-4`}>
+                  <button disabled={updating} onClick={() => setStatus("closed")} className={`${outlineControl} px-3`}>
                     <CheckLineIcon className="size-4" />
                     Close conversation
                   </button>
@@ -574,7 +579,7 @@ export default function WorkerInbox() {
                   <button
                     onClick={() => setKebabOpen((open) => !open)}
                     aria-label="More actions"
-                    className={`dropdown-toggle ${outlineControl} w-10`}
+                    className={`dropdown-toggle ${outlineControl} w-9`}
                   >
                     <MoreDotIcon className="size-4" />
                   </button>
@@ -610,9 +615,9 @@ export default function WorkerInbox() {
             </header>
 
             <div className="flex min-h-0 flex-1 flex-col">
-              <div ref={threadRef} className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain py-6 [scrollbar-gutter:stable] lg:pl-7 lg:pr-2">
+              <div ref={threadRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain py-5 [scrollbar-gutter:stable] lg:pl-6 lg:pr-2">
                 {selected.summary && (
-                  <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm leading-6 text-gray-700 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300">
+                  <div className="rounded-2xl border border-gray-200 bg-white px-3.5 py-3 text-sm leading-6 text-gray-700 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300">
                     <p className="mb-1 font-semibold text-gray-900 dark:text-white/90">Summary</p>
                     {selected.summary}
                   </div>
@@ -622,15 +627,15 @@ export default function WorkerInbox() {
                   if (message.senderType === "customer") {
                     return (
                       <article key={message.id} className="flex gap-3 pr-8 md:pr-16">
-                        <span className="mt-7">
+                        <span className="mt-6">
                           <CustomerAvatar name={message.senderName} size="sm" />
                         </span>
                         <div className="min-w-0">
-                          <div className="mb-1.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                            <span className="text-sm font-medium text-gray-900 dark:text-white/90">{message.senderName}</span>
+                          <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                            <span className="text-[13px] font-medium text-gray-900 dark:text-white/90">{message.senderName}</span>
                             {messageTime(message.createdAt)}
                           </div>
-                          <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[15px] leading-6 text-gray-800 dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-gray-200">
+                          <div className="rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-6 text-gray-800 dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-gray-200">
                             <p className="whitespace-pre-wrap">{message.body}</p>
                           </div>
                         </div>
@@ -642,15 +647,15 @@ export default function WorkerInbox() {
                   return (
                     <article key={message.id} className="flex justify-end gap-3 pl-8 md:pl-16">
                       <div className="flex min-w-0 flex-col items-end">
-                        <div className="mb-1.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <div className="mb-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                           {messageTime(message.createdAt)}
                           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-theme-xs font-medium text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
                             {isAgent ? "AI" : "You"}
                           </span>
-                          <span className="text-sm font-medium text-gray-900 dark:text-white/90">{message.senderName}</span>
+                          <span className="text-[13px] font-medium text-gray-900 dark:text-white/90">{message.senderName}</span>
                         </div>
                         <div
-                          className={`rounded-2xl px-4 py-3 text-left text-[15px] leading-6 ${
+                          className={`rounded-2xl px-3.5 py-2.5 text-left text-sm leading-6 ${
                             isAgent
                               ? "bg-brand-500 text-white"
                               : "border border-brand-200 bg-brand-50 text-gray-800 dark:border-brand-500/30 dark:bg-brand-500/15 dark:text-white/90"
@@ -675,7 +680,7 @@ export default function WorkerInbox() {
                           )}
                         </div>
                       </div>
-                      <span className="mt-7 shrink-0">
+                      <span className="mt-6 shrink-0">
                         {isAgent ? (
                           <AgentAvatar
                             initials={profile?.avatarInitials ?? "AW"}
@@ -707,7 +712,7 @@ export default function WorkerInbox() {
                 <InboxApprovals key={selected.id} conversationId={selected.id} refreshKey={selected.messages.length} />
               </div>
 
-              <div className="shrink-0 pb-1 pt-2 lg:pl-7 lg:pr-2">
+              <div className="shrink-0 pb-1 pt-2 lg:pl-6 lg:pr-2">
                 {notice && <p className="mb-2 text-xs text-warning-700 dark:text-warning-400">{notice}</p>}
                 {isClosed ? (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-gray-300 px-4 py-3 text-sm text-gray-500 dark:border-white/[0.12] dark:text-gray-400">
@@ -725,10 +730,10 @@ export default function WorkerInbox() {
                       maxRows={8}
                       maxLength={REPLY_MAX_LENGTH}
                       aria-label="Reply"
-                      placeholder={`Reply to ${selected.customerName.split(" ")[0]}…`}
-                      className="block w-full resize-none bg-transparent px-4 py-3 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
+                      placeholder={isPlaceholderName(selected.customerName) ? "Write a reply…" : `Reply to ${selected.customerName.split(" ")[0]}…`}
+                      className="block w-full resize-none bg-transparent px-3.5 py-2.5 text-sm leading-6 text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
                     />
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 py-2.5 pl-4 pr-2.5 dark:border-white/[0.08]">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 py-2 pl-3.5 pr-2 dark:border-white/[0.08]">
                       <span className="text-xs text-gray-500 dark:text-gray-400">
                         {selected.humanControlled
                           ? `You're handling this. ${agentName} won't reply until you hand it back.`
@@ -742,7 +747,7 @@ export default function WorkerInbox() {
                       <button
                         onClick={sendManagerReply}
                         disabled={!reply.trim() || updating}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-brand-500 px-4 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(244,121,32,0.25)] transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 disabled:shadow-none dark:disabled:bg-brand-500/40"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(244,121,32,0.25)] transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 disabled:shadow-none dark:disabled:bg-brand-500/40"
                       >
                         Send
                         <ArrowUpIcon className="size-4" />
