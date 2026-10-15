@@ -32,6 +32,18 @@ function messageTime(iso: string) {
   return `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
 
+/** A select with its own chevron, inset from the edge. The native arrow sits flush against the border. */
+function SelectField({ className = "", children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <span className={`relative block ${className}`}>
+      <select {...props} className={`${fieldClass} appearance-none pr-9`}>
+        {children}
+      </select>
+      <ChevronDownIcon aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
+    </span>
+  );
+}
+
 function Section({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
   return (
     <details open={defaultOpen} className={`group ${cardClass}`}>
@@ -181,19 +193,19 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
         <h1 className="min-w-0 flex-1 font-display text-2xl font-semibold tracking-tight text-gray-900 dark:text-white/90">{title}</h1>
         <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           Status
-          <select
+          <SelectField
             aria-label="Status"
             value={ticket.status}
             disabled={!canChange || saving}
             onChange={(event) => void save({ status: event.target.value }, "Could not update the status.")}
-            className={`${fieldClass} !w-44 font-medium`}
+            className="w-48 font-medium"
           >
             {STATUSES.map((status) => (
               <option key={status} value={status}>
                 {STATUS_LABEL[status]}
               </option>
             ))}
-          </select>
+          </SelectField>
         </label>
       </header>
 
@@ -306,12 +318,11 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
               </Field>
               <Field label="Priority">{priority ? <PriorityPill priority={priority} /> : <span className="text-gray-500 dark:text-gray-400">Not set</span>}</Field>
               <Field label="Request type">
-                <select
+                <SelectField
                   aria-label="Request type"
                   value={requestType}
                   disabled={!canChange || saving}
                   onChange={(event) => void save({ requestType: event.target.value || null }, "Could not save the request type.")}
-                  className={fieldClass}
                 >
                   <option value="">Not set</option>
                   {typeOptions.map((name) => (
@@ -319,15 +330,14 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
                       {name}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </Field>
               <Field label="Tier">
-                <select
+                <SelectField
                   aria-label="Tier"
                   value={ticket.tier ?? ""}
                   disabled={!canChange || saving}
                   onChange={(event) => void save({ tier: event.target.value || null }, "Could not save the tier.")}
-                  className={fieldClass}
                 >
                   <option value="">Not set</option>
                   {tierOptions.map((tier) => (
@@ -335,7 +345,7 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
                       {tier}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </Field>
               <Field label="Labels">
                 <span className="flex flex-wrap gap-1.5">
