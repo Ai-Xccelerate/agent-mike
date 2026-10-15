@@ -1,8 +1,13 @@
-import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
 import { helpdeskBreakdownSource } from "@/lib/tools-integrations/atlassian";
+import { getOrCreateProfile } from "@/lib/bootstrap";
+import { resolveTicketSchema, type TicketSchema } from "@/lib/ticket-schema";
+import { backfillFromJira, jiraSiteFor, withTimeout } from "@/lib/ticket-jira";
+import { jiraTicketUrl } from "@/lib/tools-integrations/atlassian";
+import { extractStatedCustomer, type StatedCustomer } from "@/lib/customer-stated";
 
 /**
  * The Tickets page's data. A ticket is a customer conversation: it already
@@ -38,7 +43,11 @@ export type Ticket = {
   /** Stored labels plus the ones the state implies (handed-over, ticket-failed). */
   labels: string[];
   externalTicketKey: string | null;
+  /** Where an agent opens the Jira ticket, when a helpdesk is connected. */
+  externalTicketUrl: string | null;
   externalTicketError: string | null;
+  /** What the customer typed about themselves in the chat. Not verified; display only. */
+  customerStated: StatedCustomer | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -61,6 +70,8 @@ export type TicketsPayload = {
   /** The connected helpdesk's request types (zeros included), then any others in use. */
   requestTypes: { name: string; count: number }[];
   helpdesk: { project: string } | null;
+  /** The worker's own request types, tiers and labels (the defaults until it sets them). */
+  schema: TicketSchema;
 };
 
 export function inQueue(ticket: Pick<Ticket, "status" | "handler">, queue: QueueId): boolean {
@@ -102,10 +113,60 @@ export function toTicket(row: Row): Ticket {
     tier: row.tier,
     labels: [...new Set([...(row.labels ?? []), ...implied])],
     externalTicketKey: row.externalTicketKey,
+    externalTicketUrl: null,
     externalTicketError: row.externalTicketError,
+    customerStated: null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+const LINK_WAIT_MS = 2500;
+const BACKFILL_PER_LOAD = 10;
+
+/** True while the conversation still has the widget's placeholder name or no email on record. */
+export function lacksVerifiedCustomer(row: Pick<Row, "customerName" | "customerEmail">): boolean {
+  return row.customerName.trim().toLowerCase() === "website visitor" || !row.customerEmail;
+}
+
+/**
+ * Adds what is not on the conversation row itself: the Jira link, and what
+ * the customer typed about themselves. Also starts filling in the request
+ * type and priority of older Jira tickets; that runs in the background, so
+ * the next load shows it and this one never waits on Jira.
+ */
+async function decorate(organizationId: string, rows: Row[], tickets: Ticket[]): Promise<void> {
+  if (rows.some((row) => row.externalTicketKey)) {
+    const site = await withTimeout(jiraSiteFor(organizationId), LINK_WAIT_MS, null);
+    if (site) {
+      tickets.forEach((ticket) => {
+        if (ticket.externalTicketKey) ticket.externalTicketUrl = jiraTicketUrl(site, ticket.externalTicketKey);
+      });
+    }
+    for (const row of rows.filter((r) => r.externalTicketKey && !(r.externalTicketType && r.externalTicketPriority)).slice(0, BACKFILL_PER_LOAD)) {
+      void backfillFromJira(row).catch(() => undefined);
+    }
+  }
+
+  const unverified = rows.filter(lacksVerifiedCustomer).map((row) => row.id);
+  if (unverified.length === 0) return;
+  const said = await db
+    .select({ conversationId: messages.conversationId, body: messages.body })
+    .from(messages)
+    .where(
+      and(
+        inArray(messages.conversationId, unverified),
+        eq(messages.senderType, "customer"),
+        sql`${messages.body} ~* '(@|my name is|name *:|this is)'`,
+      ),
+    )
+    .orderBy(messages.createdAt);
+  const byConversation = new Map<string, string[]>();
+  for (const message of said) byConversation.set(message.conversationId, [...(byConversation.get(message.conversationId) ?? []), message.body]);
+  tickets.forEach((ticket) => {
+    const bodies = byConversation.get(ticket.id);
+    if (bodies) ticket.customerStated = extractStatedCustomer(bodies);
+  });
 }
 
 export async function computeTickets(input: { organizationId: string; now?: Date }): Promise<TicketsPayload> {
@@ -135,6 +196,7 @@ export async function computeTickets(input: { organizationId: string; now?: Date
   const replied = new Set(repliedRows.map((row) => row.conversationId));
 
   const tickets = rows.map(toTicket);
+  await decorate(organizationId, rows, tickets);
   const queueIds: QueueId[] = ["all_open", "needs_human", "worker", "human", "closed"];
   const queues = Object.fromEntries(
     queueIds.map((queue) => [queue, tickets.filter((ticket) => inQueue(ticket, queue)).length]),
@@ -147,8 +209,9 @@ export async function computeTickets(input: { organizationId: string; now?: Date
 
   // A helpdesk that can't be reached still leaves the counts we keep ourselves.
   const source = await helpdeskBreakdownSource(organizationId).catch(() => null);
+  const schema = resolveTicketSchema((await getOrCreateProfile(organizationId)).ticketSchema);
   const counts = new Map<string, number>();
-  for (const name of source?.types ?? []) counts.set(name, 0);
+  for (const name of source?.types ?? schema.requestTypes) counts.set(name, 0);
   for (const ticket of tickets) {
     if (!CLOSED.has(ticket.status) && ticket.requestType) {
       counts.set(ticket.requestType, (counts.get(ticket.requestType) ?? 0) + 1);
@@ -167,5 +230,6 @@ export async function computeTickets(input: { organizationId: string; now?: Date
     sampleIds: handledByWorker.slice(0, SAMPLE_LIMIT).map((ticket) => ticket.id),
     requestTypes: [...counts.entries()].map(([name, count]) => ({ name, count })),
     helpdesk: source ? { project: source.project } : null,
+    schema,
   };
 }

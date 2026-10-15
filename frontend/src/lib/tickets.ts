@@ -1,4 +1,4 @@
-import type { Conversation, Ticket, TicketQueueId } from "@/lib/worker-api";
+import type { Conversation, StatedCustomer, Ticket, TicketQueueId, TicketSchema } from "@/lib/worker-api";
 
 /** The queues down the Tickets page's left edge, in display order. */
 export const TICKET_QUEUES: { id: TicketQueueId; label: string; hint: string }[] = [
@@ -8,6 +8,24 @@ export const TICKET_QUEUES: { id: TicketQueueId; label: string; hint: string }[]
   { id: "human", label: "With a person", hint: "Handed over or taken over" },
   { id: "closed", label: "Resolved and closed", hint: "Finished tickets" },
 ];
+
+/**
+ * What a worker sorts tickets with until it sets its own. Keep in step with
+ * DEFAULT_TICKET_SCHEMA in the API's lib/ticket-schema.ts.
+ */
+export const DEFAULT_TICKET_SCHEMA: TicketSchema = {
+  requestTypes: ["Question", "Problem", "Request", "Feedback", "Other"],
+  tiers: ["Tier 1", "Tier 2", "Tier 3"],
+  labels: ["urgent", "outage", "billing", "bug", "feature-request"],
+};
+
+export function resolveTicketSchema(stored: Partial<TicketSchema> | null | undefined): TicketSchema {
+  return {
+    requestTypes: stored?.requestTypes?.length ? stored.requestTypes : DEFAULT_TICKET_SCHEMA.requestTypes,
+    tiers: stored?.tiers?.length ? stored.tiers : DEFAULT_TICKET_SCHEMA.tiers,
+    labels: stored?.labels ?? DEFAULT_TICKET_SCHEMA.labels,
+  };
+}
 
 export const STATUS_LABEL: Record<Conversation["status"], string> = {
   open: "Open",
@@ -58,6 +76,28 @@ export function ticketTitle(ticket: Pick<Ticket, "subject" | "customerName">): s
   return ticket.subject?.trim() || ticket.customerName;
 }
 
+/** The widget's placeholder for a visitor who has not been identified. */
+export function isPlaceholderName(name: string): boolean {
+  return name.trim().toLowerCase() === "website visitor";
+}
+
+/**
+ * Who to call the customer. A verified name wins; for an unidentified visitor
+ * it is what they typed in the chat, marked as unverified.
+ */
+export function customerLabel(customer: { customerName: string; customerEmail: string | null; customerStated?: StatedCustomer | null }): {
+  name: string;
+  email: string | null;
+  unverified: boolean;
+} {
+  const stated = customer.customerStated;
+  if (isPlaceholderName(customer.customerName) && stated?.name) {
+    return { name: stated.name, email: customer.customerEmail ?? stated.email, unverified: true };
+  }
+  if (!customer.customerEmail && stated?.email) return { name: customer.customerName, email: stated.email, unverified: true };
+  return { name: customer.customerName, email: customer.customerEmail, unverified: false };
+}
+
 export function filterTickets(tickets: Ticket[], filters: TicketFilters, prefix?: string): Ticket[] {
   const query = filters.search.trim().toLowerCase();
   return tickets.filter((ticket) => {
@@ -71,6 +111,8 @@ export function filterTickets(tickets: Ticket[], filters: TicketFilters, prefix?
       ticket.subject ?? "",
       ticket.customerName,
       ticket.customerEmail ?? "",
+      ticket.customerStated?.name ?? "",
+      ticket.customerStated?.email ?? "",
       ticket.requestType ?? "",
       ...ticket.labels,
     ].some((value) => value.toLowerCase().includes(query));

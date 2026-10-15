@@ -102,6 +102,9 @@ export const workerProfiles = pgTable(
     emailManagerOnHandoff: boolean("email_manager_on_handoff").notNull().default(true),
     // The team's first-reply target in hours, shown on the Overview. Null = none.
     firstReplyTargetHours: integer("first_reply_target_hours"),
+    // The request types, tiers and labels this worker classifies tickets with
+    // (lib/ticket-schema.ts). Null = the built-in defaults.
+    ticketSchema: jsonb("ticket_schema").$type<{ requestTypes: string[]; tiers: string[]; labels: string[] }>(),
     // Settings > Email domains: on = the worker may only email approved
     // domains; off (default) = any domain.
     restrictEmailDomains: boolean("restrict_email_domains").notNull().default(false),
@@ -199,6 +202,9 @@ export const conversations = pgTable(
     requestType: text("request_type"),
     tier: text("tier"),
     labels: jsonb("labels").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // "worker" = set by the classifier (which may redo it); "manual" = a person
+    // edited it, so the classifier leaves it alone.
+    classificationSource: text("classification_source"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

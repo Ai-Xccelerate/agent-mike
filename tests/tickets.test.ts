@@ -148,13 +148,22 @@ describe("computeTickets", () => {
     ]);
   });
 
-  it("works with no helpdesk connected", async () => {
+  it("works with no helpdesk connected: lists the worker's own request types, then others in use", async () => {
     sourceMock.mockResolvedValue(null);
     await ticket({ channel: "widget", requestType: "Billing question" });
-    const { requestTypes, helpdesk, tickets } = await computeTickets({ organizationId: orgId, now: NOW });
+    await ticket({ channel: "widget", requestType: "Problem" });
+    const { requestTypes, helpdesk, tickets, schema } = await computeTickets({ organizationId: orgId, now: NOW });
     expect(helpdesk).toBeNull();
-    expect(requestTypes).toEqual([{ name: "Billing question", count: 1 }]);
-    expect(tickets).toHaveLength(1);
+    expect(requestTypes).toEqual([
+      { name: "Question", count: 0 },
+      { name: "Problem", count: 1 },
+      { name: "Request", count: 0 },
+      { name: "Feedback", count: 0 },
+      { name: "Other", count: 0 },
+      { name: "Billing question", count: 1 },
+    ]);
+    expect(schema.tiers).toEqual(["Tier 1", "Tier 2", "Tier 3"]);
+    expect(tickets).toHaveLength(2);
   });
 
   it("survives a helpdesk that throws", async () => {
@@ -208,6 +217,8 @@ describe("PATCH classification", () => {
     expect(saved.requestType).toBe("Billing");
     expect(saved.tier).toBe("Tier 2");
     expect(saved.labels).toEqual(["urgent", "vip"]);
+    // A person's edit freezes the classification so the worker never overwrites it.
+    expect(saved.classificationSource).toBe("manual");
 
     const cleared = await patch(row.id, { requestType: null, tier: null, labels: [] });
     expect(cleared.status).toBe(200);

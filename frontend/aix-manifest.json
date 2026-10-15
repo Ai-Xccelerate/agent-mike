@@ -908,7 +908,7 @@
         },
         {
           "id": "AIX-112.2",
-          "description": "Queue list with counts: all open, needs a person, handled by the worker, with a person, resolved and closed; chips on mobile"
+          "description": "Queue tabs with counts: all open, needs a person, handled by the worker, with a person, resolved and closed; the row scrolls sideways on mobile"
         },
         {
           "id": "AIX-112.3",

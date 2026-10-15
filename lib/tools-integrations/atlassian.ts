@@ -1142,6 +1142,52 @@ async function ticketPriority(connectedAccountId: string, key: string): Promise<
   return typeof name === "string" ? name : null;
 }
 
+const jiraSiteCache = new Map<string, { site: string | null; at: number }>();
+const SITE_CACHE_MS = 60 * 60 * 1000;
+
+/** The connected Jira site's address (e.g. https://acme.atlassian.net), cached for an hour. Null when no helpdesk is connected. */
+export async function jiraSiteUrl(organizationId: string): Promise<string | null> {
+  const cached = jiraSiteCache.get(organizationId);
+  if (cached && Date.now() - cached.at < SITE_CACHE_MS) return cached.site;
+  const connection = await getConnectionForOrg(organizationId, "helpdesk");
+  const connectedAccountId = activeAccount(connection, "jira");
+  if (!connectedAccountId) return null;
+  const found = await getAccountSite(connectedAccountId).catch(() => null);
+  const site = found ? found.replace(/\/+$/, "") : null;
+  // A failed lookup is not remembered, so the next view tries again.
+  if (site) jiraSiteCache.set(organizationId, { site, at: Date.now() });
+  return site;
+}
+
+/** Where an agent opens a Jira ticket. */
+export function jiraTicketUrl(site: string, key: string): string {
+  return `${site}/browse/${encodeURIComponent(key)}`;
+}
+
+export function clearJiraSiteCache(): void {
+  jiraSiteCache.clear();
+}
+
+/**
+ * What Jira says about one ticket: the request type it was raised as and its
+ * priority. For tickets raised before the app kept those with the ticket.
+ * Null when no helpdesk is connected; a field Jira doesn't report is null.
+ */
+export async function readJiraTicketDetails(
+  organizationId: string,
+  key: string,
+): Promise<{ requestType: string | null; priority: string | null } | null> {
+  const connection = await getConnectionForOrg(organizationId, "helpdesk");
+  const connectedAccountId = activeAccount(connection, "jira");
+  if (!connectedAccountId) return null;
+  const [request, priority] = await Promise.all([
+    callJira(connectedAccountId, "GET", `/rest/servicedeskapi/request/${encodeURIComponent(key)}?expand=requestType`),
+    ticketPriority(connectedAccountId, key),
+  ]);
+  const name = request.ok ? (request.data as { requestType?: { name?: unknown } } | null)?.requestType?.name : null;
+  return { requestType: typeof name === "string" && name ? name : null, priority };
+}
+
 /**
  * What the connected helpdesk offers, for the Overview's breakdowns: the
  * desk's request types (or the issue type tickets go in as) and the site's

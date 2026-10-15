@@ -8,6 +8,9 @@ import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { withNormalizedCitations } from "@/lib/citations";
 import { livePendingApprovals, toPendingActionView } from "@/lib/assistant-agent";
+import { backfillFromJira, jiraLinkFor, withTimeout } from "@/lib/ticket-jira";
+import { extractStatedCustomer } from "@/lib/customer-stated";
+import { lacksVerifiedCustomer } from "@/lib/tickets";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -30,14 +33,28 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     conversation.channel === "assistant"
       ? (await livePendingApprovals(tenant.orgId, conversation.id)).map(toPendingActionView)
       : [];
+  // What Jira can add for a ticket the worker raised (its link, and the request
+  // type and priority of one raised before the app kept them). A slow or
+  // missing Jira never holds the ticket back.
+  const [filled, externalTicketUrl] = await Promise.all([
+    withTimeout(backfillFromJira(conversation), JIRA_WAIT_MS, null),
+    withTimeout(jiraLinkFor(tenant.orgId, conversation.externalTicketKey), JIRA_WAIT_MS, null),
+  ]);
+  const customerStated = lacksVerifiedCustomer(conversation)
+    ? extractStatedCustomer(msgs.filter((message) => message.senderType === "customer").map((message) => message.body))
+    : null;
   return NextResponse.json({
     ...conversation,
+    ...(filled ?? {}),
+    externalTicketUrl,
+    customerStated,
     messages: msgs.map(withNormalizedCitations),
     pendingActions,
     canChange: isOrgAdmin(tenant.role),
   });
 }
 
+const JIRA_WAIT_MS = 4000;
 const VALID_STATUSES = ["open", "needs_human", "resolved", "closed"] as const;
 const MAX_TEXT = 80;
 const MAX_LABELS = 20;
@@ -114,6 +131,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(requestType !== undefined ? { requestType: requestType?.trim() ?? null } : {}),
       ...(tier !== undefined ? { tier: tier?.trim() ?? null } : {}),
       ...(labels !== undefined ? { labels: [...new Set(labels.map((label) => label.trim()))] } : {}),
+      // A person's edit is final: the classifier leaves this ticket alone from now on.
+      ...(requestType !== undefined || tier !== undefined || labels !== undefined ? { classificationSource: "manual" } : {}),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversation.id))
