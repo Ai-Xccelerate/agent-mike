@@ -1,0 +1,10 @@
+{
+  "name": "pronouns-feature-request",
+  "description": "A visitor asks for an optional pronouns field on the intake form. The worker collects name and email and passes the request to the team as a feature request. Still being tried: not approved for production.",
+  "approved": false,
+  "turns": [
+    { "say": "Could you add an optional pronouns field to the intake form?" },
+    { "say": "Dana Reyes, dana@riverside-counseling.example, Riverside Counseling." }
+  ],
+  "expect": { "finalStatus": "needs_human", "ticketRaised": true }
+}
