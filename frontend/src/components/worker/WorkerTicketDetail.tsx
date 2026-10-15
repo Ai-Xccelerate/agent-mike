@@ -39,7 +39,7 @@ function Section({ title, children, defaultOpen = true }: { title: string; child
         {title}
         <ChevronDownIcon className="size-4 text-gray-400 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="flex flex-col gap-3 px-4 pb-4 text-sm">{children}</div>
+      <div className="flex flex-col gap-3 px-4 pb-4 text-sm text-gray-700 dark:text-gray-200">{children}</div>
     </details>
   );
 }
@@ -262,7 +262,7 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
               return (
                 <article
                   key={message.id}
-                  className={`rounded-lg px-3.5 py-2.5 ${
+                  className={`rounded-lg px-3.5 py-2.5 text-gray-800 dark:text-gray-100 ${
                     isCustomer
                       ? "bg-gray-50 dark:bg-white/[0.04]"
                       : isAgent
