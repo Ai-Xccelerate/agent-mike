@@ -188,7 +188,10 @@ export async function runCustomerTurn(input: {
     })
     .returning();
 
-  const status = result.escalate ? "needs_human" : "open";
+  // A conversation already waiting for a person stays that way when the
+  // customer writes again ("thanks", more details). Only a person moves it on;
+  // otherwise one polite reply would drop it out of the team's queue.
+  const status = result.escalate || conversation.status === "needs_human" ? "needs_human" : "open";
 
   // Fold anything that just fell out of the replay window into the rolling
   // summary. Runs after the turn so it never delays the customer's answer.
