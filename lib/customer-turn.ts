@@ -9,6 +9,7 @@ import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn
 import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
+import { classifyConversation } from "@/lib/ticket-classifier";
 
 /**
  * One customer-facing agent turn, shared by every channel (chat, widget,
@@ -207,6 +208,14 @@ export async function runCustomerTurn(input: {
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversation.id));
+
+  // Sort the ticket into the worker's request types, tiers and labels. It
+  // runs after the answer is stored and is not awaited, so it never slows the
+  // customer's reply; a failure just leaves the ticket unclassified.
+  const handedOverNow = result.escalate && conversation.status !== "needs_human";
+  void classifyConversation({ organizationId, profile, conversation, transcript: allTurns, handedOverNow }).catch((error: unknown) =>
+    console.warn("[tickets] classification failed:", error instanceof Error ? error.message : error),
+  );
 
   // A person is told the moment a conversation first needs them, whatever
   // the channel, not on every message while it waits. The email channel

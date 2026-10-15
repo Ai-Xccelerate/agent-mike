@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { fieldErrors, identityFieldSchemas } from "@/lib/identity-fields";
 import { integrationsConfigSchema } from "@/lib/integrations";
+import { ticketSchemaPatch } from "@/lib/ticket-schema";
 
 const emptyToNull = (schema: z.ZodType<string | null>) =>
   z.union([z.literal(""), schema]).transform((value) => (value === "" ? null : value));
@@ -46,6 +47,8 @@ export const workerPatchSchema = z
     channelsConfig: z.object({ email: z.boolean(), chat: z.boolean(), voice: z.boolean() }),
     integrationsConfig: integrationsConfigSchema,
     ticketPrefix: z.string().min(1).max(12),
+    // null = back to the built-in request types, tiers and labels.
+    ticketSchema: ticketSchemaPatch,
   })
   .partial()
   // Strict so a misspelled field fails loudly instead of returning 200 and

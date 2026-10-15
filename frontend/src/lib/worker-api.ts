@@ -51,6 +51,7 @@ export type Conversation = {
   requestType?: string | null;
   tier?: string | null;
   labels?: string[];
+  classificationSource?: "worker" | "manual" | null;
   createdAt: string;
   updatedAt: string;
   messages: Message[];
@@ -59,6 +60,8 @@ export type Conversation = {
   /** Admin Assistant threads only: false for members, who can read but not approve changes. */
   canChange?: boolean;
 };
+
+export type TicketSchema = { requestTypes: string[]; tiers: string[]; labels: string[] };
 
 export type TicketHandler = "worker" | "human";
 export type TicketQueueId = "all_open" | "needs_human" | "worker" | "human" | "closed";
@@ -90,6 +93,7 @@ export type TicketsPayload = {
   sampleIds: string[];
   requestTypes: { name: string; count: number }[];
   helpdesk: { project: string } | null;
+  schema: TicketSchema;
 };
 
 /**
@@ -154,6 +158,8 @@ export type WorkerProfile = {
   toolsConfig: ToolsConfig;
   channelsConfig: ChannelsConfig;
   ticketPrefix: string;
+  /** The request types, tiers and labels this worker sorts tickets with. Null = the defaults. */
+  ticketSchema: TicketSchema | null;
   enabledSkills: string[];
   createdAt: string;
   updatedAt: string;
