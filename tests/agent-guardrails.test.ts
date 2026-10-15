@@ -174,6 +174,70 @@ describe("runAgent guardrail tripwires", () => {
     expect(repairInput).toContain("Sure, I processed your refund already.");
   });
 
+  describe("an empty reply", () => {
+    const run = (finalOutput: string) => ({
+      finalOutput,
+      inputGuardrailResults: [],
+      outputGuardrailResults: [
+        { guardrail: { name: "Customer reply guardrail" }, output: { tripwireTriggered: false, outputInfo: { action: "continue_intake", confidence: 0.9, reason: "fine" } } },
+      ],
+    });
+
+    it("gets one more try, and the customer sees that answer", async () => {
+      runTracedAgentMock
+        .mockResolvedValueOnce(run(""))
+        .mockResolvedValueOnce(run("I have noted the office-wide outage and will pass it on. [[FOLLOWUP]]"));
+
+      const result = await runAgent(profile, "Acme", "Nobody can log in", [], "org-1");
+      expect(runTracedAgentMock).toHaveBeenCalledTimes(2);
+      expect(result.answer).toBe("I have noted the office-wide outage and will pass it on.");
+      expect(result.escalate).toBe(false);
+      expect(runTracedAgentMock.mock.calls[1]?.[3] as string).toContain("Your last reply was empty");
+    });
+
+    it("treats a reply of only control tags as empty", async () => {
+      runTracedAgentMock.mockResolvedValueOnce(run("[[FOLLOWUP]]")).mockResolvedValueOnce(run("Which product are you using? [[FOLLOWUP]]"));
+      const result = await runAgent(profile, "Acme", "hi", [], "org-1");
+      expect(result.answer).toBe("Which product are you using?");
+      expect(runTracedAgentMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("hands the conversation to a person when the second try is empty too, never a blank reply", async () => {
+      runTracedAgentMock.mockResolvedValue(run(""));
+      const result = await runAgent(profile, "Acme", "Nobody can log in", [], "org-1");
+      expect(runTracedAgentMock).toHaveBeenCalledTimes(2);
+      expect(result.escalate).toBe(true);
+      expect(result.answer).toContain("Charan");
+    });
+
+    it("hands over, with the standard handoff text, when the only thing ever said is the handoff tag", async () => {
+      runTracedAgentMock.mockResolvedValue(run("[[ESCALATE]]"));
+      const result = await runAgent(profile, "Acme", "Nobody can log in", [], "org-1");
+      expect(runTracedAgentMock.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(result.escalate).toBe(true);
+      expect(result.answer).toContain("Charan");
+    });
+
+    it("hands off if the retried reply is blocked by the reply check", async () => {
+      runTracedAgentMock.mockResolvedValueOnce(run("")).mockResolvedValueOnce({
+        finalOutput: "I refunded you.",
+        inputGuardrailResults: [],
+        outputGuardrailResults: [
+          { guardrail: { name: "Customer reply guardrail" }, output: { tripwireTriggered: false, outputInfo: { action: "block", confidence: 0, reason: "claims a refund" } } },
+        ],
+      });
+      const result = await runAgent(profile, "Acme", "refund?", [], "org-1");
+      expect(result.escalate).toBe(true);
+    });
+
+    it("does not retry a reply that has words", async () => {
+      runTracedAgentMock.mockResolvedValue(run("Go to the sign-in page. [[RESOLVE]]"));
+      const result = await runAgent(profile, "Acme", "reset password", [], "org-1");
+      expect(runTracedAgentMock).toHaveBeenCalledTimes(1);
+      expect(result.answer).toBe("Go to the sign-in page.");
+    });
+  });
+
   it("hands off when a repair is blocked again", async () => {
     runTracedAgentMock.mockResolvedValue({
       finalOutput: "I issued your refund. [[RESOLVE]]",

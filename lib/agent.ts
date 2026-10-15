@@ -1264,6 +1264,15 @@ export function handoffToManager(
   };
 }
 
+/** Whether a reply says anything once the control tags are taken out. */
+function hasWords(raw: string): boolean {
+  return raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP)\]\]/gi, "").replace(CHOICES_TAG, "").trim().length > 0;
+}
+
+const EMPTY_REPLY_RETRY_MESSAGE =
+  "Your last reply was empty. Reply to the customer now, in words, using what you already know. " +
+  "If you cannot help, say so briefly and end with [[ESCALATE]].";
+
 function parseAnswer(raw: string, threshold: number, classifiedConfidence?: number | null): RunAgentResult {
   const escalate = /\[\[ESCALATE\]\]/i.test(raw);
   const resolved = /\[\[RESOLVE\]\]/i.test(raw);
@@ -1427,12 +1436,38 @@ export async function runAgent(
       }
     }
 
-    const adjusted = applyReplyPolicy(text, policy);
+    let adjusted = applyReplyPolicy(text, policy);
     if (
       policy?.action === "escalate" &&
       !adjusted.replace(/\[\[ESCALATE\]\]/gi, "").trim()
     ) {
       return handoffToManager(profile);
+    }
+    // The model sometimes ends a turn with no words at all (seen after it read
+    // reference material). An empty reply isn't an answer: a bare handoff tag
+    // gets the standard handoff, anything else gets one more try, and if that
+    // is empty too, a person takes over rather than the customer seeing a blank.
+    if (!hasWords(adjusted)) {
+      // Logged so a recurrence shows what the model actually returned and what the reply check did.
+      console.warn("[agent] empty reply, retrying once", {
+        conversationId,
+        rawLength: text.length,
+        rawHadHandoffTag: /\[\[ESCALATE\]\]/i.test(text),
+        policy: policy?.action ?? null,
+      });
+      if (/\[\[ESCALATE\]\]/i.test(adjusted)) return handoffToManager(profile);
+      const retried = await runTracedAgent(
+        CUSTOMER_CHAT_WORKFLOW,
+        { organizationId, conversationId },
+        repairAgent,
+        `${baseInput}\n\n${EMPTY_REPLY_RETRY_MESSAGE}`,
+        { maxTurns, context: guardrailContext },
+      );
+      const retriedText = typeof retried.finalOutput === "string" ? retried.finalOutput : String(retried.finalOutput ?? "");
+      const retriedPolicy = replyPolicyFromRun(retried);
+      if (retriedPolicy?.action === "block") return handoffToManager(profile);
+      adjusted = applyReplyPolicy(retriedText, retriedPolicy);
+      if (!hasWords(adjusted)) return handoffToManager(profile);
     }
     // Intent confidence came from the first turn's input guardrail.
     return parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
