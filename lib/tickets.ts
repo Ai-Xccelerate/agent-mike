@@ -92,6 +92,16 @@ export function inQueue(ticket: Pick<Ticket, "status" | "handler">, queue: Queue
 
 type Row = typeof conversations.$inferSelect;
 
+/**
+ * The request type to show. What a person set always wins. Otherwise the
+ * helpdesk's actual type for the ticket it raised, and before there is one the
+ * worker's own classification.
+ */
+export function displayRequestType(row: Pick<Row, "requestType" | "externalTicketType" | "classificationSource">): string | null {
+  if (row.classificationSource === "manual") return row.requestType ?? row.externalTicketType;
+  return row.externalTicketType ?? row.requestType;
+}
+
 export function toTicket(row: Row): Ticket {
   const handler: TicketHandler =
     row.status === "needs_human" || row.humanControlled || Boolean(row.externalTicketKey) ? "human" : "worker";
@@ -108,7 +118,7 @@ export function toTicket(row: Row): Ticket {
     channel: row.channel,
     status: row.status,
     handler,
-    requestType: row.requestType ?? row.externalTicketType,
+    requestType: displayRequestType(row),
     priority: row.externalTicketPriority ?? (row.priority !== "normal" ? row.priority : null),
     tier: row.tier,
     labels: [...new Set([...(row.labels ?? []), ...implied])],

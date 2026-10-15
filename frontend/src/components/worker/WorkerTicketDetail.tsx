@@ -7,6 +7,7 @@ import {
   CHANNEL_LABEL,
   DEFAULT_TICKET_SCHEMA,
   customerLabel,
+  displayRequestType,
   STATUS_LABEL,
   fullTime,
   loadTicketOrder,
@@ -152,7 +153,7 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
   const title = ticket.subject?.trim() || who.name;
   const handler = ticket.status === "needs_human" || ticket.humanControlled || ticket.externalTicketKey ? "human" : "worker";
   const priority = ticket.externalTicketPriority ?? (ticket.priority !== "normal" ? ticket.priority : null);
-  const requestType = ticket.requestType ?? ticket.externalTicketType ?? "";
+  const requestType = displayRequestType(ticket);
   const typeOptions = [...new Set([...requestTypes, requestType].filter(Boolean))];
   const tierOptions = [...new Set([...schema.tiers, ticket.tier ?? ""].filter(Boolean))];
   const labelSuggestions = schema.labels.filter((label) => !(ticket.labels ?? []).includes(label));

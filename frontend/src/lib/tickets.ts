@@ -98,6 +98,13 @@ export function customerLabel(customer: { customerName: string; customerEmail: s
   return { name: customer.customerName, email: customer.customerEmail, unverified: false };
 }
 
+/** The request type to show for a conversation: a person's choice, else the helpdesk's type for its ticket, else the worker's own. Mirrors the API. */
+export function displayRequestType(ticket: Pick<Conversation, "requestType" | "externalTicketType" | "classificationSource">): string {
+  const own = ticket.requestType ?? null;
+  const desk = ticket.externalTicketType ?? null;
+  return (ticket.classificationSource === "manual" ? (own ?? desk) : (desk ?? own)) ?? "";
+}
+
 export function filterTickets(tickets: Ticket[], filters: TicketFilters, prefix?: string): Ticket[] {
   const query = filters.search.trim().toLowerCase();
   return tickets.filter((ticket) => {

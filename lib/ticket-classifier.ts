@@ -14,9 +14,10 @@ import type { HistoryTurn } from "@/lib/conversation-memory";
  * only ever picks from the worker's lists (lib/ticket-schema.ts); a label the
  * model invents is dropped.
  *
- * With a helpdesk connected, the request type is the helpdesk's: it is chosen
- * when the ticket is raised, from the desk's own list. Only the tier and the
- * labels are classified here then.
+ * With a helpdesk connected, the request type is chosen from the helpdesk's own
+ * list (its request types), so a how-to question the worker answers itself
+ * lands on the desk's "General Questions" rather than going unlabelled. When a
+ * ticket is later raised, the helpdesk's actual type is what the page shows.
  *
  * It runs after the customer has their answer, so it never slows a reply, and
  * it never throws: a failed classification leaves the ticket as it was.
@@ -71,8 +72,8 @@ export async function chooseClassification(args: {
       "You sort a customer support conversation into the support team's own categories. Choose only from the " +
       "lists below, copying each entry exactly. Never invent a category.\n\n" +
       (withRequestType
-        ? `Request types (what the customer wants):\n${lines(schema.requestTypes)}\n\n`
-        : "Leave requestType null: the helpdesk chooses it.\n\n") +
+        ? `Request types (what the customer wants). A question about how to use the product, or a plain request for information, is a general question:\n${lines(schema.requestTypes)}\n\n`
+        : "Leave requestType null: there is nothing to choose between.\n\n") +
       `Tiers, from the simplest to the hardest to resolve. Pick the level of support the customer's issue needs, ` +
       `not how polite or upset they are:\n${lines(schema.tiers)}\n\n` +
       `Labels (pick every one that clearly applies, or none):\n${lines(schema.labels)}\n\n` +
@@ -125,9 +126,14 @@ export async function classifyConversation(input: {
 
   // A helpdesk that can't be reached just means the worker's own request types are used.
   const helpdesk = await helpdeskBreakdownSource(organizationId).catch(() => null);
+  const own = resolveTicketSchema(profile.ticketSchema);
+  // A desk with several request types is the vocabulary; one that files everything
+  // as a single issue type has nothing to choose between, so the request type stays unset.
+  const deskTypes = helpdesk?.types ?? [];
+  const schema = helpdesk ? { ...own, requestTypes: deskTypes } : own;
   const chosen = await chooseClassification({
-    schema: resolveTicketSchema(profile.ticketSchema),
-    withRequestType: !helpdesk,
+    schema,
+    withRequestType: !helpdesk || deskTypes.length > 1,
     transcript,
     handedOver: handedOverNow,
   });
