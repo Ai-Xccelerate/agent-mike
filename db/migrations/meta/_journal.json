@@ -239,6 +239,13 @@
       "when": 1790660000014,
       "tag": "0033_ticket_classification",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790660000015,
+      "tag": "0034_ticket_schema",
+      "breakpoints": true
     }
   ]
 }

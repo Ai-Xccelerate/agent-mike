@@ -114,6 +114,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(requestType !== undefined ? { requestType: requestType?.trim() ?? null } : {}),
       ...(tier !== undefined ? { tier: tier?.trim() ?? null } : {}),
       ...(labels !== undefined ? { labels: [...new Set(labels.map((label) => label.trim()))] } : {}),
+      // A person's edit is final: the classifier leaves this ticket alone from now on.
+      ...(requestType !== undefined || tier !== undefined || labels !== undefined ? { classificationSource: "manual" } : {}),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversation.id))

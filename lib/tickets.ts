@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
 import { helpdeskBreakdownSource } from "@/lib/tools-integrations/atlassian";
+import { getOrCreateProfile } from "@/lib/bootstrap";
+import { resolveTicketSchema, type TicketSchema } from "@/lib/ticket-schema";
 
 /**
  * The Tickets page's data. A ticket is a customer conversation: it already
@@ -61,6 +63,8 @@ export type TicketsPayload = {
   /** The connected helpdesk's request types (zeros included), then any others in use. */
   requestTypes: { name: string; count: number }[];
   helpdesk: { project: string } | null;
+  /** The worker's own request types, tiers and labels (the defaults until it sets them). */
+  schema: TicketSchema;
 };
 
 export function inQueue(ticket: Pick<Ticket, "status" | "handler">, queue: QueueId): boolean {
@@ -147,8 +151,9 @@ export async function computeTickets(input: { organizationId: string; now?: Date
 
   // A helpdesk that can't be reached still leaves the counts we keep ourselves.
   const source = await helpdeskBreakdownSource(organizationId).catch(() => null);
+  const schema = resolveTicketSchema((await getOrCreateProfile(organizationId)).ticketSchema);
   const counts = new Map<string, number>();
-  for (const name of source?.types ?? []) counts.set(name, 0);
+  for (const name of source?.types ?? schema.requestTypes) counts.set(name, 0);
   for (const ticket of tickets) {
     if (!CLOSED.has(ticket.status) && ticket.requestType) {
       counts.set(ticket.requestType, (counts.get(ticket.requestType) ?? 0) + 1);
@@ -167,5 +172,6 @@ export async function computeTickets(input: { organizationId: string; now?: Date
     sampleIds: handledByWorker.slice(0, SAMPLE_LIMIT).map((ticket) => ticket.id),
     requestTypes: [...counts.entries()].map(([name, count]) => ({ name, count })),
     helpdesk: source ? { project: source.project } : null,
+    schema,
   };
 }

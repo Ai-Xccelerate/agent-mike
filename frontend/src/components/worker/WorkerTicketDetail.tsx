@@ -5,13 +5,14 @@ import { PriorityPill, StatusPill } from "@/components/worker/WorkerTickets";
 import { AlertIcon, ChevronLeftIcon, ChevronDownIcon, ChevronUpIcon, DocsIcon, JiraIcon } from "@/icons";
 import {
   CHANNEL_LABEL,
+  DEFAULT_TICKET_SCHEMA,
   STATUS_LABEL,
   fullTime,
   loadTicketOrder,
   relativeTime,
   ticketRef,
 } from "@/lib/tickets";
-import { apiFetch, WorkerApiError, type Conversation, type TicketsPayload, type WorkerProfile } from "@/lib/worker-api";
+import { apiFetch, WorkerApiError, type Conversation, type TicketSchema, type TicketsPayload, type WorkerProfile } from "@/lib/worker-api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -23,7 +24,6 @@ const fieldClass =
   "h-9 w-full rounded-lg border border-gray-200 bg-white/60 px-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 disabled:opacity-60 dark:border-white/[0.12] dark:bg-gray-900 dark:text-white/90";
 
 const STATUSES: Conversation["status"][] = ["open", "needs_human", "resolved", "closed"];
-const TIERS = ["Tier 1", "Tier 2", "Tier 3"];
 
 function messageTime(iso: string) {
   const date = new Date(iso);
@@ -59,6 +59,7 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
   const [ticket, setTicket] = useState<Conversation | null>(null);
   const [missing, setMissing] = useState(false);
   const [requestTypes, setRequestTypes] = useState<string[]>([]);
+  const [schema, setSchema] = useState<TicketSchema>(DEFAULT_TICKET_SCHEMA);
   // The list order the manager came from. Read once: it is only shown after the ticket loads.
   const [order] = useState(() => loadTicketOrder());
   const [saving, setSaving] = useState(false);
@@ -68,7 +69,10 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
   useEffect(() => {
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
     apiFetch<TicketsPayload>("/tickets")
-      .then((payload) => setRequestTypes(payload.requestTypes.map((entry) => entry.name)))
+      .then((payload) => {
+        setRequestTypes(payload.requestTypes.map((entry) => entry.name));
+        setSchema(payload.schema);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -136,6 +140,8 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
   const priority = ticket.externalTicketPriority ?? (ticket.priority !== "normal" ? ticket.priority : null);
   const requestType = ticket.requestType ?? ticket.externalTicketType ?? "";
   const typeOptions = [...new Set([...requestTypes, requestType].filter(Boolean))];
+  const tierOptions = [...new Set([...schema.tiers, ticket.tier ?? ""].filter(Boolean))];
+  const labelSuggestions = schema.labels.filter((label) => !(ticket.labels ?? []).includes(label));
   const closed = ticket.status === "resolved" || ticket.status === "closed";
 
   return (
@@ -324,7 +330,7 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
                   className={fieldClass}
                 >
                   <option value="">Not set</option>
-                  {TIERS.map((tier) => (
+                  {tierOptions.map((tier) => (
                     <option key={tier} value={tier}>
                       {tier}
                     </option>
@@ -368,14 +374,25 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
                       maxLength={40}
                       placeholder="Add a label"
                       aria-label="Add a label"
+                      list="ticket-label-suggestions"
                       className={fieldClass}
                     />
+                    <datalist id="ticket-label-suggestions">
+                      {labelSuggestions.map((label) => (
+                        <option key={label} value={label} />
+                      ))}
+                    </datalist>
                     <button type="submit" disabled={!labelDraft.trim() || saving} className={outlineControl}>
                       Add
                     </button>
                   </form>
                 )}
               </Field>
+              {ticket.classificationSource && (
+                <Field label="Sorted by">
+                  {ticket.classificationSource === "manual" ? "A person. The worker will not change it." : `${workerName}, from this conversation.`}
+                </Field>
+              )}
               <Field label="Customer">
                 {ticket.customerName}
                 {ticket.customerEmail && <span className="block break-all text-gray-500 dark:text-gray-400">{ticket.customerEmail}</span>}
