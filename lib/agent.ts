@@ -1448,6 +1448,13 @@ export async function runAgent(
     // gets the standard handoff, anything else gets one more try, and if that
     // is empty too, a person takes over rather than the customer seeing a blank.
     if (!hasWords(adjusted)) {
+      // Logged so a recurrence shows what the model actually returned and what the reply check did.
+      console.warn("[agent] empty reply, retrying once", {
+        conversationId,
+        rawLength: text.length,
+        rawHadHandoffTag: /\[\[ESCALATE\]\]/i.test(text),
+        policy: policy?.action ?? null,
+      });
       if (/\[\[ESCALATE\]\]/i.test(adjusted)) return handoffToManager(profile);
       const retried = await runTracedAgent(
         CUSTOMER_CHAT_WORKFLOW,
