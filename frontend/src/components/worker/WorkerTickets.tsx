@@ -94,32 +94,6 @@ function FilterOption({
   );
 }
 
-function StatTile({
-  label,
-  value,
-  active,
-  onClick,
-}: {
-  label: string;
-  value: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`${cardClass} flex flex-col gap-0.5 px-4 py-3 text-left transition-colors hover:border-gray-300 dark:hover:border-white/20 ${
-        active ? "!border-brand-500" : ""
-      }`}
-    >
-      <span className="font-display text-2xl font-semibold tabular-nums text-gray-900 dark:text-white/90">{value}</span>
-      <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
-    </button>
-  );
-}
-
 function queueFromParam(wanted: string | null): TicketQueueId {
   return TICKET_QUEUES.some((queue) => queue.id === wanted) ? (wanted as TicketQueueId) : "all_open";
 }
@@ -218,10 +192,19 @@ export default function WorkerTickets() {
           type="button"
           onClick={spotCheck}
           disabled={!payload || payload.sampleIds.length === 0}
-          title={payload && payload.sampleIds.length === 0 ? `Nothing answered by ${workerName} in the last 24 hours yet.` : undefined}
+          title={
+            payload && payload.sampleIds.length === 0
+              ? `Nothing answered by ${workerName} in the last 24 hours yet.`
+              : `${payload?.kpis.workerHandledToday ?? 0} answered by ${workerName} in the last 24 hours. Opens up to 5 to check.`
+          }
           className={outlineControl}
         >
           Spot check {workerName}
+          {payload && payload.kpis.workerHandledToday > 0 && (
+            <span className="min-w-5 rounded-full bg-gray-100 px-1.5 text-center text-xs tabular-nums leading-5 text-gray-600 dark:bg-white/[0.08] dark:text-gray-300">
+              {payload.kpis.workerHandledToday}
+            </span>
+          )}
         </button>
       </header>
 
@@ -231,36 +214,11 @@ export default function WorkerTickets() {
         </p>
       )}
 
-      <div
-        data-aix-id="AIX-112.1"
-        className={`grid grid-cols-1 gap-3 ${payload?.helpdesk ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}
-      >
-        <StatTile label="Open tickets" value={payload?.kpis.open ?? 0} active={queue === "all_open"} onClick={() => pickQueue("all_open")} />
-        <StatTile label="Need a person" value={payload?.kpis.needsHuman ?? 0} active={queue === "needs_human"} onClick={() => pickQueue("needs_human")} />
-        <StatTile
-          label={`Handled by ${workerName} in 24 hours`}
-          value={payload?.kpis.workerHandledToday ?? 0}
-          active={queue === "worker"}
-          onClick={() => pickQueue("worker")}
-        />
-        {payload?.helpdesk && (
-          <StatTile
-            label={`Sent to ${payload.helpdesk.project} in 24 hours`}
-            value={payload.kpis.raisedToday}
-            active={false}
-            onClick={() => {
-              setSearch(payload.helpdesk?.project ?? "");
-              pickQueue("all_open");
-            }}
-          />
-        )}
-      </div>
-
       <div className="flex min-h-0 flex-1 flex-col gap-4">
         <div
           role="tablist"
           aria-label="Ticket queues"
-          data-aix-id="AIX-112.2"
+          data-aix-id="AIX-112.1"
           onKeyDown={onQueueKeyDown}
           className="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-white/[0.08]"
         >
@@ -305,7 +263,7 @@ export default function WorkerTickets() {
           id="ticket-queue-panel"
           role="tabpanel"
           aria-labelledby={`ticket-queue-tab-${queue}`}
-          data-aix-id="AIX-112.3"
+          data-aix-id="AIX-112.2"
           className="flex min-h-0 min-w-0 flex-1 flex-col gap-3"
         >
           <div className="flex flex-wrap items-center gap-2">

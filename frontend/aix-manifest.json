@@ -904,14 +904,10 @@
       "blocks": [
         {
           "id": "AIX-112.1",
-          "description": "Clickable count tiles: open tickets, need a person, handled by the worker in 24 hours, sent to the helpdesk"
-        },
-        {
-          "id": "AIX-112.2",
           "description": "Queue tabs with counts: all open, needs a person, handled by the worker, with a person, resolved and closed; the row scrolls sideways on mobile"
         },
         {
-          "id": "AIX-112.3",
+          "id": "AIX-112.2",
           "description": "Filter row (search, request type, handled by) and the ticket table: request type, key, summary, labels, handler, status, updated"
         }
       ],
