@@ -39,6 +39,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 const VALID_STATUSES = ["open", "needs_human", "resolved", "closed"] as const;
+const MAX_TEXT = 80;
+const MAX_LABELS = 20;
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
@@ -53,9 +55,23 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const subject = body?.subject as string | undefined;
   const humanControlled = body?.humanControlled as boolean | undefined;
   const archived = body?.archived as boolean | undefined;
+  const requestType = body?.requestType as string | null | undefined;
+  const tier = body?.tier as string | null | undefined;
+  const labels = body?.labels as string[] | undefined;
 
-  if (status === undefined && subject === undefined && humanControlled === undefined && archived === undefined) {
-    return NextResponse.json({ error: "Provide status, subject, humanControlled, and/or archived" }, { status: 400 });
+  if (
+    status === undefined &&
+    subject === undefined &&
+    humanControlled === undefined &&
+    archived === undefined &&
+    requestType === undefined &&
+    tier === undefined &&
+    labels === undefined
+  ) {
+    return NextResponse.json(
+      { error: "Provide status, subject, humanControlled, archived, requestType, tier, and/or labels" },
+      { status: 400 },
+    );
   }
   if (status !== undefined && !VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])) {
     return NextResponse.json({ error: `status must be one of ${VALID_STATUSES.join(", ")}` }, { status: 400 });
@@ -70,6 +86,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: "archived must be a boolean" }, { status: 400 });
   }
 
+  // null clears a classification; a string sets it.
+  for (const [field, value] of [["requestType", requestType], ["tier", tier]] as const) {
+    if (value !== undefined && value !== null && (typeof value !== "string" || !value.trim() || value.length > MAX_TEXT)) {
+      return NextResponse.json({ error: `${field} must be a short non-empty string, or null to clear it` }, { status: 400 });
+    }
+  }
+  if (
+    labels !== undefined &&
+    (!Array.isArray(labels) ||
+      labels.length > MAX_LABELS ||
+      labels.some((label) => typeof label !== "string" || !label.trim() || label.length > MAX_TEXT))
+  ) {
+    return NextResponse.json({ error: `labels must be up to ${MAX_LABELS} short non-empty strings` }, { status: 400 });
+  }
+
   const profile = humanControlled ? await getOrCreateProfile(tenant.orgId) : null;
 
   const [updated] = await db
@@ -80,6 +111,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(humanControlled !== undefined ? { humanControlled } : {}),
       ...(humanControlled ? { assignedTo: profile!.managerName } : {}),
       ...(archived !== undefined ? { archived } : {}),
+      ...(requestType !== undefined ? { requestType: requestType?.trim() ?? null } : {}),
+      ...(tier !== undefined ? { tier: tier?.trim() ?? null } : {}),
+      ...(labels !== undefined ? { labels: [...new Set(labels.map((label) => label.trim()))] } : {}),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversation.id))
