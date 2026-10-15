@@ -4,6 +4,7 @@ import { Dropdown } from "@/components/ui/dropdown/Dropdown";
 import { CheckLineIcon, ChevronDownIcon, JiraIcon } from "@/icons";
 import {
   TICKET_QUEUES,
+  customerLabel,
   STATUS_LABEL,
   filterTickets,
   inQueue,
@@ -16,7 +17,7 @@ import {
 } from "@/lib/tickets";
 import { apiFetch, type Ticket, type TicketQueueId, type TicketsPayload, type WorkerProfile } from "@/lib/worker-api";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const cardClass = "rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]";
 const outlineControl =
@@ -180,6 +181,22 @@ export default function WorkerTickets() {
     window.history.replaceState(null, "", next === "all_open" ? "/tickets" : `/tickets?queue=${next}`);
   }
 
+  // Left and right arrows, Home and End move between the queue tabs, as in the shared Tabs.
+  const tabRefs = useRef<Partial<Record<TicketQueueId, HTMLButtonElement | null>>>({});
+  function onQueueKeyDown(event: React.KeyboardEvent) {
+    const index = TICKET_QUEUES.findIndex((entry) => entry.id === queue);
+    let next = index;
+    if (event.key === "ArrowRight") next = (index + 1) % TICKET_QUEUES.length;
+    else if (event.key === "ArrowLeft") next = (index - 1 + TICKET_QUEUES.length) % TICKET_QUEUES.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = TICKET_QUEUES.length - 1;
+    else return;
+    event.preventDefault();
+    const target = TICKET_QUEUES[next].id;
+    pickQueue(target);
+    tabRefs.current[target]?.focus();
+  }
+
   function clearFilters() {
     setSearch("");
     setRequestTypes([]);
@@ -239,34 +256,58 @@ export default function WorkerTickets() {
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
-        <nav aria-label="Ticket queues" data-aix-id="AIX-112.2" className="shrink-0 lg:w-[190px]">
-          <ul className="flex gap-1.5 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
-            {TICKET_QUEUES.map((entry) => {
-              const active = entry.id === queue;
-              return (
-                <li key={entry.id} className="shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => pickQueue(entry.id)}
-                    aria-current={active ? "true" : undefined}
-                    title={entry.hint}
-                    className={`flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                      active
-                        ? "bg-brand-500/[0.08] font-semibold text-brand-600 dark:bg-brand-500/[0.12] dark:text-brand-400"
-                        : "text-gray-600 hover:bg-gray-900/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.04]"
-                    }`}
-                  >
-                    {entry.label}
-                    <span className="text-xs tabular-nums text-gray-400 dark:text-gray-500">{payload?.queues[entry.id] ?? 0}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div
+          role="tablist"
+          aria-label="Ticket queues"
+          data-aix-id="AIX-112.2"
+          onKeyDown={onQueueKeyDown}
+          className="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-white/[0.08]"
+        >
+          {TICKET_QUEUES.map((entry) => {
+            const active = entry.id === queue;
+            return (
+              <button
+                key={entry.id}
+                ref={(element) => {
+                  tabRefs.current[entry.id] = element;
+                }}
+                type="button"
+                role="tab"
+                id={`ticket-queue-tab-${entry.id}`}
+                aria-selected={active}
+                aria-controls="ticket-queue-panel"
+                tabIndex={active ? 0 : -1}
+                onClick={() => pickQueue(entry.id)}
+                title={entry.hint}
+                className={`-mb-px flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/50 ${
+                  active
+                    ? "border-brand-500 text-brand-600 dark:text-brand-400"
+                    : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                }`}
+              >
+                {entry.label}
+                <span
+                  className={`min-w-5 rounded-full px-1.5 text-center text-xs tabular-nums leading-5 ${
+                    active
+                      ? "bg-brand-500/[0.12] text-brand-700 dark:text-brand-400"
+                      : "bg-gray-100 text-gray-500 dark:bg-white/[0.06] dark:text-gray-400"
+                  }`}
+                >
+                  {payload?.queues[entry.id] ?? 0}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
-        <section data-aix-id="AIX-112.3" className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+        <section
+          id="ticket-queue-panel"
+          role="tabpanel"
+          aria-labelledby={`ticket-queue-tab-${queue}`}
+          data-aix-id="AIX-112.3"
+          className="flex min-h-0 min-w-0 flex-1 flex-col gap-3"
+        >
           <div className="flex flex-wrap items-center gap-2">
             <input
               value={search}
@@ -381,12 +422,25 @@ export default function WorkerTickets() {
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
                       <span className="block">{ticketRef(prefix, ticket)}</span>
-                      {ticket.externalTicketKey && (
-                        <span className="mt-0.5 flex items-center gap-1 text-gray-400 dark:text-gray-500">
-                          <JiraIcon className="size-3" />
-                          {ticket.externalTicketKey}
-                        </span>
-                      )}
+                      {ticket.externalTicketKey &&
+                        (ticket.externalTicketUrl ? (
+                          <a
+                            href={ticket.externalTicketUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                            title={`Open ${ticket.externalTicketKey} in Jira`}
+                            className="mt-0.5 flex items-center gap-1 text-gray-500 hover:text-brand-600 hover:underline dark:text-gray-400 dark:hover:text-brand-400"
+                          >
+                            <JiraIcon className="size-3" />
+                            {ticket.externalTicketKey}
+                          </a>
+                        ) : (
+                          <span className="mt-0.5 flex items-center gap-1 text-gray-400 dark:text-gray-500">
+                            <JiraIcon className="size-3" />
+                            {ticket.externalTicketKey}
+                          </span>
+                        ))}
                     </td>
                     <td className="max-w-[240px] px-3 py-3">
                       <a
@@ -399,7 +453,9 @@ export default function WorkerTickets() {
                       >
                         {ticketTitle(ticket)}
                       </a>
-                      <span className="block truncate text-xs text-gray-500 dark:text-gray-400">{ticket.customerName}</span>
+                      <span className="block truncate text-xs text-gray-500 dark:text-gray-400" title={customerLabel(ticket).unverified ? "Said in the chat. Not verified." : undefined}>
+                        {customerLabel(ticket).name}
+                      </span>
                     </td>
                     <td className="max-w-[190px] px-3 py-3">
                       <span className="flex flex-wrap items-center gap-1">

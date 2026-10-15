@@ -6,6 +6,7 @@ import { AlertIcon, ChevronLeftIcon, ChevronDownIcon, ChevronUpIcon, DocsIcon, J
 import {
   CHANNEL_LABEL,
   DEFAULT_TICKET_SCHEMA,
+  customerLabel,
   STATUS_LABEL,
   fullTime,
   loadTicketOrder,
@@ -32,6 +33,18 @@ function messageTime(iso: string) {
   return `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
 
+/** A select with its own chevron, inset from the edge. The native arrow sits flush against the border. */
+function SelectField({ className = "", children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <span className={`relative block ${className}`}>
+      <select {...props} className={`${fieldClass} appearance-none pr-9`}>
+        {children}
+      </select>
+      <ChevronDownIcon aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
+    </span>
+  );
+}
+
 function Section({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
   return (
     <details open={defaultOpen} className={`group ${cardClass}`}>
@@ -39,7 +52,7 @@ function Section({ title, children, defaultOpen = true }: { title: string; child
         {title}
         <ChevronDownIcon className="size-4 text-gray-400 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="flex flex-col gap-3 px-4 pb-4 text-sm">{children}</div>
+      <div className="flex flex-col gap-3 px-4 pb-4 text-sm text-gray-700 dark:text-gray-200">{children}</div>
     </details>
   );
 }
@@ -135,7 +148,8 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
   }
 
   const ref = ticketRef(profile?.ticketPrefix, ticket);
-  const title = ticket.subject?.trim() || ticket.customerName;
+  const who = customerLabel(ticket);
+  const title = ticket.subject?.trim() || who.name;
   const handler = ticket.status === "needs_human" || ticket.humanControlled || ticket.externalTicketKey ? "human" : "worker";
   const priority = ticket.externalTicketPriority ?? (ticket.priority !== "normal" ? ticket.priority : null);
   const requestType = ticket.requestType ?? ticket.externalTicketType ?? "";
@@ -181,19 +195,19 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
         <h1 className="min-w-0 flex-1 font-display text-2xl font-semibold tracking-tight text-gray-900 dark:text-white/90">{title}</h1>
         <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           Status
-          <select
+          <SelectField
             aria-label="Status"
             value={ticket.status}
             disabled={!canChange || saving}
             onChange={(event) => void save({ status: event.target.value }, "Could not update the status.")}
-            className={`${fieldClass} !w-44 font-medium`}
+            className="w-48 font-medium"
           >
             {STATUSES.map((status) => (
               <option key={status} value={status}>
                 {STATUS_LABEL[status]}
               </option>
             ))}
-          </select>
+          </SelectField>
         </label>
       </header>
 
@@ -215,12 +229,28 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
         <Link href={`/inbox?conversation=${ticket.id}`} className={outlineControl}>
           Reply in Inbox
         </Link>
-        {ticket.externalTicketKey && (
-          <span className={`${outlineControl} cursor-default font-mono`}>
-            <JiraIcon className="size-4" />
-            {ticket.externalTicketKey}
-          </span>
-        )}
+        {ticket.externalTicketKey &&
+          (ticket.externalTicketUrl ? (
+            <a
+              href={ticket.externalTicketUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Open ${ticket.externalTicketKey} in Jira`}
+              className={`${outlineControl} font-mono`}
+            >
+              <JiraIcon className="size-4" />
+              {ticket.externalTicketKey}
+              <span className="sr-only">(opens Jira in a new tab)</span>
+              <span aria-hidden="true" className="text-gray-400 dark:text-gray-500">
+                ↗
+              </span>
+            </a>
+          ) : (
+            <span className={`${outlineControl} cursor-default font-mono`} title="Connect Jira in Settings to open this ticket from here.">
+              <JiraIcon className="size-4" />
+              {ticket.externalTicketKey}
+            </span>
+          ))}
         {notice && (
           <span role="alert" className="text-sm text-warning-700 dark:text-warning-400">
             {notice}
@@ -241,7 +271,8 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
 
           <Section title="Key details">
             <p>
-              {ticket.channel === "email" ? "Received" : "Started"} by <span className="font-medium">{ticket.customerName}</span> on{" "}
+              {ticket.channel === "email" ? "Received" : "Started"} by <span className="font-medium">{who.name}</span>
+              {who.unverified && <span className="text-gray-500 dark:text-gray-400"> (said in chat)</span>} on{" "}
               {CHANNEL_LABEL[ticket.channel] ?? ticket.channel}, {fullTime(ticket.createdAt)}
             </p>
             {ticket.summary ? (
@@ -262,7 +293,7 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
               return (
                 <article
                   key={message.id}
-                  className={`rounded-lg px-3.5 py-2.5 ${
+                  className={`rounded-lg px-3.5 py-2.5 text-gray-800 dark:text-gray-100 ${
                     isCustomer
                       ? "bg-gray-50 dark:bg-white/[0.04]"
                       : isAgent
@@ -306,12 +337,11 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
               </Field>
               <Field label="Priority">{priority ? <PriorityPill priority={priority} /> : <span className="text-gray-500 dark:text-gray-400">Not set</span>}</Field>
               <Field label="Request type">
-                <select
+                <SelectField
                   aria-label="Request type"
                   value={requestType}
                   disabled={!canChange || saving}
                   onChange={(event) => void save({ requestType: event.target.value || null }, "Could not save the request type.")}
-                  className={fieldClass}
                 >
                   <option value="">Not set</option>
                   {typeOptions.map((name) => (
@@ -319,15 +349,14 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
                       {name}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </Field>
               <Field label="Tier">
-                <select
+                <SelectField
                   aria-label="Tier"
                   value={ticket.tier ?? ""}
                   disabled={!canChange || saving}
                   onChange={(event) => void save({ tier: event.target.value || null }, "Could not save the tier.")}
-                  className={fieldClass}
                 >
                   <option value="">Not set</option>
                   {tierOptions.map((tier) => (
@@ -335,7 +364,7 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
                       {tier}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </Field>
               <Field label="Labels">
                 <span className="flex flex-wrap gap-1.5">
@@ -394,8 +423,9 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
                 </Field>
               )}
               <Field label="Customer">
-                {ticket.customerName}
-                {ticket.customerEmail && <span className="block break-all text-gray-500 dark:text-gray-400">{ticket.customerEmail}</span>}
+                {who.name}
+                {who.email && <span className="block break-all text-gray-500 dark:text-gray-400">{who.email}</span>}
+                {who.unverified && <span className="block text-xs text-gray-500 dark:text-gray-400">Said in the chat. Not verified.</span>}
               </Field>
               <Field label="Updated">{relativeTime(ticket.updatedAt)}</Field>
             </dl>
