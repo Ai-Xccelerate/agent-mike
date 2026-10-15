@@ -44,6 +44,13 @@ export type Conversation = {
   externalTicketKey?: string | null;
   /** Why the helpdesk refused that ticket, when it did. */
   externalTicketError?: string | null;
+  /** What the ticket went in as on the helpdesk, e.g. "System Unavailable". */
+  externalTicketType?: string | null;
+  externalTicketPriority?: string | null;
+  /** The worker's own classification, shown on the Tickets page. */
+  requestType?: string | null;
+  tier?: string | null;
+  labels?: string[];
   createdAt: string;
   updatedAt: string;
   messages: Message[];
@@ -51,6 +58,38 @@ export type Conversation = {
   pendingActions?: AssistantPendingAction[];
   /** Admin Assistant threads only: false for members, who can read but not approve changes. */
   canChange?: boolean;
+};
+
+export type TicketHandler = "worker" | "human";
+export type TicketQueueId = "all_open" | "needs_human" | "worker" | "human" | "closed";
+
+/** One row of the Tickets page: a customer conversation without its messages. */
+export type Ticket = {
+  id: string;
+  ticketNumber: number;
+  subject: string | null;
+  customerName: string;
+  customerEmail: string | null;
+  channel: string;
+  status: Conversation["status"];
+  handler: TicketHandler;
+  requestType: string | null;
+  priority: string | null;
+  tier: string | null;
+  labels: string[];
+  externalTicketKey: string | null;
+  externalTicketError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TicketsPayload = {
+  tickets: Ticket[];
+  queues: Record<TicketQueueId, number>;
+  kpis: { open: number; needsHuman: number; workerHandledToday: number; raisedToday: number };
+  sampleIds: string[];
+  requestTypes: { name: string; count: number }[];
+  helpdesk: { project: string } | null;
 };
 
 /**

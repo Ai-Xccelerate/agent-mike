@@ -896,6 +896,63 @@
       ]
     },
     {
+      "id": "AIX-112",
+      "title": "Tickets",
+      "route": "/tickets",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/tickets/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-112.1",
+          "description": "Clickable count tiles: open tickets, need a person, handled by the worker in 24 hours, sent to the helpdesk"
+        },
+        {
+          "id": "AIX-112.2",
+          "description": "Queue list with counts: all open, needs a person, handled by the worker, with a person, resolved and closed; chips on mobile"
+        },
+        {
+          "id": "AIX-112.3",
+          "description": "Filter row (search, request type, handled by) and the ticket table: request type, key, summary, labels, handler, status, updated"
+        }
+      ],
+      "keywords": [
+        "tickets",
+        "queue",
+        "request type",
+        "helpdesk",
+        "jira",
+        "labels",
+        "spot check",
+        "handler"
+      ]
+    },
+    {
+      "id": "AIX-113",
+      "title": "Ticket detail",
+      "route": "/tickets/[id]",
+      "area": "apps",
+      "file": "src/app/(admin)/(apps)/tickets/[id]/page.tsx",
+      "blocks": [
+        {
+          "id": "AIX-113.1",
+          "description": "Ticket page: back, key, previous and next through the queue, status select, take over, reply in Inbox"
+        },
+        {
+          "id": "AIX-113.2",
+          "description": "Key details, read-only conversation and a Details card with request type, tier and labels"
+        }
+      ],
+      "keywords": [
+        "ticket",
+        "detail",
+        "conversation",
+        "request type",
+        "tier",
+        "labels",
+        "take over"
+      ]
+    },
+    {
       "id": "AIX-150",
       "title": "Text Generator",
       "route": "/text-generator",

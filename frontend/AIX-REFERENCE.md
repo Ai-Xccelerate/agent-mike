@@ -106,6 +106,8 @@ are intentional — room to insert siblings without renumbering.
 | AIX-109 | Inbox Details | ✅ |
 | AIX-110 | Transcripts (Scribe sync) — `/transcripts` | ✅ |
 | AIX-111 | Transcript Detail — `/transcript-detail` | ✅ |
+| AIX-112 | Tickets (queues, filters, table) — `/tickets` | ✅ |
+| AIX-113 | Ticket detail — `/tickets/[id]` | ✅ |
 
 ### AI tools (150–199)
 | ID | Page | Status |

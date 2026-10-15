@@ -194,6 +194,11 @@ export const conversations = pgTable(
     // Why the helpdesk refused the last ticket for this conversation (e.g. an
     // issue type the project doesn't have). Cleared once a ticket goes through.
     externalTicketError: text("external_ticket_error"),
+    // The worker's own classification, for the Tickets page. Independent of
+    // any helpdesk, so queues work for customers with none.
+    requestType: text("request_type"),
+    tier: text("tier"),
+    labels: jsonb("labels").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
