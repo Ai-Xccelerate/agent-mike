@@ -123,7 +123,10 @@ export async function runCustomerTurn(input: {
         conversation.channel,
         knownCustomerOf(conversation),
       );
-    } catch {
+    } catch (error) {
+      // Logged: the customer sees a polite handoff whatever went wrong, so without
+      // this a provider outage or a turn limit looks like the worker choosing to hand over.
+      console.warn("[agent] turn failed, handing over:", error instanceof Error ? `${error.name}: ${error.message}` : error);
       // A model/runtime failure (MaxTurnsExceededError, provider outage) must
       // not fail the channel. The customer message is already persisted;
       // degrade to the same handoff as a guardrail escalation. Tool side

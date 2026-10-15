@@ -1264,6 +1264,16 @@ export function handoffToManager(
   };
 }
 
+/**
+ * The standard handoff, with a warning that says why the worker gave up on
+ * answering. A handoff the model did not ask for is otherwise invisible: the
+ * customer sees the same polite text whatever went wrong.
+ */
+function handoffBecause(profile: Parameters<typeof handoffToManager>[0], reason: string, detail?: Record<string, unknown>): RunAgentResult {
+  console.warn(`[agent] handing over without an answer: ${reason}`, detail ?? {});
+  return handoffToManager(profile);
+}
+
 /** Whether a reply says anything once the control tags are taken out. */
 function hasWords(raw: string): boolean {
   return raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP)\]\]/gi, "").replace(CHOICES_TAG, "").trim().length > 0;
@@ -1413,7 +1423,7 @@ export async function runAgent(
 
     if (policy?.action === "block") {
       if (isOutputClassifierFailure(policy)) {
-        return handoffToManager(profile);
+        return handoffBecause(profile, "the reply check could not judge the draft", { policy: policy.reason });
       }
       // Block the bad draft; give the worker the reason and one repair turn.
       const repairInput =
@@ -1432,7 +1442,7 @@ export async function runAgent(
           : String(repaired.finalOutput ?? "");
       policy = replyPolicyFromRun(repaired);
       if (policy?.action === "block") {
-        return handoffToManager(profile);
+        return handoffBecause(profile, "the reply check blocked the repaired draft too", { reason: policy.reason });
       }
     }
 
@@ -1441,7 +1451,7 @@ export async function runAgent(
       policy?.action === "escalate" &&
       !adjusted.replace(/\[\[ESCALATE\]\]/gi, "").trim()
     ) {
-      return handoffToManager(profile);
+      return handoffBecause(profile, "the reply check said escalate and left no words");
     }
     // The model sometimes ends a turn with no words at all (seen after it read
     // reference material). An empty reply isn't an answer: a bare handoff tag
@@ -1455,7 +1465,7 @@ export async function runAgent(
         rawHadHandoffTag: /\[\[ESCALATE\]\]/i.test(text),
         policy: policy?.action ?? null,
       });
-      if (/\[\[ESCALATE\]\]/i.test(adjusted)) return handoffToManager(profile);
+      if (/\[\[ESCALATE\]\]/i.test(adjusted)) return handoffBecause(profile, "the reply was only the handoff tag");
       const retried = await runTracedAgent(
         CUSTOMER_CHAT_WORKFLOW,
         { organizationId, conversationId },
@@ -1465,9 +1475,9 @@ export async function runAgent(
       );
       const retriedText = typeof retried.finalOutput === "string" ? retried.finalOutput : String(retried.finalOutput ?? "");
       const retriedPolicy = replyPolicyFromRun(retried);
-      if (retriedPolicy?.action === "block") return handoffToManager(profile);
+      if (retriedPolicy?.action === "block") return handoffBecause(profile, "the retried reply was blocked by the reply check", { reason: retriedPolicy.reason });
       adjusted = applyReplyPolicy(retriedText, retriedPolicy);
-      if (!hasWords(adjusted)) return handoffToManager(profile);
+      if (!hasWords(adjusted)) return handoffBecause(profile, "the reply was empty twice");
     }
     // Intent confidence came from the first turn's input guardrail.
     return parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
@@ -1479,10 +1489,10 @@ export async function runAgent(
       if (intent?.outOfScope) {
         return declineOutOfScopeReply(profile);
       }
-      return handoffToManager(profile);
+      return handoffBecause(profile, "the input check tripped", { intent: intent ? { outOfScope: intent.outOfScope } : null });
     }
     if (error instanceof OutputGuardrailTripwireTriggered) {
-      return handoffToManager(profile);
+      return handoffBecause(profile, "the output check tripped");
     }
     throw error;
   }

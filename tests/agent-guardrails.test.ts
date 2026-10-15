@@ -204,10 +204,30 @@ describe("runAgent guardrail tripwires", () => {
 
     it("hands the conversation to a person when the second try is empty too, never a blank reply", async () => {
       runTracedAgentMock.mockResolvedValue(run(""));
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
       const result = await runAgent(profile, "Acme", "Nobody can log in", [], "org-1");
       expect(runTracedAgentMock).toHaveBeenCalledTimes(2);
       expect(result.escalate).toBe(true);
       expect(result.answer).toContain("Charan");
+      // Both warnings say why, so a handoff the model did not choose is not invisible.
+      expect(warn.mock.calls.map((call) => String(call[0]))).toEqual(
+        expect.arrayContaining([expect.stringContaining("empty reply, retrying once"), expect.stringContaining("the reply was empty twice")]),
+      );
+      warn.mockRestore();
+    });
+
+    it("says why when the input check trips", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      runTracedAgentMock.mockRejectedValue(
+        new InputGuardrailTripwireTriggered("tripped", {
+          guardrail: { type: "input", name: "Customer intent guardrail" },
+          output: { tripwireTriggered: true, outputInfo: { injectionSuspected: false, outOfScope: false, escalate: true, matchedThemes: [], confidence: 0.1, reason: "billing" } },
+        }),
+      );
+      const result = await runAgent(profile, "Acme", "hi", [], "org-1");
+      expect(result.escalate).toBe(true);
+      expect(warn.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining([expect.stringContaining("the input check tripped")]));
+      warn.mockRestore();
     });
 
     it("hands over, with the standard handoff text, when the only thing ever said is the handoff tag", async () => {
