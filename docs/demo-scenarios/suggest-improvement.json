@@ -1,0 +1,24 @@
+{
+  "name": "suggest-improvement",
+  "description": "A customer suggests a change to something that exists. The worker collects product and detail and raises a Suggest Improvement ticket.",
+  "approved": false,
+  "turns": [
+    {
+      "say": "It would be easier if the intake form remembered the product I picked last time instead of starting blank."
+    },
+    {
+      "say": "I'm Sam Ortiz, sam.ortiz@lakeview-eap.example, Lakeview EAP. It's in EAPx Cloud, on the Online Intake form. We'd like the Product field to default to the last choice."
+    },
+    {
+      "say": "Yes, please raise it with the team."
+    },
+    {
+      "say": "That's all, thanks."
+    }
+  ],
+  "expect": {
+    "finalStatus": "needs_human",
+    "ticketRaised": true,
+    "requestType": "Suggest Improvement"
+  }
+}

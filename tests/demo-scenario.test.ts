@@ -43,6 +43,7 @@ describe("parseScenario", () => {
     ["a turn that is too long", { ...valid, turns: [{ say: "x".repeat(4001) }] }],
     ["a bad finalStatus", { ...valid, expect: { finalStatus: "closed" } }],
     ["mustMention not a list of strings", { ...valid, expect: { mustMention: [1] } }],
+    ["a blank requestType", { ...valid, expect: { requestType: " " } }],
   ])("rejects %s", (_label, scenario) => {
     expect(() => parseScenario(scenario)).toThrow(/Invalid scenario/);
   });
@@ -116,6 +117,14 @@ describe("summarizeReply and checkExpectations", () => {
 
   it("checks the ticket across all turns, but the status on the last", () => {
     expect(checkExpectations({ finalStatus: "needs_human", ticketRaised: true }, [raised, summarizeReply({ status: "needs_human", message: { body: "Thanks", cards: [] } })])).toEqual([]);
+  });
+
+  it("checks the request type on the ticket that was raised", () => {
+    const typed = summarizeReply({ status: "needs_human", message: { body: "Logged.", cards: [{ kind: "helpdesk_ticket", data: { key: "EAPR-9", requestType: "Report a Bug" } }] } });
+    expect(typed.requestType).toBe("Report a Bug");
+    expect(checkExpectations({ requestType: "report a bug" }, [typed])).toEqual([]);
+    expect(checkExpectations({ requestType: "System Unavailable" }, [typed])).toEqual(["the ticket was raised as Report a Bug, expected System Unavailable"]);
+    expect(checkExpectations({ requestType: "Report a Bug" }, [plain])).toEqual(["no ticket named a request type, expected Report a Bug"]);
   });
 
   it("matches phrases case-insensitively and fails with no replies", () => {

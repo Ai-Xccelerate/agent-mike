@@ -3,8 +3,19 @@
   "description": "A whole office cannot log in. The worker escalates at once, gives the high-priority phone line, raises a Critical System Unavailable ticket in Jira, then adds the visitor's name and email to it.",
   "approved": true,
   "turns": [
-    { "say": "Nobody in our office can log in to EAP Expert since 9am. Everyone gets a server error page." },
-    { "say": "Dana Reyes, dana@riverside-counseling.example, Riverside Counseling." }
+    {
+      "say": "Nobody in our office can log in to EAP Expert since 9am. Everyone gets a server error page."
+    },
+    {
+      "say": "Dana Reyes, dana@riverside-counseling.example, Riverside Counseling."
+    }
   ],
-  "expect": { "finalStatus": "needs_human", "ticketRaised": true, "mustMention": ["1-905-702-1380"] }
+  "expect": {
+    "finalStatus": "needs_human",
+    "ticketRaised": true,
+    "mustMention": [
+      "1-905-702-1380"
+    ],
+    "requestType": "System Unavailable"
+  }
 }

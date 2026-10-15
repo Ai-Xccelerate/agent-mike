@@ -14,7 +14,7 @@ Each file here is one scripted conversation: a visitor's messages, in order, plu
 }
 ```
 
-`expect` is optional. `finalStatus` is `open` (the worker kept the conversation) or `needs_human`. `ticketRaised` says whether a Jira ticket card must appear. `mustMention` lists phrases at least one reply must contain.
+`expect` is optional. `requestType` is the type the ticket must end up with (the helpdesk's own name). `finalStatus` is `open` (the worker kept the conversation) or `needs_human`. `ticketRaised` says whether a Jira ticket card must appear. `mustMention` lists phrases at least one reply must contain.
 
 ## Running one
 
@@ -42,3 +42,19 @@ Extra production API hosts can be added with `DEMO_PRODUCTION_HOSTS` (comma sepa
 1. Run it on staging until the replies and the ticket are what you want to show.
 2. Change `"approved"` to `true` in a pull request. That review is the approval.
 3. Replay it on production with `--production`.
+
+## One scenario per request type
+
+| Scenario | Request type it exercises |
+|---|---|
+| office-outage | System Unavailable (critical, hands over) |
+| report-a-bug | Report a Bug |
+| user-license-change | User / License Change |
+| suggest-improvement | Suggest Improvement |
+| pronouns-feature-request | Request a New Feature |
+| training-request | Training Request |
+| professional-services | Professional Services Request |
+| security-compliance-questions | Security / Compliance Questions |
+| refund-goes-to-a-person | Billing / Account Question |
+| client-information-shared | Worker declines to repeat client details |
+| out-of-scope | Worker stays on topic |

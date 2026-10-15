@@ -28,6 +28,7 @@ export function parseScenario(raw) {
   const expect = raw.expect ?? {};
   if (expect.finalStatus !== undefined && !["open", "needs_human"].includes(expect.finalStatus)) fail('"expect.finalStatus" must be open or needs_human');
   if (expect.ticketRaised !== undefined && typeof expect.ticketRaised !== "boolean") fail('"expect.ticketRaised" must be true or false');
+  if (expect.requestType !== undefined && (typeof expect.requestType !== "string" || !expect.requestType.trim())) fail('"expect.requestType" must be a request type name');
   if (expect.mustMention !== undefined && !(Array.isArray(expect.mustMention) && expect.mustMention.every((text) => typeof text === "string"))) {
     fail('"expect.mustMention" must be a list of strings');
   }
@@ -62,6 +63,7 @@ export function summarizeReply(response) {
     escalated: Boolean(response?.escalated),
     body: typeof message.body === "string" ? message.body : "",
     ticketKey: ticket?.data?.key ?? null,
+    requestType: typeof ticket?.data?.requestType === "string" ? ticket.data.requestType : null,
     conversationId: response?.conversation_id ?? null,
   };
 }
@@ -77,6 +79,11 @@ export function checkExpectations(expect, replies) {
   if (expect.ticketRaised !== undefined) {
     const raised = replies.some((reply) => reply.ticketKey);
     if (raised !== expect.ticketRaised) problems.push(expect.ticketRaised ? "no helpdesk ticket was raised" : "a helpdesk ticket was raised and should not have been");
+  }
+  if (expect.requestType !== undefined) {
+    const got = [...replies].reverse().find((reply) => reply.requestType)?.requestType ?? null;
+    if (!got) problems.push(`no ticket named a request type, expected ${expect.requestType}`);
+    else if (got.toLowerCase() !== expect.requestType.toLowerCase()) problems.push(`the ticket was raised as ${got}, expected ${expect.requestType}`);
   }
   for (const text of expect.mustMention ?? []) {
     if (!replies.some((reply) => reply.body.toLowerCase().includes(text.toLowerCase()))) problems.push(`no reply mentioned "${text}"`);

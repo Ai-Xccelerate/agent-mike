@@ -1,0 +1,21 @@
+{
+  "name": "professional-services",
+  "description": "A customer asks for custom, chargeable work. The worker does not refuse or quote; it collects the need and raises a Professional Services ticket.",
+  "approved": false,
+  "turns": [
+    {
+      "say": "We need a custom report built for our funders that combines session counts and wait times. Is that something you do?"
+    },
+    {
+      "say": "I'm Jordan Blake, jordan.blake@pinecrest-eap.example, Pinecrest EAP. We use EAPx Cloud, hosted by EAP Expert. We'd like a quote if it's chargeable work."
+    },
+    {
+      "say": "That's all I have, thank you."
+    }
+  ],
+  "expect": {
+    "finalStatus": "needs_human",
+    "ticketRaised": true,
+    "requestType": "Professional Services"
+  }
+}

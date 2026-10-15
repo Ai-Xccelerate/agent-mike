@@ -1,0 +1,21 @@
+{
+  "name": "training-request",
+  "description": "A customer asks for training on a product area. The worker collects group size and times and raises a Training Request ticket.",
+  "approved": false,
+  "turns": [
+    {
+      "say": "Can we book a training session for our new case managers on Dynamic Forms?"
+    },
+    {
+      "say": "I'm Kim Alvarez, kim.alvarez@summit-eap.example, Summit EAP. Four case managers, one hour, any weekday morning, Pacific time."
+    },
+    {
+      "say": "Thanks, that's everything."
+    }
+  ],
+  "expect": {
+    "finalStatus": "needs_human",
+    "ticketRaised": true,
+    "requestType": "Training Request"
+  }
+}

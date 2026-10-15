@@ -3,8 +3,19 @@
   "description": "A visitor asks for an optional pronouns field on the intake form. The worker collects name and email and passes the request to the team as a feature request. Still being tried: not approved for production.",
   "approved": false,
   "turns": [
-    { "say": "Could you add an optional pronouns field to the intake form?" },
-    { "say": "Dana Reyes, dana@riverside-counseling.example, Riverside Counseling." }
+    {
+      "say": "Could you add an optional pronouns field to the intake form?"
+    },
+    {
+      "say": "Dana Reyes, dana@riverside-counseling.example, Riverside Counseling."
+    },
+    {
+      "say": "It's EAPx Cloud. The detail is one optional text field titled Pronouns on the Online Intake form. The new field name is Pronouns."
+    }
   ],
-  "expect": { "finalStatus": "needs_human", "ticketRaised": true }
+  "expect": {
+    "finalStatus": "needs_human",
+    "ticketRaised": true,
+    "requestType": "Request a New Feature"
+  }
 }
