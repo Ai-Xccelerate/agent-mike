@@ -145,15 +145,38 @@ describe("classifyConversation", () => {
     expect(instructions).not.toContain("- Question");
   });
 
-  it("leaves the request type to the helpdesk when one is connected, but still sets tier and labels", async () => {
-    sourceMock.mockResolvedValue({ project: "EAPR", types: ["Report a Bug"], priorities: ["High"] });
-    chosen({ requestType: "Problem", tier: "Tier 1", labels: ["bug"] });
+  it("chooses the request type from the helpdesk's own list when one is connected, so a how-to is a general question", async () => {
+    sourceMock.mockResolvedValue({
+      project: "EAPR",
+      types: ["Report a Bug", "System Unavailable", "General Questions", "Request a New Feature"],
+      priorities: ["High"],
+    });
+    chosen({ requestType: "general questions", tier: "Tier 1", labels: ["bug"] });
     const row = await conversation();
     await classify(row);
-    const after = await reload(row.id);
-    expect(after.requestType).toBeNull();
-    expect(after).toMatchObject({ tier: "Tier 1", labels: ["bug"] });
-    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("the helpdesk chooses it");
+    expect(await reload(row.id)).toMatchObject({ requestType: "General Questions", tier: "Tier 1", labels: ["bug"], classificationSource: "worker" });
+    const instructions = String((runMock.mock.calls[0][0] as { instructions: string }).instructions);
+    expect(instructions).toContain("- General Questions");
+    expect(instructions).toContain("- System Unavailable");
+    // The worker's own default list is not offered alongside the desk's.
+    expect(instructions).not.toContain("- Feedback");
+  });
+
+  it("drops a request type the helpdesk does not have", async () => {
+    sourceMock.mockResolvedValue({ project: "EAPR", types: ["Report a Bug", "General Questions"], priorities: [] });
+    chosen({ requestType: "Question", tier: "Tier 1" });
+    const row = await conversation();
+    await classify(row);
+    expect(await reload(row.id)).toMatchObject({ requestType: null, tier: "Tier 1" });
+  });
+
+  it("leaves the request type unset when the desk files everything as one issue type", async () => {
+    sourceMock.mockResolvedValue({ project: "SUP", types: ["[System] Service request"], priorities: [] });
+    chosen({ requestType: "[System] Service request", tier: "Tier 2", labels: ["urgent"] });
+    const row = await conversation();
+    await classify(row);
+    expect(await reload(row.id)).toMatchObject({ requestType: null, tier: "Tier 2", labels: ["urgent"] });
+    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("nothing to choose between");
   });
 
   it("still classifies when the helpdesk cannot be reached", async () => {

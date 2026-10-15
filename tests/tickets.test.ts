@@ -80,23 +80,25 @@ describe("computeTickets", () => {
     expect(tickets[0].channel).toBe("widget");
   });
 
-  it("shows the worker's own request type first, else the helpdesk's, and the helpdesk key as a link", async () => {
+  it("shows the helpdesk's actual type once a ticket exists, else the worker's own; a person's choice always wins", async () => {
     await ticket({
       channel: "widget",
       status: "needs_human",
       externalTicketKey: "EAPR-5",
       externalTicketType: "System Unavailable",
       externalTicketPriority: "Critical",
+      requestType: "General Questions",
+      classificationSource: "worker",
     });
-    await ticket({ channel: "widget", requestType: "Billing question", externalTicketType: "Report a Bug" });
+    await ticket({ channel: "widget", requestType: "General Questions", classificationSource: "worker" });
+    await ticket({ channel: "widget", requestType: "Billing", externalTicketType: "Report a Bug", classificationSource: "manual" });
     await ticket({ channel: "widget" });
 
     const { tickets } = await computeTickets({ organizationId: orgId, now: NOW });
-    const byType = Object.fromEntries(tickets.map((t) => [t.requestType ?? "none", t]));
-    expect(byType["System Unavailable"].externalTicketKey).toBe("EAPR-5");
-    expect(byType["System Unavailable"].priority).toBe("Critical");
-    expect(byType["Billing question"]).toBeDefined();
-    expect(byType["none"].priority).toBeNull();
+    const byKey = (key: string | null, type: string | null) => tickets.find((t) => t.externalTicketKey === key && t.requestType === type);
+    expect(byKey("EAPR-5", "System Unavailable")?.priority).toBe("Critical");
+    expect(tickets.map((t) => t.requestType).sort()).toEqual(["Billing", "General Questions", "System Unavailable", null].sort());
+    expect(tickets.find((t) => t.requestType === "System Unavailable")?.externalTicketKey).toBe("EAPR-5");
   });
 
   it("adds labels the state implies and keeps stored ones without duplicates", async () => {
