@@ -4,6 +4,7 @@ import { Dropdown } from "@/components/ui/dropdown/Dropdown";
 import { CheckLineIcon, ChevronDownIcon, JiraIcon } from "@/icons";
 import {
   TICKET_QUEUES,
+  customerLabel,
   STATUS_LABEL,
   filterTickets,
   inQueue,
@@ -421,12 +422,25 @@ export default function WorkerTickets() {
                     </td>
                     <td className="whitespace-nowrap px-3 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
                       <span className="block">{ticketRef(prefix, ticket)}</span>
-                      {ticket.externalTicketKey && (
-                        <span className="mt-0.5 flex items-center gap-1 text-gray-400 dark:text-gray-500">
-                          <JiraIcon className="size-3" />
-                          {ticket.externalTicketKey}
-                        </span>
-                      )}
+                      {ticket.externalTicketKey &&
+                        (ticket.externalTicketUrl ? (
+                          <a
+                            href={ticket.externalTicketUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                            title={`Open ${ticket.externalTicketKey} in Jira`}
+                            className="mt-0.5 flex items-center gap-1 text-gray-500 hover:text-brand-600 hover:underline dark:text-gray-400 dark:hover:text-brand-400"
+                          >
+                            <JiraIcon className="size-3" />
+                            {ticket.externalTicketKey}
+                          </a>
+                        ) : (
+                          <span className="mt-0.5 flex items-center gap-1 text-gray-400 dark:text-gray-500">
+                            <JiraIcon className="size-3" />
+                            {ticket.externalTicketKey}
+                          </span>
+                        ))}
                     </td>
                     <td className="max-w-[240px] px-3 py-3">
                       <a
@@ -439,7 +453,9 @@ export default function WorkerTickets() {
                       >
                         {ticketTitle(ticket)}
                       </a>
-                      <span className="block truncate text-xs text-gray-500 dark:text-gray-400">{ticket.customerName}</span>
+                      <span className="block truncate text-xs text-gray-500 dark:text-gray-400" title={customerLabel(ticket).unverified ? "Said in the chat. Not verified." : undefined}>
+                        {customerLabel(ticket).name}
+                      </span>
                     </td>
                     <td className="max-w-[190px] px-3 py-3">
                       <span className="flex flex-wrap items-center gap-1">

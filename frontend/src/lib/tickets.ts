@@ -1,4 +1,4 @@
-import type { Conversation, Ticket, TicketQueueId, TicketSchema } from "@/lib/worker-api";
+import type { Conversation, StatedCustomer, Ticket, TicketQueueId, TicketSchema } from "@/lib/worker-api";
 
 /** The queues down the Tickets page's left edge, in display order. */
 export const TICKET_QUEUES: { id: TicketQueueId; label: string; hint: string }[] = [
@@ -76,6 +76,28 @@ export function ticketTitle(ticket: Pick<Ticket, "subject" | "customerName">): s
   return ticket.subject?.trim() || ticket.customerName;
 }
 
+/** The widget's placeholder for a visitor who has not been identified. */
+export function isPlaceholderName(name: string): boolean {
+  return name.trim().toLowerCase() === "website visitor";
+}
+
+/**
+ * Who to call the customer. A verified name wins; for an unidentified visitor
+ * it is what they typed in the chat, marked as unverified.
+ */
+export function customerLabel(customer: { customerName: string; customerEmail: string | null; customerStated?: StatedCustomer | null }): {
+  name: string;
+  email: string | null;
+  unverified: boolean;
+} {
+  const stated = customer.customerStated;
+  if (isPlaceholderName(customer.customerName) && stated?.name) {
+    return { name: stated.name, email: customer.customerEmail ?? stated.email, unverified: true };
+  }
+  if (!customer.customerEmail && stated?.email) return { name: customer.customerName, email: stated.email, unverified: true };
+  return { name: customer.customerName, email: customer.customerEmail, unverified: false };
+}
+
 export function filterTickets(tickets: Ticket[], filters: TicketFilters, prefix?: string): Ticket[] {
   const query = filters.search.trim().toLowerCase();
   return tickets.filter((ticket) => {
@@ -89,6 +111,8 @@ export function filterTickets(tickets: Ticket[], filters: TicketFilters, prefix?
       ticket.subject ?? "",
       ticket.customerName,
       ticket.customerEmail ?? "",
+      ticket.customerStated?.name ?? "",
+      ticket.customerStated?.email ?? "",
       ticket.requestType ?? "",
       ...ticket.labels,
     ].some((value) => value.toLowerCase().includes(query));

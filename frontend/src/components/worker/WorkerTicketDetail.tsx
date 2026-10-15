@@ -6,6 +6,7 @@ import { AlertIcon, ChevronLeftIcon, ChevronDownIcon, ChevronUpIcon, DocsIcon, J
 import {
   CHANNEL_LABEL,
   DEFAULT_TICKET_SCHEMA,
+  customerLabel,
   STATUS_LABEL,
   fullTime,
   loadTicketOrder,
@@ -147,7 +148,8 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
   }
 
   const ref = ticketRef(profile?.ticketPrefix, ticket);
-  const title = ticket.subject?.trim() || ticket.customerName;
+  const who = customerLabel(ticket);
+  const title = ticket.subject?.trim() || who.name;
   const handler = ticket.status === "needs_human" || ticket.humanControlled || ticket.externalTicketKey ? "human" : "worker";
   const priority = ticket.externalTicketPriority ?? (ticket.priority !== "normal" ? ticket.priority : null);
   const requestType = ticket.requestType ?? ticket.externalTicketType ?? "";
@@ -227,12 +229,28 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
         <Link href={`/inbox?conversation=${ticket.id}`} className={outlineControl}>
           Reply in Inbox
         </Link>
-        {ticket.externalTicketKey && (
-          <span className={`${outlineControl} cursor-default font-mono`}>
-            <JiraIcon className="size-4" />
-            {ticket.externalTicketKey}
-          </span>
-        )}
+        {ticket.externalTicketKey &&
+          (ticket.externalTicketUrl ? (
+            <a
+              href={ticket.externalTicketUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Open ${ticket.externalTicketKey} in Jira`}
+              className={`${outlineControl} font-mono`}
+            >
+              <JiraIcon className="size-4" />
+              {ticket.externalTicketKey}
+              <span className="sr-only">(opens Jira in a new tab)</span>
+              <span aria-hidden="true" className="text-gray-400 dark:text-gray-500">
+                ↗
+              </span>
+            </a>
+          ) : (
+            <span className={`${outlineControl} cursor-default font-mono`} title="Connect Jira in Settings to open this ticket from here.">
+              <JiraIcon className="size-4" />
+              {ticket.externalTicketKey}
+            </span>
+          ))}
         {notice && (
           <span role="alert" className="text-sm text-warning-700 dark:text-warning-400">
             {notice}
@@ -253,7 +271,8 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
 
           <Section title="Key details">
             <p>
-              {ticket.channel === "email" ? "Received" : "Started"} by <span className="font-medium">{ticket.customerName}</span> on{" "}
+              {ticket.channel === "email" ? "Received" : "Started"} by <span className="font-medium">{who.name}</span>
+              {who.unverified && <span className="text-gray-500 dark:text-gray-400"> (said in chat)</span>} on{" "}
               {CHANNEL_LABEL[ticket.channel] ?? ticket.channel}, {fullTime(ticket.createdAt)}
             </p>
             {ticket.summary ? (
@@ -404,8 +423,9 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
                 </Field>
               )}
               <Field label="Customer">
-                {ticket.customerName}
-                {ticket.customerEmail && <span className="block break-all text-gray-500 dark:text-gray-400">{ticket.customerEmail}</span>}
+                {who.name}
+                {who.email && <span className="block break-all text-gray-500 dark:text-gray-400">{who.email}</span>}
+                {who.unverified && <span className="block text-xs text-gray-500 dark:text-gray-400">Said in the chat. Not verified.</span>}
               </Field>
               <Field label="Updated">{relativeTime(ticket.updatedAt)}</Field>
             </dl>

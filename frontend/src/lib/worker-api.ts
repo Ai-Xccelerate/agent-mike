@@ -47,6 +47,10 @@ export type Conversation = {
   /** What the ticket went in as on the helpdesk, e.g. "System Unavailable". */
   externalTicketType?: string | null;
   externalTicketPriority?: string | null;
+  /** Where an agent opens the Jira ticket. */
+  externalTicketUrl?: string | null;
+  /** What the customer typed about themselves in the chat. Not verified. */
+  customerStated?: StatedCustomer | null;
   /** The worker's own classification, shown on the Tickets page. */
   requestType?: string | null;
   tier?: string | null;
@@ -81,10 +85,16 @@ export type Ticket = {
   tier: string | null;
   labels: string[];
   externalTicketKey: string | null;
+  /** Where an agent opens the Jira ticket. Null when no helpdesk is connected. */
+  externalTicketUrl: string | null;
   externalTicketError: string | null;
+  /** What the customer typed about themselves in the chat. Not verified. */
+  customerStated: StatedCustomer | null;
   createdAt: string;
   updatedAt: string;
 };
+
+export type StatedCustomer = { name: string | null; email: string | null };
 
 export type TicketsPayload = {
   tickets: Ticket[];
