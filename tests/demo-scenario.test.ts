@@ -75,7 +75,7 @@ describe("checkTarget", () => {
 
   it("matches the production host whatever the case or path, and honours extra hosts", () => {
     expect(checkTarget({ apiUrl: "https://MIKE-API.aiworkforce.md/api/v1", scenario: { ...valid, approved: false }, productionFlag: true }).ok).toBe(false);
-    const env = { DEMO_PRODUCTION_HOSTS: "other.example.com, third.example.com" };
+    const env = { DEMO_PRODUCTION_HOSTS: "other.example.com, third.example.com" } as unknown as NodeJS.ProcessEnv;
     expect(productionHosts(env)).toEqual(["mike-api.aiworkforce.md", "other.example.com", "third.example.com"]);
     expect(checkTarget({ apiUrl: "https://other.example.com", scenario: { ...valid, approved: false }, productionFlag: true, env }).ok).toBe(false);
   });
