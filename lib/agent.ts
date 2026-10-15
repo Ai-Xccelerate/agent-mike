@@ -1274,6 +1274,19 @@ function handoffBecause(profile: Parameters<typeof handoffToManager>[0], reason:
   return handoffToManager(profile);
 }
 
+/**
+ * Whether a reply promises that a person will pick the conversation up. The
+ * worker is told to end such a reply with the handoff tag; when it forgets, the
+ * customer is told a teammate will follow up while nobody is told anything.
+ */
+export function promisesPersonFollowUp(answer: string): boolean {
+  return (
+    /\b(teammate|someone|a person|the (support )?team|our team)\b[^.!?\n]{0,40}\b(will|['’]ll|is going to) (follow up|be in touch|get back to you|reach out|contact you)/i.test(answer) ||
+    /\bI(?:['’]ve| have|['’]ll| will)? (?:passed|pass|forwarded|forward|handed|hand|escalated|escalate)\b[^.!?\n]{0,40}\b(?:to|over to) (?:the |our )?(?:support )?(?:team|teammate|[A-Z][\w ]+ Team)\b/i.test(answer) ||
+    /\bHere['’]s what I(?:['’]ve| have) passed to\b/i.test(answer)
+  );
+}
+
 /** Whether a reply says anything once the control tags are taken out. */
 function hasWords(raw: string): boolean {
   return raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP)\]\]/gi, "").replace(CHOICES_TAG, "").trim().length > 0;
@@ -1480,7 +1493,13 @@ export async function runAgent(
       if (!hasWords(adjusted)) return handoffBecause(profile, "the reply was empty twice");
     }
     // Intent confidence came from the first turn's input guardrail.
-    return parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
+    const parsed = parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
+    if (!parsed.escalate && promisesPersonFollowUp(parsed.answer)) {
+      // The reply says a teammate will follow up but carries no handoff tag.
+      console.warn("[agent] reply promised a person but did not hand over; handing over", { conversationId });
+      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined };
+    }
+    return parsed;
   } catch (error) {
     // Input tripwire: out-of-scope → polite decline (not Charan); other trips → handoff.
     // Output no longer trips the SDK wire — block is a soft reject + repair above.
