@@ -1,4 +1,5 @@
 import { Runner, getGlobalTraceProvider } from "@openai/agents";
+import { noteTurn } from "@/lib/timing";
 import type { Agent, RunStreamEvent } from "@openai/agents";
 
 export const CUSTOMER_CHAT_WORKFLOW = "Customer chat";
@@ -35,14 +36,29 @@ export async function runTracedAgent(
 ) {
   const runner = new Runner(agentTraceRunConfig(workflowName, ctx));
   try {
-    return await runner.run(agent, input, {
+    const result = await runner.run(agent, input, {
       maxTurns: options.maxTurns,
       ...(options.context !== undefined ? { context: options.context } : {}),
     });
+    noteModelUsage(result);
+    return result;
   } finally {
     await getGlobalTraceProvider()
       .forceFlush()
       .catch(() => undefined);
+  }
+}
+
+/**
+ * Input tokens the main model read and how many of them the provider served from
+ * its prompt cache, on the turn's `[timing]` line (`inputTokens`, `cachedTokens`).
+ */
+function noteModelUsage(result: { rawResponses?: { usage?: { inputTokens?: number; inputTokensDetails?: unknown } }[] }) {
+  for (const response of result.rawResponses ?? []) {
+    noteTurn("inputTokens", response.usage?.inputTokens ?? 0);
+    const details = response.usage?.inputTokensDetails;
+    const cached = Array.isArray(details) ? details.reduce((sum, d) => sum + Number(d?.cached_tokens ?? 0), 0) : Number((details as Record<string, number> | undefined)?.cached_tokens ?? 0);
+    noteTurn("cachedTokens", cached);
   }
 }
 

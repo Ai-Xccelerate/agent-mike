@@ -66,12 +66,30 @@ function knownCustomerOf(conversation: { customerName: string; customerEmail: st
   return { name, email: conversation.customerEmail };
 }
 
+/** The ticket's number, as its own message after the reply (see `deferTicket`). */
+export interface TicketFollowUp {
+  message: MessageRow;
+}
+
 export interface CustomerTurn {
   reply: MessageRow;
   result: RunAgentResult;
   status: "open" | "needs_human";
   knowledgeSources: unknown[];
+  /**
+   * Only with `deferTicket`, on a handoff: resolves once the helpdesk ticket
+   * has been raised and its number stored as a second message, or to null when
+   * there is nothing to tell the customer (no helpdesk, or Jira refused).
+   */
+  pendingTicket?: Promise<TicketFollowUp | null>;
 }
+
+/**
+ * Handoffs being ticketed after their reply, per conversation. A customer who
+ * writes again before the ticket exists must not raise a second one, so the
+ * next turn waits for the first and then reads the ticket it recorded.
+ */
+const ticketsInFlight = new Map<string, Promise<unknown>>();
 
 export async function runCustomerTurn(input: {
   organizationId: string;
@@ -81,6 +99,13 @@ export async function runCustomerTurn(input: {
   priorMessages: MessageRow[];
   userMessage: MessageRow;
   speakerName: string;
+  /**
+   * Store and return the reply without waiting for the helpdesk ticket on a
+   * handoff (it took 4 to 12 seconds); the ticket's number follows as
+   * `pendingTicket`. For the chat panel, which can show a second message. Email
+   * and the JSON route keep it in the reply, so they leave this off.
+   */
+  deferTicket?: boolean;
 }): Promise<CustomerTurn> {
   const { organizationId, profile, conversation, priorMessages, userMessage, speakerName } = input;
   const message = userMessage.body;
@@ -154,20 +179,24 @@ export async function runCustomerTurn(input: {
     cards.push({ id: crypto.randomUUID(), kind: "choices", data: { options: result.choices.map(withoutEmDashes) } });
   }
 
-  if (result.escalate) {
-    const ticket = await timed("handoff.jira", () =>
-      recordHandoffInJira({
-        organizationId,
-        workerName: profile.displayName,
-        conversation,
-        transcript: toHistoryTurns([...priorMessages, userMessage]),
-        latestMessage: message,
-        workerReply: result.answer,
-      }),
-    ).catch((error: unknown) => {
+  const raiseTicket = (fromConversation: ConversationRow) =>
+    recordHandoffInJira({
+      organizationId,
+      workerName: profile.displayName,
+      conversation: fromConversation,
+      transcript: toHistoryTurns([...priorMessages, userMessage]),
+      latestMessage: message,
+      workerReply: result.answer,
+    }).catch((error: unknown) => {
       console.warn("[handoff] Jira ticket failed:", error instanceof Error ? error.message : error);
       return null;
     });
+
+  // The ticket is raised after the reply is stored when the caller asked for that.
+  const deferTicket = Boolean(input.deferTicket) && result.escalate && showsCards;
+
+  if (result.escalate && !deferTicket) {
+    const ticket = await timed("handoff.jira", () => raiseTicket(conversation));
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
     if (isHandoffTicket(ticket)) {
@@ -193,6 +222,48 @@ export async function runCustomerTurn(input: {
       cards,
     })
     .returning();
+
+  // Started as soon as the reply is stored, so the Jira call overlaps with the
+  // rest of this turn's bookkeeping instead of following it.
+  let pendingTicket: Promise<TicketFollowUp | null> | undefined;
+  if (deferTicket) {
+    const earlier = ticketsInFlight.get(conversation.id);
+    pendingTicket = (async () => {
+      const started = Date.now();
+      await earlier?.catch(() => undefined);
+      // What an earlier turn's ticket recorded after this turn read the conversation.
+      const current = earlier
+        ? (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation
+        : conversation;
+      const ticket = await raiseTicket(current);
+      console.info("[timing]", JSON.stringify({ turn: "handoff-ticket", channel: conversation.channel, ms: Date.now() - started }));
+      if (!isHandoffTicket(ticket)) return null;
+      const [message] = await db
+        .insert(messages)
+        .values({
+          conversationId: conversation.id,
+          senderType: "agent",
+          senderName: profile.displayName,
+          body: handoffTicketNotice(ticket),
+          cards: [
+            {
+              id: crypto.randomUUID(),
+              kind: "helpdesk_ticket",
+              data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created },
+            },
+          ] satisfies CustomerCard[],
+        })
+        .returning();
+      return { message };
+    })().catch((error: unknown) => {
+      console.warn("[handoff] ticket follow-up failed:", error instanceof Error ? error.message : error);
+      return null;
+    });
+    ticketsInFlight.set(conversation.id, pendingTicket);
+    void pendingTicket.finally(() => {
+      if (ticketsInFlight.get(conversation.id) === pendingTicket) ticketsInFlight.delete(conversation.id);
+    });
+  }
 
   // A conversation already waiting for a person stays that way when the
   // customer writes again ("thanks", more details). Only a person moves it on;
@@ -243,5 +314,5 @@ export async function runCustomerTurn(input: {
     );
   }
 
-  return { reply, result, status, knowledgeSources };
+  return { reply, result, status, knowledgeSources, ...(pendingTicket ? { pendingTicket } : {}) };
 }

@@ -20,6 +20,10 @@ Stages overlap (the input check runs beside the main call), so they do not sum t
 | 3 | Input intent check runs beside the main call, not before it. The SDK still waits for it before any tool runs, so a write action cannot fire on a message that trips it | `lib/guardrails.ts` | `INPUT_GUARDRAIL_SERIAL=true` restores the old serial check | in this PR |
 | 2 | Output reply check skipped on grounded, non-handoff replies; audited afterwards (`[guardrail-shadow]` when the model would have acted) | `lib/guardrails.ts` | `OUTPUT_GUARDRAIL_MODE=risk` (default `always`); `OUTPUT_GUARDRAIL_SHADOW=false` turns the audit off | in this PR, **off by default** |
 | 4 | Faster model for both checks | env only | `GUARDRAIL_MODEL` (default is the worker's model) | open: needs a model name from the OpenAI account |
+| 7 | Handoff: the helpdesk ticket is raised after the reply is stored; its number follows as a second message with the ticket card, inside the same chat run. Email and the JSON route keep the number in the reply. A second message sent before the ticket exists waits for it and adds to it, so it never raises two | `lib/customer-turn.ts` (`deferTicket`), `lib/chat-turn.ts`, `app/api/v1/chat/agui/route.ts` | none (chat panel only) | in PR, not yet deployed |
+| 8 | Request-type catalog: fields read in parallel (were one Jira call per type), and an expired copy is served while a fresh one loads. Fixes the 7.6 s first turn after a deploy or a 10 minute gap | `lib/tools-integrations/atlassian.ts` | none | in PR, not yet deployed |
+| 9 | Prompt caching: fixed rules first, per-turn material (known customer, reference material) last, plus a short reminder after the material. Lets the model provider reuse the prompt prefix. `[timing]` now carries `inputTokens` and `cachedTokens` | `lib/agent.ts` (`buildInstructions`), `lib/agent-tracing.ts`, `lib/timing.ts` | none | in PR |
+| 10 | Retrieval memory: a repeated question reuses what it found for 3 minutes (per org, per question, not when a source failed; cleared on any knowledge edit in Mike) | `lib/retrieval-cache.ts`, `lib/retrieval.ts` | `RETRIEVAL_CACHE_TTL_MS` (0 = off) | in PR |
 | 5 | Cache profile, connections, credentials, toolkits per org | | | open: low value locally (about 40 ms), re-check on production timings |
 | 6 | Timeout per external retrieval source (Confluence goes through Composio) | | | open: re-check on production timings |
 
@@ -45,13 +49,51 @@ questions (the other: refund escalated 2 of 3 rounds in baseline, 3 of 3 in the 
 Caveats: 3 rounds per question; small clean knowledge base, so retrieval always hit; local database, so the network
 hop to Postgres is not represented.
 
+## Benchmark 2: staging, deployed code (16 Oct 2026)
+
+Merged as `099b505`, deployed to staging in default mode (`OUTPUT_GUARDRAIL_MODE` unset: input check parallel,
+output check on every turn). Widget route, 12 turns, `[timing]` lines read from the Railway logs.
+
+| What | Median |
+|---|---|
+| Client latency, non-handoff turns | 5.4 s (grounded 5.8 s) |
+| Handoff turns | 8.1 s and 18.0 s |
+
+Server stages: retrieval 1.0 to 4.1 s (local: 8 ms, so an external knowledge source dominates), main run 3 to 5.8 s,
+output check 1.2 to 2.6 s, input check 1.3 to 2.4 s (overlapped), **Jira ticket on handoff 3.6 s and 12.2 s**
+(on the critical path), database + instructions + tools about 50 to 100 ms combined.
+
+Findings: retrieval and the Jira call matter on staging, unlike locally, so items 6 and the handoff path move up.
+
+Risk mode on staging: switched on by hand in Railway. A 15-turn client-side run was inconclusive (median grounded
+5.2 s vs 5.8 s, three cold-start-looking outliers) and the server timings could not be read in that session. Charan's
+manual tests: "fast enough". `[guardrail-shadow]` not yet checked in the logs.
+
+Testing note: ask only questions the knowledge base answers. Off-KB questions hand over and raise real Jira tickets on
+staging (three were raised during these runs and need closing).
+
+## Prompt-order regression caught in testing (16 Oct)
+
+First version of #9 moved the grounding rule above the knowledge. "I can't sign in, what should I check?" then handed
+over 7 of 8 runs (old order: 0 of 8): the article says "still stuck? a teammate will check" and the model read it as a
+reason to hand over. Fix: repeat the two decisive rules in the short tail right after the material. Re-run on the
+10-question set, 4 rounds, old order vs new: same handoffs on every question; the refund question hands over 4 of 4
+(old: 2 of 4). Lesson: any prompt change needs a real-model A/B on handoff decisions, not just unit tests.
+
+Local prompts are about 860 tokens, under the roughly 1,024 the provider needs to reuse a prefix, so `cachedTokens`
+here is mostly 0. Check `cachedTokens` on production `[timing]` lines after deploy.
+
 ## Rollout
 
 - [x] Timings, parallel input check and `risk` mode implemented and unit-tested (812 tests pass)
 - [x] Local benchmark 1
-- [ ] PR reviewed and merged
-- [ ] Deploy with defaults (`OUTPUT_GUARDRAIL_MODE` unset): read `[timing]` baseline from Railway logs
-- [ ] Set `OUTPUT_GUARDRAIL_MODE=risk` on production, compare timings, watch `[guardrail-shadow]` for a week
+- [x] PR #63 merged into staging (`099b505`)
+- [x] Staging deployed in default mode, `[timing]` baseline read (benchmark 2)
+- [x] `risk` mode switched on for staging; manual check: fast enough (server timings not confirmed)
+- [ ] Read `[guardrail-shadow]` and `guardrail.output` in the staging logs to confirm `risk` mode is live and clean
+- [ ] Per-source retrieval timeout (item 6): retrieval is 1 to 4 s on staging
+- [x] Jira ticket off the critical path on handoff (#7), request-type catalog refresh (#8): in PR; test on staging, then promote
+- [ ] Promote staging to production (`main`) with defaults, read the `[timing]` baseline, then set `risk` on production
 - [ ] Decide on #4 (guardrail model), #5, #6 from the production numbers
 - [ ] Handoff turns: still about 6.7 s (output check + 1.6 s handoff summary); look at it next
 
