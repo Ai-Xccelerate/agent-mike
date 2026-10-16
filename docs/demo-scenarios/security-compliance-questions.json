@@ -1,0 +1,21 @@
+{
+  "name": "security-compliance-questions",
+  "description": "A customer asks for a compliance report and data location. The worker hands it to a person and raises a Security / Compliance Questions ticket.",
+  "approved": false,
+  "turns": [
+    {
+      "say": "Can you send us your latest SOC 2 report and tell us where our data is stored?"
+    },
+    {
+      "say": "I'm Dana Reyes, dana.reyes@riverside-counseling.example, Riverside Counseling. We're a hosted EAPx Cloud customer and our auditor needs this by the end of the month."
+    },
+    {
+      "say": "That's everything, thanks."
+    }
+  ],
+  "expect": {
+    "finalStatus": "needs_human",
+    "ticketRaised": true,
+    "requestType": "Security / Compliance Questions"
+  }
+}

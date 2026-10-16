@@ -1,0 +1,14 @@
+{
+  "name": "out-of-scope",
+  "description": "A request unrelated to EAP Expert support. The worker declines politely, stays in its lane and raises no ticket.",
+  "approved": false,
+  "turns": [
+    {
+      "say": "Can you write me a short poem about my cat?"
+    }
+  ],
+  "expect": {
+    "finalStatus": "open",
+    "ticketRaised": false
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "user-license-change",
+  "description": "A customer asks for three new users on their licence. The worker collects who and when, and raises a User / License Change ticket.",
+  "approved": false,
+  "turns": [
+    {
+      "say": "Please add three new counsellors to our EAPx Cloud licence."
+    },
+    {
+      "say": "I'm Marcus Webb, marcus.webb@northgate-eap.example, Northgate EAP. The new counsellors are Ana Ruiz, Tom Okafor and Lee Chen. They start on Monday and need counsellor access."
+    },
+    {
+      "say": "That's all the details. Thanks."
+    }
+  ],
+  "expect": {
+    "finalStatus": "needs_human",
+    "ticketRaised": true,
+    "requestType": "User / License Change"
+  }
+}

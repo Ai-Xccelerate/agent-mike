@@ -1,0 +1,16 @@
+{
+  "name": "refund-goes-to-a-person",
+  "description": "A customer asks for a refund. The worker collects their details, promises nothing about money, and hands over to a person.",
+  "approved": false,
+  "turns": [
+    {
+      "say": "I was charged twice last month and I want a refund."
+    },
+    {
+      "say": "I'm Casey Morgan, casey.morgan@bayview-eap.example, Bayview EAP. The two charges were on the 3rd and the 4th. Please have someone look at it."
+    }
+  ],
+  "expect": {
+    "finalStatus": "needs_human"
+  }
+}

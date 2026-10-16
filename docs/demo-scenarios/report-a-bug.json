@@ -1,0 +1,21 @@
+{
+  "name": "report-a-bug",
+  "description": "A customer reports a defect. The worker asks which product, build and hosting, collects the contact details, and raises a Report a Bug ticket.",
+  "approved": false,
+  "turns": [
+    {
+      "say": "The utilization report in EAPx Cloud is showing every session counted twice since the last update."
+    },
+    {
+      "say": "It's EAPx Cloud, hosted by EAP Expert, build date October 1. It affects all our case managers when they run the monthly report. I'm Priya Nair, priya.nair@harbourside-eap.example, Harbourside EAP. We're in Eastern time and afternoons suit us for a screen share."
+    },
+    {
+      "say": "That's everything I have. Please pass it to the team."
+    }
+  ],
+  "expect": {
+    "finalStatus": "needs_human",
+    "ticketRaised": true,
+    "requestType": "Report a Bug"
+  }
+}

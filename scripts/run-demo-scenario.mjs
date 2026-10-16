@@ -61,7 +61,7 @@ for (const [index, turn] of scenario.turns.entries()) {
   conversationId = reply.conversationId ?? conversationId;
   replies.push(reply);
   console.log(`   worker: ${reply.body.replace(/\s+/g, " ").slice(0, 400)}`);
-  console.log(`   status: ${reply.status}${reply.ticketKey ? `, ticket ${reply.ticketKey}` : ""}`);
+  console.log(`   status: ${reply.status}${reply.ticketKey ? `, ticket ${reply.ticketKey}` : ""}${reply.requestType ? ` (${reply.requestType})` : ""}`);
 }
 
 console.log(`\nconversation: ${conversationId}`);
