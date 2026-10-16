@@ -22,6 +22,8 @@ Stages overlap (the input check runs beside the main call), so they do not sum t
 | 4 | Faster model for both checks | env only | `GUARDRAIL_MODEL` (default is the worker's model) | open: needs a model name from the OpenAI account |
 | 7 | Handoff: the helpdesk ticket is raised after the reply is stored; its number follows as a second message with the ticket card, inside the same chat run. Email and the JSON route keep the number in the reply. A second message sent before the ticket exists waits for it and adds to it, so it never raises two | `lib/customer-turn.ts` (`deferTicket`), `lib/chat-turn.ts`, `app/api/v1/chat/agui/route.ts` | none (chat panel only) | in PR, not yet deployed |
 | 8 | Request-type catalog: fields read in parallel (were one Jira call per type), and an expired copy is served while a fresh one loads. Fixes the 7.6 s first turn after a deploy or a 10 minute gap | `lib/tools-integrations/atlassian.ts` | none | in PR, not yet deployed |
+| 9 | Prompt caching: fixed rules first, per-turn material (known customer, reference material) last, plus a short reminder after the material. Lets the model provider reuse the prompt prefix. `[timing]` now carries `inputTokens` and `cachedTokens` | `lib/agent.ts` (`buildInstructions`), `lib/agent-tracing.ts`, `lib/timing.ts` | none | in PR |
+| 10 | Retrieval memory: a repeated question reuses what it found for 3 minutes (per org, per question, not when a source failed; cleared on any knowledge edit in Mike) | `lib/retrieval-cache.ts`, `lib/retrieval.ts` | `RETRIEVAL_CACHE_TTL_MS` (0 = off) | in PR |
 | 5 | Cache profile, connections, credentials, toolkits per org | | | open: low value locally (about 40 ms), re-check on production timings |
 | 6 | Timeout per external retrieval source (Confluence goes through Composio) | | | open: re-check on production timings |
 
@@ -69,6 +71,17 @@ manual tests: "fast enough". `[guardrail-shadow]` not yet checked in the logs.
 
 Testing note: ask only questions the knowledge base answers. Off-KB questions hand over and raise real Jira tickets on
 staging (three were raised during these runs and need closing).
+
+## Prompt-order regression caught in testing (16 Oct)
+
+First version of #9 moved the grounding rule above the knowledge. "I can't sign in, what should I check?" then handed
+over 7 of 8 runs (old order: 0 of 8): the article says "still stuck? a teammate will check" and the model read it as a
+reason to hand over. Fix: repeat the two decisive rules in the short tail right after the material. Re-run on the
+10-question set, 4 rounds, old order vs new: same handoffs on every question; the refund question hands over 4 of 4
+(old: 2 of 4). Lesson: any prompt change needs a real-model A/B on handoff decisions, not just unit tests.
+
+Local prompts are about 860 tokens, under the roughly 1,024 the provider needs to reuse a prefix, so `cachedTokens`
+here is mostly 0. Check `cachedTokens` on production `[timing]` lines after deploy.
 
 ## Rollout
 

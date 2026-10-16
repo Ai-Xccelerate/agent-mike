@@ -6,6 +6,7 @@ import { knowledgeDocuments } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { isOrgAdmin } from "@/lib/org-roles";
 import { editKnowledgeDocument, InvalidOKFDocument } from "@/lib/knowledge";
+import { clearRetrievalCache } from "@/lib/retrieval-cache";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   await db
     .delete(knowledgeDocuments)
     .where(and(eq(knowledgeDocuments.id, params.id), eq(knowledgeDocuments.organizationId, tenant.orgId)));
+  clearRetrievalCache(tenant.orgId);
   return NextResponse.json({ ok: true });
 }
 
