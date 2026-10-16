@@ -1130,7 +1130,7 @@ export async function buildInstructions(
   const groundingRule =
     "\n\nGrounding rule (overrides helpfulness and general knowledge): for support questions — " +
     "troubleshooting steps, how-tos, account or billing issues, product facts and policies — answer " +
-    "only from the reference material above. Do not fill gaps with general knowledge or generic advice, " +
+    "only from the reference material below. Do not fill gaps with general knowledge or generic advice, " +
     "and do not invent steps, settings, timelines, or policies. If the reference material does not " +
     "cover the question, tell the customer you're bringing in a teammate who can help, and end with " +
     "[[ESCALATE]]. When the reference material does answer it, give that answer and end with " +
@@ -1187,13 +1187,15 @@ export async function buildInstructions(
     "assistant — briefly decline, say what you can help with, and end with [[FOLLOWUP]] or " +
     "[[RESOLVE]]. Do not fulfill the out-of-scope request.";
 
+  // Fixed rules first, what changes every turn last. The model provider reuses the
+  // start of a prompt it has seen before (prompt caching), up to the first thing
+  // that differs: with the reference material and the customer in the middle, nothing
+  // after them was ever reused. Keep new per-turn text below the marker.
   return (
     identityLine +
     additionalInstructionsBlock +
     jobDescriptionBlock +
     (contactBlock ? `\n\n${contactBlock}` : "") +
-    knownCustomerBlock +
-    knowledgeBlock +
     groundingRule +
     audienceBoundary +
     scopeBoundary +
@@ -1216,7 +1218,17 @@ export async function buildInstructions(
         "itself in your reply: the customer can always type instead.") +
     "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
-    "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]."
+    "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]." +
+    // ---- Per turn from here: never put fixed text below this line. ----
+    knownCustomerBlock +
+    knowledgeBlock +
+    // Short, and right after the material it is about: the long grounding rule is above the
+    // material now, and without these two sentences next to it, a how-to that says "still
+    // stuck? a teammate will check" was read as a reason to hand over (7 of 8 runs).
+    "\n\nReminder: if the reference material above answers the question, give that answer and end with [[FOLLOWUP]] " +
+    "or [[RESOLVE]]. A step in it like \"contact support\" or \"a teammate will check\" is part of the answer, not a reason " +
+    "to hand over. If it does not cover a support question, hand over with [[ESCALATE]]. " +
+    "End this reply with exactly one of [[ESCALATE]], [[RESOLVE]] or [[FOLLOWUP]]."
   );
 }
 

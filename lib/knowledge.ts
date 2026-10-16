@@ -1,3 +1,4 @@
+import { clearRetrievalCache } from "@/lib/retrieval-cache";
 import { createHash } from "crypto";
 import matter from "gray-matter";
 import { and, eq, sql, type SQL } from "drizzle-orm";
@@ -207,6 +208,7 @@ export async function ingestOkf(organizationId: string, conceptId: string, raw: 
     );
   }
 
+  clearRetrievalCache(organizationId);
   return saved;
 }
 

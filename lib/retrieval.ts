@@ -1,4 +1,5 @@
 import { retrieve, type KnowledgeMatch } from "@/lib/knowledge";
+import { readRetrievalCache, retrievalCacheKey, writeRetrievalCache } from "@/lib/retrieval-cache";
 import {
   AGENT_WIKI_KEY,
   PARCHMENT_KEY,
@@ -63,6 +64,21 @@ export async function retrieveKnowledge(
   profile: RetrievalProfile,
   query: string,
   limit = 5,
+): Promise<RetrievalResult> {
+  const key = retrievalCacheKey(profile.organizationId, profile.integrationsConfig, limit, query);
+  const remembered = readRetrievalCache<RetrievalResult>(key);
+  if (remembered) return remembered;
+
+  const result = await retrieveKnowledgeUncached(profile, query, limit);
+  // A source that failed is not remembered: the next customer should get it back as soon as it is up.
+  if (result.sources.every((source) => source.error === null)) writeRetrievalCache(key, result);
+  return result;
+}
+
+async function retrieveKnowledgeUncached(
+  profile: RetrievalProfile,
+  query: string,
+  limit: number,
 ): Promise<RetrievalResult> {
   const localMatches = await retrieve(profile.organizationId, query, limit);
   const sources: RetrievalSource[] = [

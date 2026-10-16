@@ -1657,8 +1657,41 @@ describe("agent instructions — KB grounding", () => {
       "chat",
     );
     expect(instructions).toContain("### Sign-in codes");
-    expect(instructions).toContain("answer only from the reference material above");
+    expect(instructions).toContain("answer only from the reference material below");
     expect(instructions).not.toContain("No matching reference material was found");
+  });
+
+  it("puts everything that changes per turn after everything that doesn't, so the prompt prefix can be reused", async () => {
+    const turn = (knowledge: unknown[], known?: { name?: string; email?: string }) =>
+      buildInstructions(baseProfile, "AI Xccelerate", knowledge as never[], "org-1", "chat", known);
+    const a = await turn(
+      [{ title: "Sign-in codes", heading: null, content: "Codes expire after 10 minutes." }],
+      { name: "Ana", email: "ana@example.com" },
+    );
+    const b = await turn([{ title: "Billing", heading: null, content: "Invoices go out on the 1st." }], { email: "bo@example.com" });
+    const c = await turn([]);
+
+    // The text up to the first per-turn section is identical whatever the question found.
+    const fixed = (text: string) => {
+      const firstPerTurn = ["What you already know about this customer", "Reference material", "No matching reference material"]
+        .map((marker) => text.indexOf(marker))
+        .filter((at) => at >= 0);
+      return text.slice(0, Math.min(...firstPerTurn));
+    };
+    expect(fixed(a)).toBe(fixed(b));
+    expect(fixed(a)).toBe(fixed(c));
+    expect(fixed(a).length).toBeGreaterThan(1500);
+
+    // The rules, including the handoff tags, all come before the per-turn material.
+    for (const rule of ["Grounding rule", "Audience boundary", "Scope boundary", "Quick replies", "end your reply with the tag [[ESCALATE]]"]) {
+      expect(a.indexOf(rule)).toBeGreaterThan(-1);
+      expect(a.indexOf(rule)).toBeLessThan(a.indexOf("### Sign-in codes"));
+      expect(a.indexOf(rule)).toBeLessThan(a.indexOf("What you already know about this customer"));
+    }
+    // And the answer's tag is asked for once more at the very end, where the model reads last.
+    expect(a.trimEnd().endsWith("[[ESCALATE]], [[RESOLVE]] or [[FOLLOWUP]].")).toBe(true);
+    // ...with the rule that a how-to's own "contact support" step is part of the answer, next to the material.
+    expect(a.indexOf("is part of the answer, not a reason to hand over")).toBeGreaterThan(a.indexOf("### Sign-in codes"));
   });
 
   it("does not escalate a KB-answered question just because the article says to contact support", async () => {
