@@ -10,6 +10,7 @@ import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation } from "@/lib/ticket-classifier";
+import { timed } from "@/lib/timing";
 
 /**
  * One customer-facing agent turn, shared by every channel (chat, widget,
@@ -98,7 +99,7 @@ export async function runCustomerTurn(input: {
   });
 
   // Local knowledge plus any enabled knowledge integration (e.g. Parchment).
-  const { matches: knowledgeMatches, sources: knowledgeSources } = await retrieveKnowledge(profile, message);
+  const { matches: knowledgeMatches, sources: knowledgeSources } = await timed("retrieval", () => retrieveKnowledge(profile, message));
 
   const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
 
@@ -110,9 +111,11 @@ export async function runCustomerTurn(input: {
     result = handoffToManager(profile);
   } else {
     try {
-      result = await runAgent(
+      const organizationName = await timed("db.orgName", () => getOrganizationName(organizationId));
+      result = await timed("agent.total", () =>
+        runAgent(
         profile,
-        await getOrganizationName(organizationId),
+        organizationName,
         message,
         knowledgeMatches,
         organizationId,
@@ -122,6 +125,7 @@ export async function runCustomerTurn(input: {
         speakerName,
         conversation.channel,
         knownCustomerOf(conversation),
+        ),
       );
     } catch (error) {
       // Logged: the customer sees a polite handoff whatever went wrong, so without
@@ -151,14 +155,16 @@ export async function runCustomerTurn(input: {
   }
 
   if (result.escalate) {
-    const ticket = await recordHandoffInJira({
-      organizationId,
-      workerName: profile.displayName,
-      conversation,
-      transcript: toHistoryTurns([...priorMessages, userMessage]),
-      latestMessage: message,
-      workerReply: result.answer,
-    }).catch((error: unknown) => {
+    const ticket = await timed("handoff.jira", () =>
+      recordHandoffInJira({
+        organizationId,
+        workerName: profile.displayName,
+        conversation,
+        transcript: toHistoryTurns([...priorMessages, userMessage]),
+        latestMessage: message,
+        workerReply: result.answer,
+      }),
+    ).catch((error: unknown) => {
       console.warn("[handoff] Jira ticket failed:", error instanceof Error ? error.message : error);
       return null;
     });
@@ -196,11 +202,13 @@ export async function runCustomerTurn(input: {
   // Fold anything that just fell out of the replay window into the rolling
   // summary. Runs after the turn so it never delays the customer's answer.
   const allTurns = toHistoryTurns([...priorMessages, userMessage, reply]);
-  const summaryState = await maybeRefreshConversationSummary(
-    profile,
-    { summary: conversation.summary, summarizedMessageCount: conversation.summarizedMessageCount },
-    allTurns,
-    "customer",
+  const summaryState = await timed("summary.refresh", () =>
+    maybeRefreshConversationSummary(
+      profile,
+      { summary: conversation.summary, summarizedMessageCount: conversation.summarizedMessageCount },
+      allTurns,
+      "customer",
+    ),
   );
 
   await db
@@ -228,7 +236,9 @@ export async function runCustomerTurn(input: {
   // sends its own (it also covers replies that couldn't be sent).
   if (result.escalate && conversation.status !== "needs_human" && conversation.channel !== "email") {
     const where = conversation.channel === "widget" ? "website chat" : "chat";
-    await notifyManager(conversation, organizationId, `${profile.displayName} handed a ${where} conversation to you.`).catch(
+    await timed("handoff.notify", () =>
+      notifyManager(conversation, organizationId, `${profile.displayName} handed a ${where} conversation to you.`),
+    ).catch(
       (error: unknown) => console.warn("[handoff] manager email failed:", error instanceof Error ? error.message : error),
     );
   }

@@ -3,6 +3,7 @@ import type { InputGuardrail, OutputGuardrail } from "@openai/agents";
 import { z } from "zod";
 import { guardrailModel, modelUnavailabilityReason } from "@/lib/env";
 import type { HistoryTurn } from "@/lib/conversation-memory";
+import { timed } from "@/lib/timing";
 
 const INJECTION_PATTERNS = [
   "ignore previous instructions",
@@ -242,7 +243,7 @@ export async function classifyCustomerIntent(args: {
     `Latest customer message:\n${args.message}`;
 
   try {
-    const result = await run(classifier, prompt, { maxTurns: 1 });
+    const result = await timed("guardrail.input", () => run(classifier, prompt, { maxTurns: 1 }));
     const parsed = IntentClassificationSchema.safeParse(result.finalOutput);
     if (!parsed.success) {
       return failClosedIntent("Guardrail classifier returned invalid structured output");
@@ -254,16 +255,9 @@ export async function classifyCustomerIntent(args: {
   }
 }
 
-export async function classifyCustomerOutput(args: {
-  reply: string;
-  escalationTerms: string[];
-  recentHistory: HistoryTurn[];
-  summary: string | null;
-  role: string;
-  jobDescription?: string | null;
-  referenceMaterialFound?: boolean;
-}): Promise<OutputClassification> {
-  const lower = args.reply.toLowerCase();
+/** Deterministic: a draft that quotes the system prompt is blocked without asking a model. */
+export function outputLeakBlock(reply: string): OutputClassification | null {
+  const lower = reply.toLowerCase();
   for (const pattern of OUTPUT_LEAK_PATTERNS) {
     if (lower.includes(pattern)) {
       return {
@@ -273,6 +267,44 @@ export async function classifyCustomerOutput(args: {
       };
     }
   }
+  return null;
+}
+
+/**
+ * OUTPUT_GUARDRAIL_MODE: "always" (default) runs the reply-check model on every
+ * draft, after the answer, in series. "risk" runs it only where it earns its
+ * round-trip (see canSkipOutputJudge) and audits the skipped turns afterwards.
+ */
+export function outputGuardrailMode(): "always" | "risk" {
+  return (process.env.OUTPUT_GUARDRAIL_MODE || "").trim().toLowerCase() === "risk" ? "risk" : "always";
+}
+
+/**
+ * A draft the reply-check model has nothing to add to: it was written from
+ * approved reference material (so the grounding rule is met) and it is not a
+ * handoff (the check's other job is deciding whether an [[ESCALATE]] stands, so
+ * every handoff still gets it). Without reference material, grounding is
+ * unknown and the check always runs.
+ */
+export function canSkipOutputJudge(reply: string, referenceMaterialFound: boolean | undefined): boolean {
+  return (
+    referenceMaterialFound === true &&
+    reply.replace(/\[\[[A-Z_]+(?::[^\]]*)?\]\]/g, "").trim().length > 0 &&
+    !/\[\[ESCALATE\]\]/i.test(reply)
+  );
+}
+
+export async function classifyCustomerOutput(args: {
+  reply: string;
+  escalationTerms: string[];
+  recentHistory: HistoryTurn[];
+  summary: string | null;
+  role: string;
+  jobDescription?: string | null;
+  referenceMaterialFound?: boolean;
+}): Promise<OutputClassification> {
+  const leak = outputLeakBlock(args.reply);
+  if (leak) return leak;
 
   if (modelUnavailabilityReason()) {
     return failClosedOutput("Output guardrail classifier unavailable (demo mode or missing API key)");
@@ -333,7 +365,7 @@ export async function classifyCustomerOutput(args: {
     `Draft agent reply:\n${args.reply}`;
 
   try {
-    const result = await run(classifier, prompt, { maxTurns: 1 });
+    const result = await timed("guardrail.output", () => run(classifier, prompt, { maxTurns: 1 }));
     const parsed = OutputClassificationSchema.safeParse(result.finalOutput);
     if (!parsed.success) {
       return failClosedOutput("Output guardrail classifier returned invalid structured output");
@@ -472,8 +504,12 @@ export function applyReplyPolicy(raw: string, policy: OutputClassification | nul
 export function buildCustomerInputGuardrail(): InputGuardrail {
   return {
     name: CUSTOMER_INPUT_GUARDRAIL_NAME,
-    // Cost-optimal: never pay for the main worker model when we already know to escalate.
-    runInParallel: false,
+    // Runs beside the main model call, not before it: a serial check put a whole
+    // classifier round-trip in front of every answer. A tripwire still cancels the
+    // main run, so the customer never sees a reply; the price is a wasted main call
+    // on the (rarer) messages that trip.
+    // INPUT_GUARDRAIL_SERIAL=true restores the old serial check without a redeploy.
+    runInParallel: process.env.INPUT_GUARDRAIL_SERIAL !== "true",
     execute: async ({ input, context }) => {
       const ctx = context.context as CustomerGuardrailContext;
       const message = inputAsText(input);
@@ -503,7 +539,7 @@ export function buildCustomerOutputGuardrail(): OutputGuardrail {
     execute: async ({ agentOutput, context }) => {
       const ctx = context.context as CustomerGuardrailContext;
       const reply = typeof agentOutput === "string" ? agentOutput : String(agentOutput ?? "");
-      const classification = await classifyCustomerOutput({
+      const checkArgs = {
         reply,
         escalationTerms: ctx.escalationTerms ?? [],
         recentHistory: ctx.recentHistory ?? [],
@@ -511,7 +547,30 @@ export function buildCustomerOutputGuardrail(): OutputGuardrail {
         role: ctx.role ?? "",
         jobDescription: ctx.jobDescription ?? null,
         referenceMaterialFound: ctx.referenceMaterialFound,
-      });
+      };
+      if (outputGuardrailMode() === "risk" && canSkipOutputJudge(reply, ctx.referenceMaterialFound)) {
+        const classification: OutputClassification = outputLeakBlock(reply) ?? {
+          action: "continue_intake",
+          confidence: 1,
+          reason: "Reply check skipped: grounded reply, no handoff",
+        };
+        // The reply is already on its way. The model check still runs, off the
+        // critical path, so a skipped turn it would have blocked shows up in the logs.
+        if (classification.action !== "block" && process.env.OUTPUT_GUARDRAIL_SHADOW !== "false") {
+          void classifyCustomerOutput(checkArgs)
+            .then((shadow) => {
+              if (shadow.action !== "continue_intake") {
+                console.warn("[guardrail-shadow] reply check would have acted on a skipped turn", {
+                  action: shadow.action,
+                  reason: shadow.reason,
+                });
+              }
+            })
+            .catch(() => undefined);
+        }
+        return { tripwireTriggered: shouldTripOutputGuardrail(classification), outputInfo: classification };
+      }
+      const classification = await classifyCustomerOutput(checkArgs);
       return {
         tripwireTriggered: shouldTripOutputGuardrail(classification),
         outputInfo: classification,

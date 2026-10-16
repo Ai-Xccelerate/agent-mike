@@ -424,7 +424,7 @@ describe("SDK guardrail wrappers", () => {
     });
     const guardrail = buildCustomerInputGuardrail();
     expect(guardrail.name).toBe(CUSTOMER_INPUT_GUARDRAIL_NAME);
-    expect(guardrail.runInParallel).toBe(false);
+    expect(guardrail.runInParallel).toBe(true);
 
     const result = await guardrail.execute({
       agent: {} as never,

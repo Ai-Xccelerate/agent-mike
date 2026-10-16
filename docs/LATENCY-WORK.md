@@ -1,0 +1,61 @@
+# Customer chat latency: tracking
+
+Replies from the customer chat (Playground and website widget) were slow. This file tracks what was found, what
+changed, what was measured and what is left. Update the checkboxes as work lands.
+
+## Where the time goes
+
+One turn used to run, in series: input intent check (LLM), the main answer (LLM, plus tool loops), the output reply
+check (LLM), and on a block a repair run (main + output check again). Everything else (database, retrieval, tool
+build) measured about 40 ms locally.
+
+`lib/timing.ts` logs one line per turn: `[timing] {"turn":"customer-chat","channel":"widget","totalMs":…,"stages":[…]}`.
+Stages overlap (the input check runs beside the main call), so they do not sum to `totalMs`.
+
+## Changes
+
+| # | Change | Where | Switch | Status |
+|---|---|---|---|---|
+| 1 | Per-turn stage timings | `lib/timing.ts`, `chat-turn.ts`, `customer-turn.ts`, `agent.ts`, `guardrails.ts` | always on | in this PR |
+| 3 | Input intent check runs beside the main call, not before it. The SDK still waits for it before any tool runs, so a write action cannot fire on a message that trips it | `lib/guardrails.ts` | `INPUT_GUARDRAIL_SERIAL=true` restores the old serial check | in this PR |
+| 2 | Output reply check skipped on grounded, non-handoff replies; audited afterwards (`[guardrail-shadow]` when the model would have acted) | `lib/guardrails.ts` | `OUTPUT_GUARDRAIL_MODE=risk` (default `always`); `OUTPUT_GUARDRAIL_SHADOW=false` turns the audit off | in this PR, **off by default** |
+| 4 | Faster model for both checks | env only | `GUARDRAIL_MODEL` (default is the worker's model) | open: needs a model name from the OpenAI account |
+| 5 | Cache profile, connections, credentials, toolkits per org | | | open: low value locally (about 40 ms), re-check on production timings |
+| 6 | Timeout per external retrieval source (Confluence goes through Composio) | | | open: re-check on production timings |
+
+What `risk` mode skips: a reply written with approved reference material found, with words, and no `[[ESCALATE]]`.
+What it never skips: handoffs, ungrounded or unknown-grounding replies. The prompt-leak check is deterministic and
+always runs.
+
+## Benchmark 1: local, real OpenAI calls (16 Oct 2026)
+
+Three servers, same build, shared `mike_bench` database seeded from `docs/test-kb`, requests interleaved
+(`scripts/bench-latency.mjs`). 90 turns: 10 questions x 3 rounds x 3 configurations.
+
+| Config | All turns | Grounded | Handoff |
+|---|---|---|---|
+| baseline (serial input, output check always) | 6.0 s | 6.2 s | 6.9 s |
+| parallel input check | 4.4 s | 4.4 s | 6.0 s |
+| parallel input + `risk` output check | 2.6 s | 2.6 s | 6.7 s |
+
+Server stages (median): input check 1.9 s, output check 1.7 s, handoff summary 1.6 s, database + retrieval + tools
+about 40 ms combined. All 90 turns returned 200, no `[guardrail-shadow]` warnings, escalation matched on 29 of 30
+questions (the other: refund escalated 2 of 3 rounds in baseline, 3 of 3 in the others; model variance).
+
+Caveats: 3 rounds per question; small clean knowledge base, so retrieval always hit; local database, so the network
+hop to Postgres is not represented.
+
+## Rollout
+
+- [x] Timings, parallel input check and `risk` mode implemented and unit-tested (812 tests pass)
+- [x] Local benchmark 1
+- [ ] PR reviewed and merged
+- [ ] Deploy with defaults (`OUTPUT_GUARDRAIL_MODE` unset): read `[timing]` baseline from Railway logs
+- [ ] Set `OUTPUT_GUARDRAIL_MODE=risk` on production, compare timings, watch `[guardrail-shadow]` for a week
+- [ ] Decide on #4 (guardrail model), #5, #6 from the production numbers
+- [ ] Handoff turns: still about 6.7 s (output check + 1.6 s handoff summary); look at it next
+
+## Rollback
+
+`OUTPUT_GUARDRAIL_MODE=always` and `INPUT_GUARDRAIL_SERIAL=true` restore the previous behaviour with a restart, no
+redeploy.
