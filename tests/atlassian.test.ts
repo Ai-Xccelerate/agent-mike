@@ -629,6 +629,36 @@ describe("raising a Jira ticket on handoff", () => {
       expect(guidance).not.toContain("Emailed request");
     });
 
+    it("serves the cached request types while an expired copy reloads, instead of making the customer wait", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      deskAnswers();
+      expect(await requestTypeGuidance(orgId)).toContain("System Unavailable");
+      const callsAfterFirstLoad = proxyRequestMock.mock.calls.length;
+
+      // Eleven minutes on, with Jira now too slow to answer: the turn still gets the old list at once.
+      const realNow = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(realNow + 11 * 60 * 1000);
+      const base = proxyRequestMock.getMockImplementation()!;
+      let releaseJira: () => void = () => undefined;
+      const jiraIsSlow = new Promise<void>((resolve) => (releaseJira = resolve));
+      proxyRequestMock.mockImplementation(async (call) => {
+        await jiraIsSlow;
+        return base(call);
+      });
+
+      const guidance = await requestTypeGuidance(orgId);
+      expect(guidance).toContain("System Unavailable");
+
+      // The refresh was started in the background, and a second turn doesn't start another.
+      await vi.waitFor(() => expect(proxyRequestMock.mock.calls.length).toBeGreaterThan(callsAfterFirstLoad));
+      const callsWhileRefreshing = proxyRequestMock.mock.calls.length;
+      await requestTypeGuidance(orgId);
+      expect(proxyRequestMock.mock.calls.length).toBe(callsWhileRefreshing);
+
+      releaseJira();
+      clock.mockRestore();
+    });
+
     it("raises no ticket rather than a wrong one, even with a default request type saved", async () => {
       connectionsFor({ helpdesk: workerChooses({ requestTypeId: "20", requestTypeName: "System Unavailable" }) });
       deskAnswers();
@@ -982,7 +1012,7 @@ describe("a handoff in chat", () => {
     ]);
   });
 
-  it("streams the reply, its cards and the turn over AG-UI", async () => {
+  it("streams the reply first, then the ticket's number as a second message, over AG-UI", async () => {
     connectionsFor({ helpdesk: jiraReady() });
     executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-12" } });
     runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
@@ -1005,16 +1035,120 @@ describe("a handoff in chat", () => {
       "TEXT_MESSAGE_START",
       "TEXT_MESSAGE_CONTENT",
       "TEXT_MESSAGE_END",
+      "CUSTOM",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
       "TOOL_CALL_START",
       "TOOL_CALL_ARGS",
       "TOOL_CALL_END",
       "TOOL_CALL_RESULT",
-      "CUSTOM",
       "RUN_FINISHED",
     ]);
-    expect(events[4]).toMatchObject({ toolCallName: "show_helpdesk_ticket" });
-    expect(JSON.parse(String(events[5].delta))).toMatchObject({ key: "SUP-12", created: true });
-    expect(events[8]).toMatchObject({ name: "chat.turn", value: { escalated: true } });
+    // The reply does not wait for Jira: it is the worker's words alone.
+    expect(events[2]).toMatchObject({ delta: "I'm bringing in a teammate." });
+    expect(events[4]).toMatchObject({ name: "chat.turn", value: { escalated: true } });
+    // The number arrives after it, with the ticket card.
+    expect(String(events[6].delta)).toContain("SUP-12");
+    expect(events[8]).toMatchObject({ toolCallName: "show_helpdesk_ticket" });
+    expect(JSON.parse(String(events[9].delta))).toMatchObject({ key: "SUP-12", created: true });
+  });
+
+  it("answers before the ticket exists, then stores its number as a second message", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    let finishJira: (value: unknown) => void = () => undefined;
+    executeToolMock.mockImplementation(() => new Promise((resolve) => (finishJira = resolve as (value: unknown) => void)));
+    runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const [userMessage] = await db
+      .insert(messagesTable)
+      .values({ conversationId: conversation.id, senderType: "customer", senderName: "Ana", body: "My invoice is wrong" })
+      .returning();
+
+    const turn = await runCustomerTurn({
+      organizationId: orgId,
+      profile: await getOrCreateProfile(orgId),
+      conversation,
+      priorMessages: [],
+      userMessage,
+      speakerName: "Ana",
+      deferTicket: true,
+    });
+
+    // The turn is done while Jira has not answered: the reply has no ticket in it yet.
+    expect(turn.result.escalate).toBe(true);
+    expect(turn.reply.body).toBe("I'm bringing in a teammate.");
+    expect(turn.reply.cards).toEqual([]);
+    expect(turn.pendingTicket).toBeDefined();
+
+    await vi.waitFor(() => expect(executeToolMock).toHaveBeenCalled());
+    finishJira({ successful: true, error: null, data: { key: "SUP-12" } });
+    const followUp = await turn.pendingTicket;
+    expect(followUp?.message.body).toContain("SUP-12");
+    expect(followUp?.message.cards).toEqual([expect.objectContaining({ kind: "helpdesk_ticket", data: expect.objectContaining({ key: "SUP-12" }) })]);
+    const stored = await db.select().from(messagesTable).where(eq(messagesTable.conversationId, conversation.id));
+    expect(stored.map((row) => row.senderType)).toEqual(["customer", "agent", "agent"]);
+  });
+
+  it("raises one ticket when the customer writes again before the first one exists", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    jiraAnswers({ status: 201, data: { id: "1" } });
+    let finishJira: (value: unknown) => void = () => undefined;
+    executeToolMock.mockImplementation(() => new Promise((resolve) => (finishJira = resolve as (value: unknown) => void)));
+    runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const profile = await getOrCreateProfile(orgId);
+    const say = async (body: string) => {
+      const [userMessage] = await db
+        .insert(messagesTable)
+        .values({ conversationId: conversation.id, senderType: "customer", senderName: "Ana", body })
+        .returning();
+      // As the route does: the conversation as it is when the message arrives.
+      const [current] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
+      return runCustomerTurn({
+        organizationId: orgId,
+        profile,
+        conversation: current,
+        priorMessages: [],
+        userMessage,
+        speakerName: "Ana",
+        deferTicket: true,
+      });
+    };
+
+    const first = await say("My invoice is wrong");
+    await vi.waitFor(() => expect(executeToolMock).toHaveBeenCalledTimes(1));
+    const second = await say("Any news?"); // while Jira is still creating the first ticket
+    finishJira({ successful: true, error: null, data: { key: "SUP-12" } });
+    await first.pendingTicket;
+    await second.pendingTicket;
+
+    // One ticket was created; the second turn added to it instead of raising another.
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the ticket in the reply on the JSON route and by email (no second message to carry it)", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { key: "SUP-12" } });
+    runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "email", customerEmail: "ana@example.com" });
+    const [userMessage] = await db
+      .insert(messagesTable)
+      .values({ conversationId: conversation.id, senderType: "customer", senderName: "Ana", body: "It's broken" })
+      .returning();
+
+    const turn = await runCustomerTurn({
+      organizationId: orgId,
+      profile: await getOrCreateProfile(orgId),
+      conversation,
+      priorMessages: [],
+      userMessage,
+      speakerName: "Ana",
+      deferTicket: true,
+    });
+
+    expect(turn.pendingTicket).toBeUndefined();
+    expect(turn.reply.body).toContain("SUP-12");
   });
 
   it("gives an email reply no cards: its text says everything", async () => {

@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
       send({ type: "RUN_STARTED", threadId, runId });
       try {
-        const outcome = await runChatRequest(req, body);
+        const outcome = await runChatRequest(req, body, { deferTicket: true });
         if (outcome.status !== 200) {
           send({ type: "RUN_ERROR", message: String(outcome.json.error ?? "Request failed"), code: String(outcome.status) });
           return;
@@ -65,6 +65,21 @@ export async function POST(req: NextRequest) {
           }
         }
         send({ type: "CUSTOM", name: "chat.turn", value: outcome.json });
+        // A handoff's ticket is raised after the reply is shown. Its number follows as a
+        // second message, inside the same run, so the panel shows the reply right away.
+        const ticket = outcome.pendingTicket ? await outcome.pendingTicket : null;
+        if (ticket) {
+          const note = ticket.message as { id: string; body: string; cards?: CustomerCard[] };
+          send({ type: "TEXT_MESSAGE_START", messageId: note.id, role: "assistant" });
+          send({ type: "TEXT_MESSAGE_CONTENT", messageId: note.id, delta: note.body });
+          send({ type: "TEXT_MESSAGE_END", messageId: note.id });
+          for (const card of note.cards ?? []) {
+            send({ type: "TOOL_CALL_START", toolCallId: card.id, toolCallName: customerCardToolName(card.kind), parentMessageId: note.id });
+            send({ type: "TOOL_CALL_ARGS", toolCallId: card.id, delta: JSON.stringify(card.data) });
+            send({ type: "TOOL_CALL_END", toolCallId: card.id });
+            send({ type: "TOOL_CALL_RESULT", messageId: `${card.id}-result`, toolCallId: card.id, content: "shown", role: "tool" });
+          }
+        }
         send({ type: "RUN_FINISHED", threadId, runId });
       } catch (error) {
         send({ type: "RUN_ERROR", message: error instanceof Error ? error.message : "The chat failed" });

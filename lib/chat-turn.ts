@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
-import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
+import { insertConversationWithTicket, runCustomerTurn, type TicketFollowUp } from "@/lib/customer-turn";
 import { timed, withTurnTimer } from "@/lib/timing";
 
 /**
@@ -16,18 +16,36 @@ import { timed, withTurnTimer } from "@/lib/timing";
 /** Roughly 2,500 words — a long email thread, not a pasted document. */
 const MAX_MESSAGE_LENGTH = 10000;
 
-export type ChatOutcome = { status: number; json: Record<string, unknown> };
+export type ChatOutcome = {
+  status: number;
+  json: Record<string, unknown>;
+  /** Set when the helpdesk ticket is raised after the reply (`deferTicket`): its number, as a second message. */
+  pendingTicket?: Promise<TicketFollowUp | null>;
+};
+
+export type ChatRequestOptions = {
+  /** Reply first, ticket number after (the chat panel). Off keeps the number in the reply. */
+  deferTicket?: boolean;
+};
 
 const fail = (status: number, json: Record<string, unknown>): ChatOutcome => ({ status, json });
 const ok = (json: Record<string, unknown>): ChatOutcome => ({ status: 200, json });
 
-export function runChatRequest(req: NextRequest, body: Record<string, unknown> | null): Promise<ChatOutcome> {
+export function runChatRequest(
+  req: NextRequest,
+  body: Record<string, unknown> | null,
+  options: ChatRequestOptions = {},
+): Promise<ChatOutcome> {
   return withTurnTimer({ turn: "customer-chat", channel: req.headers.get("x-worker-site-token") ? "widget" : "chat" }, () =>
-    runChatRequestTimed(req, body),
+    runChatRequestTimed(req, body, options),
   );
 }
 
-async function runChatRequestTimed(req: NextRequest, body: Record<string, unknown> | null): Promise<ChatOutcome> {
+async function runChatRequestTimed(
+  req: NextRequest,
+  body: Record<string, unknown> | null,
+  options: ChatRequestOptions,
+): Promise<ChatOutcome> {
   const identity = getIdentityAdapter();
   const isWidget = Boolean(req.headers.get("x-worker-site-token"));
   const tenant = await timed("db.tenant", () =>
@@ -115,21 +133,25 @@ async function runChatRequestTimed(req: NextRequest, body: Record<string, unknow
     });
   }
 
-  const { reply, result, status, knowledgeSources } = await runCustomerTurn({
+  const { reply, result, status, knowledgeSources, pendingTicket } = await runCustomerTurn({
     organizationId: tenant.orgId,
     profile,
     conversation,
     priorMessages,
     userMessage,
     speakerName,
+    deferTicket: options.deferTicket,
   });
 
-  return ok( {
-    conversation_id: conversation.id,
-    message: reply,
-    status,
-    confidence: result.confidence,
-    escalated: result.escalate,
-    knowledge_sources: knowledgeSources,
-  });
+  return {
+    ...ok({
+      conversation_id: conversation.id,
+      message: reply,
+      status,
+      confidence: result.confidence,
+      escalated: result.escalate,
+      knowledge_sources: knowledgeSources,
+    }),
+    ...(pendingTicket ? { pendingTicket } : {}),
+  };
 }
