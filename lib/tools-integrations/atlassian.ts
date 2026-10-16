@@ -1278,6 +1278,8 @@ export function serviceRequestTarget(
 /** Filled in by the code on every request, so never asked of the worker. */
 const BUILT_IN_REQUEST_FIELDS = new Set(["summary", "description", "attachment"]);
 const CATALOG_TTL_MS = 10 * 60 * 1000;
+/** Past this, a stale catalog is too old to serve while a fresh one loads. */
+const CATALOG_MAX_STALE_MS = 60 * 60 * 1000;
 const FIELD_VALUE_CHARS = 2000;
 
 export type RequestFieldKind = "text" | "number" | "option" | "options" | "unsupported";
@@ -1339,17 +1341,23 @@ export function requestTypeFieldsFrom(data: unknown): RequestTypeField[] {
 }
 
 const catalogs = new Map<string, { at: number; catalog: RequestTypeCatalog }>();
+/** One load per desk at a time: a burst of turns shares it instead of each reading Jira. */
+const catalogLoads = new Map<string, Promise<RequestTypeCatalog | { problem: string }>>();
 
 /** Tests start from an empty cache. */
 export function clearRequestTypeCatalogCache(): void {
   catalogs.clear();
+  catalogLoads.clear();
 }
 
 /**
  * The project's request types with what each is for and the fields each
- * needs, as the desk shows them in its portal. Cached for a few minutes: it's
- * read on every customer turn. { problem } if Jira can't be reached or the
- * project isn't a service desk.
+ * needs, as the desk shows them in its portal. Read on every customer turn,
+ * so it is cached, and an expired copy is served while a fresh one loads in
+ * the background: the customer who happens to message just after it expires
+ * used to wait for every Jira call (about 8 seconds on a desk with nine
+ * request types). { problem } if Jira can't be reached or the project isn't
+ * a service desk.
  */
 export async function getRequestTypeCatalog(
   connectedAccountId: string,
@@ -1357,8 +1365,33 @@ export async function getRequestTypeCatalog(
 ): Promise<RequestTypeCatalog | { problem: string }> {
   const cacheKey = `${connectedAccountId}:${projectKey}`;
   const cached = catalogs.get(cacheKey);
-  if (cached && Date.now() - cached.at < CATALOG_TTL_MS) return cached.catalog;
+  const age = cached ? Date.now() - cached.at : Infinity;
+  if (cached && age < CATALOG_TTL_MS) return cached.catalog;
+  if (cached && age < CATALOG_MAX_STALE_MS) {
+    // A failed refresh keeps the old copy; the next turn tries again.
+    void loadCatalogOnce(cacheKey, connectedAccountId, projectKey).catch(() => undefined);
+    return cached.catalog;
+  }
+  return loadCatalogOnce(cacheKey, connectedAccountId, projectKey);
+}
 
+function loadCatalogOnce(
+  cacheKey: string,
+  connectedAccountId: string,
+  projectKey: string,
+): Promise<RequestTypeCatalog | { problem: string }> {
+  const running = catalogLoads.get(cacheKey);
+  if (running) return running;
+  const load = loadRequestTypeCatalog(connectedAccountId, projectKey).finally(() => catalogLoads.delete(cacheKey));
+  catalogLoads.set(cacheKey, load);
+  return load;
+}
+
+async function loadRequestTypeCatalog(
+  connectedAccountId: string,
+  projectKey: string,
+): Promise<RequestTypeCatalog | { problem: string }> {
+  const cacheKey = `${connectedAccountId}:${projectKey}`;
   const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
   if (!desks.ok) return { problem: `Couldn't find the ${projectKey} service desk: ${desks.error}` };
   const desk = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).find((entry) => entry.projectKey === projectKey);
@@ -1375,10 +1408,16 @@ export async function getRequestTypeCatalog(
   );
   if (listed.length === 0) return { problem: `${projectKey} has no request types` };
 
+  // One call per request type, all at once: read one after another they were most of the load time.
+  const loaded = await Promise.all(
+    listed.map(async (type) => {
+      const id = String(type.id);
+      const fields = await callJira(connectedAccountId, "GET", `/rest/servicedeskapi/servicedesk/${serviceDeskId}/requesttype/${id}/field`);
+      return { type, id, fields };
+    }),
+  );
   const requestTypes: CatalogRequestType[] = [];
-  for (const type of listed) {
-    const id = String(type.id);
-    const fields = await callJira(connectedAccountId, "GET", `/rest/servicedeskapi/servicedesk/${serviceDeskId}/requesttype/${id}/field`);
+  for (const { type, id, fields } of loaded) {
     if (!fields.ok) return { problem: `Couldn't read the fields of "${String(type.name)}": ${fields.error}` };
     requestTypes.push({
       id,

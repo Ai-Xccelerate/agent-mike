@@ -20,6 +20,8 @@ Stages overlap (the input check runs beside the main call), so they do not sum t
 | 3 | Input intent check runs beside the main call, not before it. The SDK still waits for it before any tool runs, so a write action cannot fire on a message that trips it | `lib/guardrails.ts` | `INPUT_GUARDRAIL_SERIAL=true` restores the old serial check | in this PR |
 | 2 | Output reply check skipped on grounded, non-handoff replies; audited afterwards (`[guardrail-shadow]` when the model would have acted) | `lib/guardrails.ts` | `OUTPUT_GUARDRAIL_MODE=risk` (default `always`); `OUTPUT_GUARDRAIL_SHADOW=false` turns the audit off | in this PR, **off by default** |
 | 4 | Faster model for both checks | env only | `GUARDRAIL_MODEL` (default is the worker's model) | open: needs a model name from the OpenAI account |
+| 7 | Handoff: the helpdesk ticket is raised after the reply is stored; its number follows as a second message with the ticket card, inside the same chat run. Email and the JSON route keep the number in the reply. A second message sent before the ticket exists waits for it and adds to it, so it never raises two | `lib/customer-turn.ts` (`deferTicket`), `lib/chat-turn.ts`, `app/api/v1/chat/agui/route.ts` | none (chat panel only) | in PR, not yet deployed |
+| 8 | Request-type catalog: fields read in parallel (were one Jira call per type), and an expired copy is served while a fresh one loads. Fixes the 7.6 s first turn after a deploy or a 10 minute gap | `lib/tools-integrations/atlassian.ts` | none | in PR, not yet deployed |
 | 5 | Cache profile, connections, credentials, toolkits per org | | | open: low value locally (about 40 ms), re-check on production timings |
 | 6 | Timeout per external retrieval source (Confluence goes through Composio) | | | open: re-check on production timings |
 
@@ -77,7 +79,7 @@ staging (three were raised during these runs and need closing).
 - [x] `risk` mode switched on for staging; manual check: fast enough (server timings not confirmed)
 - [ ] Read `[guardrail-shadow]` and `guardrail.output` in the staging logs to confirm `risk` mode is live and clean
 - [ ] Per-source retrieval timeout (item 6): retrieval is 1 to 4 s on staging
-- [ ] Move the Jira ticket and manager email off the critical path on handoff (3.6 to 12.2 s)
+- [x] Jira ticket off the critical path on handoff (#7), request-type catalog refresh (#8): in PR; test on staging, then promote
 - [ ] Promote staging to production (`main`) with defaults, read the `[timing]` baseline, then set `risk` on production
 - [ ] Decide on #4 (guardrail model), #5, #6 from the production numbers
 - [ ] Handoff turns: still about 6.7 s (output check + 1.6 s handoff summary); look at it next
