@@ -72,6 +72,25 @@ manual tests: "fast enough". `[guardrail-shadow]` not yet checked in the logs.
 Testing note: ask only questions the knowledge base answers. Off-KB questions hand over and raise real Jira tickets on
 staging (three were raised during these runs and need closing).
 
+## Benchmark 3: production after #66 and #67 (16 Oct 2026, 19:02 UTC)
+
+Deploy `b15722c0` (PR #68 promotion). 12 turns, the four questions the knowledge base answers (one per article), 3 rounds,
+widget route, no handoffs. `[timing]` lines read from the Railway logs.
+
+| | Client median | Retrieval | Model run | cachedTokens |
+|---|---|---|---|---|
+| Before (benchmark 2, #65 only) | 3.7 s | about 1.0 s | about 2.2 s | not logged |
+| Round 1, new questions | 3.1 to 3.9 s (7.2 s first turn) | 1.0 to 1.8 s | 2.0 to 3.1 s | 0 |
+| Rounds 2 and 3, same questions again | 1.7 to 2.5 s | 0 ms (retrieval memory) | 1.7 to 2.5 s | 99.9% of input |
+
+- First turn after the deploy: `agent.instructions` 2.2 s (was 7.6 s): the catalog now loads its request types in parallel.
+- Output check absent on every grounded turn (`risk` mode is on in production). Staging still runs it (`guardrail.output` about 1.5 to 2 s).
+- Caveat: rounds 2 and 3 repeat identical questions, so they show the best case (whole prompt cached, retrieval remembered).
+  A new question in round 1 got no cached tokens: the fixed part of the prompt is probably under the roughly 1,024 tokens
+  the provider needs to reuse a prefix. Real traffic therefore gains mainly on repeated questions.
+- Staging, locked-account question: handed over once in 2 turns after #67 (7 of 7 clean before). Could not reproduce with a
+  look-alike article (0 of 8, old and new order alike). Watch handoff rates; the production questions above were clean (0 of 12).
+
 ## Prompt-order regression caught in testing (16 Oct)
 
 First version of #9 moved the grounding rule above the knowledge. "I can't sign in, what should I check?" then handed
@@ -91,7 +110,7 @@ here is mostly 0. Check `cachedTokens` on production `[timing]` lines after depl
 - [x] Staging deployed in default mode, `[timing]` baseline read (benchmark 2)
 - [x] `risk` mode switched on for staging; manual check: fast enough (server timings not confirmed)
 - [ ] Read `[guardrail-shadow]` and `guardrail.output` in the staging logs to confirm `risk` mode is live and clean
-- [ ] Per-source retrieval timeout (item 6): retrieval is 1 to 4 s on staging
+- [x] Retrieval memory (#10) instead of a per-source timeout: repeats cost 0 ms. A timeout is still open for slow outliers (4 s on a cold staging turn)
 - [x] Jira ticket off the critical path on handoff (#7), request-type catalog refresh (#8): in PR; test on staging, then promote
 - [ ] Promote staging to production (`main`) with defaults, read the `[timing]` baseline, then set `risk` on production
 - [ ] Decide on #4 (guardrail model), #5, #6 from the production numbers
