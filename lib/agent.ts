@@ -3,6 +3,7 @@ import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { modelUnavailabilityReason } from "@/lib/env";
+import { timed } from "@/lib/timing";
 import { cleanChoices } from "@/lib/customer-cards";
 import { CUSTOMER_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
 import { buildInputWithHistory, type HistoryTurn } from "@/lib/conversation-memory";
@@ -1378,24 +1379,21 @@ export async function runAgent(
     referenceMaterialFound: knowledge.length > 0,
   };
 
-  const instructions = await buildInstructions(
-    profile,
-    organizationName,
-    knowledge,
-    organizationId,
-    channel,
-    knownCustomer,
+  const instructions = await timed("agent.instructions", () =>
+    buildInstructions(profile, organizationName, knowledge, organizationId, channel, knownCustomer),
   );
   // A Confluence page read mid-turn is approved reference material too, so the
   // reply check mustn't treat an answer grounded in it as general knowledge.
-  const tools = await buildAgentTools(
-    profile,
-    organizationId,
-    conversationId,
-    () => {
-      guardrailContext.referenceMaterialFound = true;
-    },
-    channel,
+  const tools = await timed("agent.tools", () =>
+    buildAgentTools(
+      profile,
+      organizationId,
+      conversationId,
+      () => {
+        guardrailContext.referenceMaterialFound = true;
+      },
+      channel,
+    ),
   );
   const maxTurns = Math.max(1, profile.maxAgentTurns || 3);
 
@@ -1423,13 +1421,13 @@ export async function runAgent(
   const baseInput = buildInputWithHistory(history, message, currentSpeaker, summary);
 
   try {
-    const first = await runTracedAgent(
+    const first = await timed("agent.run", () => runTracedAgent(
       CUSTOMER_CHAT_WORKFLOW,
       { organizationId, conversationId },
       agent,
       baseInput,
       { maxTurns, context: guardrailContext },
-    );
+    ));
 
     let text = typeof first.finalOutput === "string" ? first.finalOutput : String(first.finalOutput ?? "");
     let policy = replyPolicyFromRun(first);
@@ -1442,13 +1440,13 @@ export async function runAgent(
       const repairInput =
         `${baseInput}\n\n` +
         buildBlockedReplyRepairMessage({ rejectedDraft: text, reason: policy.reason });
-      const repaired = await runTracedAgent(
+      const repaired = await timed("agent.repair", () => runTracedAgent(
         CUSTOMER_CHAT_WORKFLOW,
         { organizationId, conversationId },
         repairAgent,
         repairInput,
         { maxTurns, context: guardrailContext },
-      );
+      ));
       text =
         typeof repaired.finalOutput === "string"
           ? repaired.finalOutput
@@ -1479,13 +1477,13 @@ export async function runAgent(
         policy: policy?.action ?? null,
       });
       if (/\[\[ESCALATE\]\]/i.test(adjusted)) return handoffBecause(profile, "the reply was only the handoff tag");
-      const retried = await runTracedAgent(
+      const retried = await timed("agent.retryEmpty", () => runTracedAgent(
         CUSTOMER_CHAT_WORKFLOW,
         { organizationId, conversationId },
         repairAgent,
         `${baseInput}\n\n${EMPTY_REPLY_RETRY_MESSAGE}`,
         { maxTurns, context: guardrailContext },
-      );
+      ));
       const retriedText = typeof retried.finalOutput === "string" ? retried.finalOutput : String(retried.finalOutput ?? "");
       const retriedPolicy = replyPolicyFromRun(retried);
       if (retriedPolicy?.action === "block") return handoffBecause(profile, "the retried reply was blocked by the reply check", { reason: retriedPolicy.reason });

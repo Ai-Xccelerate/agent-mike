@@ -342,7 +342,7 @@ describe("runAgent guardrail tripwires", () => {
       outputGuardrails: { name: string }[];
     };
     expect(agent.inputGuardrails[0]?.name).toBe("Customer intent guardrail");
-    expect(agent.inputGuardrails[0]?.runInParallel).toBe(false);
+    expect(agent.inputGuardrails[0]?.runInParallel).toBe(true);
     expect(agent.outputGuardrails[0]?.name).toBe("Customer reply guardrail");
   });
 });
