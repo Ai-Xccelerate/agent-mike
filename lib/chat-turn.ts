@@ -5,6 +5,7 @@ import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
+import { timed, withTurnTimer } from "@/lib/timing";
 
 /**
  * One chat turn for the Playground and the website widget, shared by the JSON
@@ -20,12 +21,18 @@ export type ChatOutcome = { status: number; json: Record<string, unknown> };
 const fail = (status: number, json: Record<string, unknown>): ChatOutcome => ({ status, json });
 const ok = (json: Record<string, unknown>): ChatOutcome => ({ status: 200, json });
 
-export async function runChatRequest(req: NextRequest, body: Record<string, unknown> | null): Promise<ChatOutcome> {
+export function runChatRequest(req: NextRequest, body: Record<string, unknown> | null): Promise<ChatOutcome> {
+  return withTurnTimer({ turn: "customer-chat", channel: req.headers.get("x-worker-site-token") ? "widget" : "chat" }, () =>
+    runChatRequestTimed(req, body),
+  );
+}
+
+async function runChatRequestTimed(req: NextRequest, body: Record<string, unknown> | null): Promise<ChatOutcome> {
   const identity = getIdentityAdapter();
   const isWidget = Boolean(req.headers.get("x-worker-site-token"));
-  const tenant = isWidget
-    ? await identity.resolveWidgetRequest(req)
-    : await identity.resolveManagerRequest(req);
+  const tenant = await timed("db.tenant", () =>
+    isWidget ? identity.resolveWidgetRequest(req) : identity.resolveManagerRequest(req),
+  );
 
   if (!tenant) {
     return fail(401, { error: "Invalid or missing site token" });
@@ -50,7 +57,7 @@ export async function runChatRequest(req: NextRequest, body: Record<string, unkn
     });
   }
 
-  const profile = await getOrCreateProfile(tenant.orgId);
+  const profile = await timed("db.profile", () => getOrCreateProfile(tenant.orgId));
 
   let conversation;
   if (conversationId) {
@@ -58,21 +65,21 @@ export async function runChatRequest(req: NextRequest, body: Record<string, unkn
     // or append to another org's conversation. A foreign id is treated the
     // same as an unknown one (a new conversation starts), so the response
     // doesn't reveal whether the id exists elsewhere.
-    [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, tenant.orgId)))
-      .limit(1);
+    [conversation] = await timed("db.conversation", () =>
+      db
+        .select()
+        .from(conversations)
+        .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, tenant.orgId)))
+        .limit(1),
+    );
   }
 
   // Load prior turns before inserting the current message so the latest user
   // line is not replayed twice (once in history, once as the current message).
   const priorMessages = conversation
-    ? await db
-        .select()
-        .from(messages)
-        .where(eq(messages.conversationId, conversation.id))
-        .orderBy(messages.createdAt)
+    ? await timed("db.history", () =>
+        db.select().from(messages).where(eq(messages.conversationId, conversation!.id)).orderBy(messages.createdAt),
+      )
     : [];
 
   if (!conversation) {
@@ -84,15 +91,17 @@ export async function runChatRequest(req: NextRequest, body: Record<string, unkn
   }
 
   const speakerName = tenant.source === "widget" ? conversation.customerName : "Manager";
-  const [userMessage] = await db
-    .insert(messages)
-    .values({
-      conversationId: conversation.id,
-      senderType: tenant.source === "widget" ? "customer" : "manager",
-      senderName: speakerName,
-      body: message,
-    })
-    .returning();
+  const [userMessage] = await timed("db.insertMessage", () =>
+    db
+      .insert(messages)
+      .values({
+        conversationId: conversation!.id,
+        senderType: tenant.source === "widget" ? "customer" : "manager",
+        senderName: speakerName,
+        body: message,
+      })
+      .returning(),
+  );
 
   // A manager has taken over — the agent stays quiet until it's handed back.
   if (conversation.humanControlled) {
