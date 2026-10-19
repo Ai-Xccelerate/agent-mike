@@ -8,6 +8,12 @@
 import { isDemoMode } from "@/lib/env";
 
 export const TRANSCRIBE_MAX_BYTES = 10 * 1024 * 1024;
+/** The website widget is public by design, so its recordings are short and rate limited. */
+export const WIDGET_MAX_BYTES = 2 * 1024 * 1024;
+export const WIDGET_LIMITS = {
+  perIp: { limit: 10, windowMs: 10 * 60 * 1000 },
+  perSite: { limit: 120, windowMs: 60 * 60 * 1000 },
+};
 const TIMEOUT_MS = 30000;
 
 export function transcriptionModel(): string {
