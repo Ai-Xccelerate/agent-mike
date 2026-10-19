@@ -173,7 +173,7 @@ describe("connection settings", () => {
       workerChoosesRequestType: false,
     });
     expect(readJiraSettings({ settings: { projectKey: "not a key!" } }).projectKey).toBeNull();
-    expect(readConfluenceSettings(null)).toEqual({ spaceKey: null, searchBeforeAnswering: true });
+    expect(readConfluenceSettings(null)).toEqual({ spaceKeys: [], searchBeforeAnswering: true });
   });
 
   it("upper-cases a Jira project key", () => {
@@ -812,10 +812,18 @@ describe("the customer's own tickets", () => {
 describe("Confluence searched before answering", () => {
   it("searches for the words that matter, in the configured space", () => {
     expect(searchKeywords("Hi, how do I reset my password please?")).toEqual(["reset", "password"]);
-    expect(buildKnowledgeCql(["reset", "password"], "SK")).toBe(
-      'type = page AND (text ~ "reset" OR text ~ "password") AND space = "SK"',
+    expect(buildKnowledgeCql(["reset", "password"], ["SK"])).toBe(
+      'type = page AND (text ~ "reset" OR text ~ "password") AND space in ("SK")',
     );
-    expect(buildKnowledgeCql(['say"hi'], null)).toBe('type = page AND (text ~ "say\\"hi")');
+    expect(buildKnowledgeCql(["reset"], ["EAPX", "EESD", "PGFP"])).toBe(
+      'type = page AND (text ~ "reset") AND space in ("EAPX", "EESD", "PGFP")',
+    );
+    expect(buildKnowledgeCql(['say"hi'], [])).toBe('type = page AND (text ~ "say\\"hi")');
+  });
+
+  it("reads the old single spaceKey as a one-item list and dedupes a list", () => {
+    expect(readConfluenceSettings({ settings: { spaceKey: "SK" } }).spaceKeys).toEqual(["SK"]);
+    expect(readConfluenceSettings({ settings: { spaceKeys: ["A", "B", "A"] } }).spaceKeys).toEqual(["A", "B"]);
   });
 
   it("is skipped when Confluence isn't connected or is switched off", async () => {

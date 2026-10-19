@@ -1373,15 +1373,15 @@ function buildIntegrationReadTools(organizationId: string): Tool[] {
     tool({
       name: MANAGER_CONFLUENCE_SEARCH_TOOL_NAME,
       description:
-        "Search the connected Confluence's page text (the space the worker answers from, if one is set). Returns page " +
+        "Search the connected Confluence's page text (the spaces the worker answers from, if any are set). Returns page " +
         `ids, titles and excerpts; read a page with ${CONFLUENCE_READ_TOOL_NAME}. Read-only.`,
       parameters: z.object({ query: z.string().describe("Words to look for") }),
       execute: async ({ query }) =>
         loggedAssistantTool(organizationId, MANAGER_CONFLUENCE_SEARCH_TOOL_NAME, { query }, async () => {
           const account = await managerAccount(organizationId, "confluence");
           if (typeof account === "string") return account;
-          const { spaceKey } = readConfluenceSettings(account.connection.metadata);
-          return executeConfluenceTextSearch(query, spaceKey, organizationId, account.connectedAccountId);
+          const { spaceKeys } = readConfluenceSettings(account.connection.metadata);
+          return executeConfluenceTextSearch(query, spaceKeys, organizationId, account.connectedAccountId);
         }),
     }),
     tool({

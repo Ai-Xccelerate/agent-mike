@@ -123,7 +123,7 @@ Code: `lib/tools-integrations/atlassian.ts`.
 | Jira `projectKey`, `issueType` | unset | Where handoff tickets go, e.g. `SUP` / `Task` |
 | Jira `requestTypeId` | unset | A service desk request type, e.g. `8` (Report a system problem). Wins over `issueType`; the name is stored from Jira as `requestTypeName` |
 | Jira `createTicketOnHandoff` | on | Raise a ticket on every handoff (needs a project and an issue or request type) |
-| Confluence `spaceKey` | every space | The space answers come from |
+| Confluence `spaceKeys` | every space | The spaces answers come from (a list; the old single `spaceKey` is read as a one-item list) |
 | Confluence `searchBeforeAnswering` | on | Search page text before every answer |
 
 **Customer-facing worker** (`lib/agent.ts`, `lib/customer-turn.ts`):

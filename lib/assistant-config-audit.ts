@@ -107,7 +107,7 @@ function describeAtlassian(
           : "connected, but no handoff project/issue type set, so handoffs raise no ticket"
       : null,
     confluence: confluenceSettings
-      ? `${confluenceSettings.spaceKey ? `space ${confluenceSettings.spaceKey}` : "every space"}, ${
+      ? `${confluenceSettings.spaceKeys.length > 0 ? `space${confluenceSettings.spaceKeys.length > 1 ? "s" : ""} ${confluenceSettings.spaceKeys.join(", ")}` : "every space"}, ${
           confluenceSettings.searchBeforeAnswering ? "searched before every answer" : "searched only when the worker decides to"
         }`
       : null,
