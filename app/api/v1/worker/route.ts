@@ -39,5 +39,5 @@ export async function PATCH(req: NextRequest) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error, errors: result.errors }, { status: result.status });
   }
-  return NextResponse.json(result.profile);
+  return NextResponse.json({ ...result.profile, organizationName: await getOrganizationName(tenant.orgId) });
 }

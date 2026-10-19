@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { workerProfiles } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { isOrgAdmin } from "@/lib/org-roles";
-import { getOrCreateProfile } from "@/lib/bootstrap";
+import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import {
   AVATAR_MAX_BYTES,
   AVATAR_TYPES,
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   const previous = avatarFilenameFrom(profile.avatarUrl);
   if (previous && previous !== filename) await deleteAvatar(previous);
 
-  return NextResponse.json(updated);
+  return NextResponse.json({ ...updated, organizationName: await getOrganizationName(tenant.orgId) });
 }
 
 export async function DELETE(req: NextRequest) {
@@ -124,7 +124,7 @@ export async function DELETE(req: NextRequest) {
   const previous = avatarFilenameFrom(profile.avatarUrl);
   if (previous) await deleteAvatar(previous);
 
-  return NextResponse.json(updated);
+  return NextResponse.json({ ...updated, organizationName: await getOrganizationName(tenant.orgId) });
 }
 
 function formatBytes(bytes: number): string {

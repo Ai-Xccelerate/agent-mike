@@ -182,7 +182,8 @@ describe("disk fallback write/read/delete", () => {
     const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
     const filename = await writeAvatar("default", bytes, "image/png");
-    expect(filename).toMatch(/^default-[a-f0-9]{16}\.png$/);
+    expect(filename).toMatch(/^avatar-[a-f0-9]{32}\.png$/);
+    expect(filename).not.toContain("default");
     expect(sendMock).not.toHaveBeenCalled();
 
     const read = await readAvatar(filename);
@@ -209,7 +210,8 @@ describe("object storage write/read/delete", () => {
 
     const filename = await writeAvatar("default", bytes, "image/png");
 
-    expect(filename).toMatch(/^default-[a-f0-9]{16}\.png$/);
+    expect(filename).toMatch(/^avatar-[a-f0-9]{32}\.png$/);
+    expect(filename).not.toContain("default");
     expect(sendMock).toHaveBeenCalledTimes(1);
     const command = sendMock.mock.calls[0][0];
     expect(command.input).toMatchObject({

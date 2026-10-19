@@ -14,8 +14,8 @@ export const dynamic = "force-dynamic";
  * objects when bucket credentials are configured.
  *
  * Public by design — it is the image a worker shows customers, and it is
- * requested by `<img>` tags that carry no auth. The filenames carry 8 random
- * bytes, so they are not guessable from the org id alone.
+ * requested by `<img>` tags that carry no auth. New filenames are 16 random
+ * bytes and say nothing about the org (older ones start with the org id).
  */
 export async function GET(
   _req: Request,
