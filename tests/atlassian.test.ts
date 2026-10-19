@@ -702,6 +702,29 @@ describe("raising a Jira ticket on handoff", () => {
       expect(await requestTypeGuidance(orgId)).toBe("");
     });
 
+    it("still tells the customer agent what each request needs when ticket raising is switched off", async () => {
+      connectionsFor({ helpdesk: workerChooses({ createTicketOnHandoff: false }) });
+      deskAnswers();
+
+      const guidance = await requestTypeGuidance(orgId);
+
+      expect(guidance).toContain("Needs: Product (one of: EAP Expert V3, Online Intake)");
+      expect(guidance).toContain("no ticket is raised yet");
+      expect(guidance).not.toContain("a ticket is raised on the team's service desk");
+    });
+
+    it("says a ticket is raised when ticket raising is on", async () => {
+      connectionsFor({ helpdesk: workerChooses({ createTicketOnHandoff: true }) });
+      deskAnswers();
+      expect(await requestTypeGuidance(orgId)).toContain("a ticket is raised on the team's service desk");
+    });
+
+    it("gives no guidance when the worker doesn't choose request types", async () => {
+      connectionsFor({ helpdesk: workerChooses({ workerChoosesRequestType: false, createTicketOnHandoff: false }) });
+      deskAnswers();
+      expect(await requestTypeGuidance(orgId)).toBe("");
+    });
+
     const jsmReadyFixed = () =>
       connection("helpdesk", "jira", {
         metadata: { settings: { projectKey: "SUP", issueType: null, requestTypeId: "8", createTicketOnHandoff: true } },
