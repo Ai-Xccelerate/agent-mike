@@ -1490,12 +1490,18 @@ export async function requestTypeGuidance(organizationId: string): Promise<strin
     const connectedAccountId = activeAccount(connection, "jira");
     if (!connection || !connectedAccountId) return "";
     const settings = readJiraSettings(connection.metadata);
-    if (!settings.workerChoosesRequestType || !settings.createTicketOnHandoff || !settings.projectKey) return "";
+    // Not tied to the ticket switch: with tickets off, the worker still gathers what the desk's form asks for,
+    // so a test conversation shows exactly what a real one would collect.
+    if (!settings.workerChoosesRequestType || !settings.projectKey) return "";
     const catalog = await getRequestTypeCatalog(connectedAccountId, settings.projectKey);
     if ("problem" in catalog) return "";
+    const opening = settings.createTicketOnHandoff
+      ? "a ticket is raised on the team's service desk under the kind of request below that fits it."
+      : "the team's service desk takes it as the kind of request below that fits it (no ticket is raised yet, but collect everything as if one were).";
     return (
-      "\n\nHelpdesk tickets: when you hand a conversation to a person, a ticket is raised on the team's service desk " +
-      "under the kind of request below that fits it. Work out which kind it is yourself: never ask the customer to " +
+      "\n\nHelpdesk tickets: when you hand a conversation to a person, " +
+      opening +
+      " Work out which kind it is yourself: never ask the customer to " +
       "pick a category, and never mention request types, ids or field names. If two kinds could fit, ask one plain " +
       "question that tells them apart (for example: did this work before, or is it something new? Is it stopping " +
       "everyone from working, or just this task?). Judge anything you can from what they've said yourself, such as " +
