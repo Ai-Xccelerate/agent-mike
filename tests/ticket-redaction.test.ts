@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isSensitiveTicketText, looksLikeItStillHoldsAName, nameVariants, redactTicketText } from "@/lib/ticket-redaction";
+import {
+  isInternalEngineeringText,
+  isSensitiveTicketText,
+  looksLikeItStillHoldsAName,
+  nameVariants,
+  redactTicketText,
+} from "@/lib/ticket-redaction";
 
 const redact = (text: string, names: string[] = []) => redactTicketText(text, names).text;
 
@@ -19,7 +25,7 @@ describe("redactTicketText", () => {
   });
 
   it("keeps ordinary numbers that help diagnose a problem", () => {
-    expect(redact("Error 10054 on build 2026.09.15, 3 users, 25 forms")).toBe("Error 10054 on build 2026.09.15, 3 users, 25 forms");
+    expect(redact("Error 1054 on build 2026.09.15, 3 users, 25 forms")).toBe("Error 1054 on build 2026.09.15, 3 users, 25 forms");
   });
 
   it("removes the names of the people on the ticket, whole and in part, in any case", () => {
@@ -84,5 +90,57 @@ describe("looksLikeItStillHoldsAName", () => {
     expect(looksLikeItStillHoldsAName("The fix was tested with Jordan Whitfield yesterday.")).toBe(true);
     expect(looksLikeItStillHoldsAName("Open Dynamic Forms and click Save Changes in Online Intake.")).toBe(false);
     expect(looksLikeItStillHoldsAName("Reset the password from the sign-in page.")).toBe(false);
+  });
+});
+
+describe("things the first version let through (all examples made up)", () => {
+  it("removes a password that was written into a reply, however it is phrased", () => {
+    for (const text of [
+      "I have reset her password to Ab3dEf6Gh9, please sign in.",
+      "Temporary password: Zx9Kq2Lm4P",
+      "pwd is Tr0ub4dor3x",
+      "The new login is jdoe and Qw3rTy7uIo",
+    ]) {
+      const { text: out, counts } = redactTicketText(text);
+      expect(out, text).not.toMatch(/Ab3dEf6Gh9|Zx9Kq2Lm4P|Tr0ub4dor3x|Qw3rTy7uIo/);
+      expect(counts.secrets ?? 0, text).toBeGreaterThan(0);
+    }
+  });
+
+  it("removes a username", () => {
+    expect(redact("reset username jdoe parallels password")).toContain("username [username]");
+    expect(redact("User ID: jane.doe99 cannot sign in")).not.toContain("jane.doe99");
+  });
+
+  it("removes database ids and five-digit client numbers", () => {
+    expect(redact("where a.Oid = '28EDB76C-531E-4E67-A17A-66F9D94678A2'")).toBe("where a.Oid = '[id]'");
+    expect(redact("client 82053 had a call")).toBe("client [number] had a call");
+  });
+
+  it("removes a web address written without http", () => {
+    expect(redact("integration with gorendezvous.com please")).toBe("integration with [link] please");
+    expect(redact("see example.org/help/page")).toBe("see [link]");
+  });
+});
+
+describe("isInternalEngineeringText", () => {
+  it("recognises database work, and leaves ordinary text alone", () => {
+    expect(isInternalEngineeringText("select * from ServiceAuthorization a inner join Base b on a.Oid = b.Oid")).toBe(true);
+    expect(isInternalEngineeringText("update a set Rate = 50 where Oid = 1")).toBe(true);
+    expect(isInternalEngineeringText("Please select the form and press Save")).toBe(false);
+    expect(isInternalEngineeringText("We will update the template from the menu")).toBe(false);
+  });
+});
+
+describe("looksLikeItStillHoldsAName: one-word names and placeholders", () => {
+  it("flags a company with odd capitals, and ignores template placeholders and product names", () => {
+    expect(looksLikeItStillHoldsAName("call MYgroup at [phone]")).toBe(true);
+    expect(looksLikeItStillHoldsAName("integrate with GoRendezvous")).toBe(true);
+    expect(looksLikeItStillHoldsAName("Please call {PrimaryCounselor} at {ProviderPrimaryPhone}")).toBe(false);
+    expect(looksLikeItStillHoldsAName("A DevExpress control in EAPx and MyAPP")).toBe(false);
+  });
+
+  it("flags a person's name that was not on the ticket", () => {
+    expect(looksLikeItStillHoldsAName("Reset Jane Doe Parallels Password")).toBe(true);
   });
 });

@@ -22,6 +22,23 @@ export function isSensitiveTicketText(text: string): boolean {
   return SENSITIVE_TERMS.test(text);
 }
 
+/** Engineers' database work: not something a customer-facing article should describe. */
+const INTERNAL_WORK = /\b(?:select\b[\s\S]{0,200}?\bfrom\b|update\s+\S+\s+set\b|insert\s+into\b|delete\s+from\b|inner\s+join\b|drop\s+table\b)/i;
+
+export function isInternalEngineeringText(text: string): boolean {
+  return INTERNAL_WORK.test(text);
+}
+
+/** 8-4-4-4-12 database ids (record keys in a support engineer's SQL). */
+const GUID = /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g;
+/** A web address written without a scheme: "gorendezvous.com". */
+const BARE_DOMAIN = /\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:com|org|net|ca|io|co|edu|gov|us|uk|app|dev)\b(?:\/[^\s]*)?/gi;
+/** "password to X", "password is: X", "pwd: X", "temporary password X": the value is removed. */
+const SECRET_PHRASE = /\b(?:temp(?:orary)?\s+)?(?:password|passcode|passphrase|pwd|pin|token|secret|api[ -]?key)\b(?:\s+(?:has been|was|is|are|to|for|:|=|reset to|changed to|set to))*\s*[:=]?\s*["']?([^\s"',;\[\]]{4,})/gi;
+/** A mixed letters-and-digits string of 8 or more characters looks like a generated password or key. */
+const GENERATED_SECRET = /(?<![\w\[])(?=[A-Za-z0-9!@#$%^&*_-]*[A-Za-z])(?=[A-Za-z0-9!@#$%^&*_-]*\d)[A-Za-z0-9!@#$%^&*_-]{8,64}(?![\w\]])/g;
+/** "username jdoe", "user id: jdoe", "login name jdoe". */
+const USERNAME = /\b(user ?name|user ?id|login (?:name|id))\b(?:\s+(?:is|was|to|for))?\s*[:=]?\s*["']?([A-Za-z0-9._@-]{3,})|\blogin\s*[:=]\s*["']?([A-Za-z0-9._@-]{3,})/gi;
 const EMAIL = /[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const URL = /\b(?:https?:\/\/|www\.)[^\s<>"')\]]+/gi;
 const PHONE = /(?<![\w.])(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}(?:\s*(?:ext\.?|extension|x)\s*\d{1,5})?(?![\w])/gi;
@@ -32,7 +49,7 @@ const POSTAL_US = /\b(?:A[LKZR]|C[AOT]|D[EC]|FL|GA|HI|I[DLNA]|K[SY]|LA|M[EDAINSO
 const STREET =
   /\b\d{1,6}\s+(?:[A-Z][A-Za-z.'-]*\s+){1,3}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Crescent|Cres|Place|Pl|Terrace|Highway|Hwy)\b\.?/g;
 /** Case, file and account numbers: six or more digits, with or without letters around them. */
-const LONG_NUMBER = /\b[A-Za-z]{0,4}[-#]?\d{6,}\b/g;
+const LONG_NUMBER = /\b[A-Za-z]{0,4}[-#]?\d{5,}\b/g;
 const TITLED_NAME = /\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?/g;
 /** "Hi Dana", "Thanks, Dana Smith": the salutation stays, the name goes. */
 const SALUTATION = /\b(Hi|Hello|Hey|Dear|Thanks|Thank you|Regards|Best regards|Kind regards|Warm regards|Cheers|Sincerely|Best)\b([,\s]+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/g;
@@ -78,9 +95,21 @@ export function redactTicketText(input: string, knownNames: string[] = []): Reda
 
   // Order matters: links and emails first, since they contain digits and names
   // that later patterns would otherwise cut in half.
+  text = replaceAll(text, GUID, "[id]", counts, "ids");
   text = replaceAll(text, URL, "[link]", counts, "links");
   text = replaceAll(text, EMAIL, "[email]", counts, "emails");
+  text = replaceAll(text, BARE_DOMAIN, "[link]", counts, "links");
   text = replaceAll(text, MENTION, "[name]", counts, "names");
+  // Credentials named as such go first, before anything else can change what they look like.
+  text = text.replace(SECRET_PHRASE, (match: string, value: string) => {
+    bump(counts, "secrets");
+    return match.slice(0, match.length - value.length) + "[secret]";
+  });
+  text = text.replace(USERNAME, (match: string, label: string | undefined) => {
+    bump(counts, "usernames");
+    const word = label ?? match.slice(0, match.search(/[:=]/));
+    return `${word.trimEnd()} [username]`;
+  });
   text = replaceAll(text, DOB, "[date of birth]", counts, "datesOfBirth");
   text = replaceAll(text, SSN, "[id number]", counts, "idNumbers");
   text = replaceAll(text, PHONE, "[phone]", counts, "phones");
@@ -88,6 +117,8 @@ export function redactTicketText(input: string, knownNames: string[] = []): Reda
   text = replaceAll(text, POSTAL_CA, "[postal code]", counts, "postalCodes");
   text = replaceAll(text, POSTAL_US, "[postal code]", counts, "postalCodes");
   text = replaceAll(text, LONG_NUMBER, "[number]", counts, "numbers");
+  // What is left that mixes letters and digits at length looks like a generated password or key.
+  text = replaceAll(text, GENERATED_SECRET, "[secret]", counts, "secrets");
 
   for (const variant of nameVariants(knownNames)) {
     const pattern = new RegExp(`(?<![A-Za-z])${escapeRegExp(variant)}(?![A-Za-z])`, "gi");
@@ -117,8 +148,23 @@ const NON_NAME_CAPITALS = new Set([
  * middle of a sentence that aren't known product or screen names: a sign a
  * person's or company's name may have survived. A hint for the reviewer, not a guarantee either way.
  */
+/** Product and vendor spellings that have capitals in the middle but are not a person or a client. */
+const NON_NAME_MIXED_CASE = new Set(["EAPx", "MyAPP", "DevExpress", "PROVIDERfiles", "PDFs", "iPhone", "iOS", "macOS", "OneDrive", "SharePoint", "JavaScript", "GitHub"]);
+
+/**
+ * True when, after redaction, the text may still hold a person's or a
+ * client's name: capitalised word pairs in the middle of a sentence that
+ * aren't known product or screen names, or one-word names with odd capitals
+ * ("MYgroup", "GoRendezvous"). Template placeholders in braces are ignored.
+ * Such tickets are held back, not passed on: a name that gets through cannot be taken back.
+ */
 export function looksLikeItStillHoldsAName(redacted: string): boolean {
-  for (const sentence of redacted.split(/(?<=[.!?\n])\s+/)) {
+  const text = redacted.replace(/\{[^}]*\}/g, " ");
+  for (const token of text.split(/[^A-Za-z]+/)) {
+    if (token.length < 4 || NON_NAME_MIXED_CASE.has(token)) continue;
+    if (/^[A-Z]{2,}[a-z]+[A-Za-z]*$/.test(token) || /^[A-Z][a-z]+[A-Z][A-Za-z]*$/.test(token)) return true;
+  }
+  for (const sentence of text.split(/(?<=[.!?\n])\s+/)) {
     const words = sentence.split(/\s+/).slice(1);
     for (let i = 0; i < words.length - 1; i++) {
       const a = words[i].replace(/[^A-Za-z'-]/g, "");
