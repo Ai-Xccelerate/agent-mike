@@ -177,6 +177,8 @@ export const conversations = pgTable(
     humanControlled: boolean("human_controlled").notNull().default(false),
     confidence: real("confidence"),
     summary: text("summary"),
+    // Two sentences on what the ticket is about, for whoever picks it up (lib/ticket-classifier.ts).
+    ticketSummary: text("ticket_summary"),
     // How many of this conversation's messages (oldest-first) are already
     // folded into `summary` — the watermark a rolling summarization pass
     // advances so it never re-summarizes the same messages twice.

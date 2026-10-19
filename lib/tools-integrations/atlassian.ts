@@ -356,6 +356,8 @@ export type HandoffConversation = {
   customerEmail: string | null;
   subject: string | null;
   summary: string | null;
+  /** A short "what this is about" written for the person picking the ticket up. */
+  ticketSummary?: string | null;
   externalTicketKey: string | null;
 };
 
@@ -420,6 +422,7 @@ export function handoffTicketDescription(input: HandoffTicketInput): string {
     `**Customer:** ${customer || "unknown (not given)"}`,
     `**Channel:** ${conversation.channel}`,
     `**Conversation:** #${conversation.ticketNumber}`,
+    conversation.ticketSummary ? `\n**Summary:** ${clip(conversation.ticketSummary, 600)}` : "",
     conversation.summary ? `\n**Summary so far:** ${clip(conversation.summary, 2000)}` : "",
     "",
     "**Conversation:**",

@@ -40,6 +40,8 @@ export type Conversation = {
   archived: boolean;
   confidence: number | null;
   summary: string | null;
+  /** What the ticket is about, in a sentence or two, written when it is classified. */
+  ticketSummary?: string | null;
   /** The helpdesk ticket raised when this conversation was handed over, e.g. "SUP-12". */
   externalTicketKey?: string | null;
   /** Why the helpdesk refused that ticket, when it did. */
@@ -492,6 +494,14 @@ export async function uploadAssistantAttachments(files: File[]): Promise<Assista
   return apiFetch<AssistantAttachmentUpload[]>("/assistant/attachments", { method: "POST", body: form });
 }
 
+/** Turns a mic recording into text on the server (OpenAI); the audio isn't kept. The widget passes its site token. */
+export async function transcribeRecording(audio: Blob, widgetSiteToken?: string): Promise<string> {
+  const form = new FormData();
+  form.append("audio", audio, "dictation");
+  const result = await apiFetch<{ text: string }>("/transcribe", { method: "POST", body: form, widgetSiteToken });
+  return result.text;
+}
+
 export type ApiFetchOptions = RequestInit & { widgetSiteToken?: string };
 
 export class WorkerApiError extends Error {
@@ -609,7 +619,7 @@ export type JiraConnectionSettings = {
   workerChoosesRequestType: boolean;
 };
 
-/** Which Confluence space grounds the worker's answers. */
+/** Which Confluence spaces ground the worker's answers (empty = every space). */
 export type ConfluenceConnectionSettings = {
   spaceKeys: string[];
   searchBeforeAnswering: boolean;

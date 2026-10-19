@@ -30,9 +30,15 @@ const ClassificationSchema = z.object({
   requestType: z.string().nullable(),
   tier: z.string().nullable(),
   labels: z.array(z.string()),
+  summary: z.string(),
 });
 
-export type Classification = { requestType: string | null; tier: string | null; labels: string[] };
+export type Classification = {
+  requestType: string | null;
+  tier: string | null;
+  labels: string[];
+  summary: string | null;
+};
 
 function canonical(value: string | null, allowed: string[]): string | null {
   if (!value) return null;
@@ -41,14 +47,21 @@ function canonical(value: string | null, allowed: string[]): string | null {
 }
 
 /** Keeps only what the worker's lists allow, spelled the way the list spells it. */
-export function validateClassification(raw: z.infer<typeof ClassificationSchema>, schema: TicketSchema, withRequestType: boolean): Classification {
+export function validateClassification(
+  raw: Omit<z.infer<typeof ClassificationSchema>, "summary"> & { summary?: string },
+  schema: TicketSchema,
+  withRequestType: boolean,
+): Classification {
   const labels = raw.labels
     .map((label) => canonical(label, schema.labels))
     .filter((label): label is string => Boolean(label));
   return {
-    requestType: withRequestType ? canonical(raw.requestType, schema.requestTypes) : null,
+    requestType: withRequestType
+      ? canonical(raw.requestType, schema.requestTypes)
+      : null,
     tier: canonical(raw.tier, schema.tiers),
     labels: [...new Set(labels)],
+    summary: (raw.summary ?? "").trim().slice(0, 600) || null,
   };
 }
 
@@ -64,7 +77,10 @@ export async function chooseClassification(args: {
   handedOver: boolean;
 }): Promise<Classification | null> {
   const { schema, withRequestType, transcript, handedOver } = args;
-  const lines = (items: string[]) => (items.length ? items.map((item) => `- ${item}`).join("\n") : "- (none: return an empty list)");
+  const lines = (items: string[]) =>
+    items.length
+      ? items.map((item) => `- ${item}`).join("\n")
+      : "- (none: return an empty list)";
 
   const classifier = new Agent({
     name: "Ticket classifier",
@@ -77,12 +93,18 @@ export async function chooseClassification(args: {
       `Tiers, from the simplest to the hardest to resolve. Pick the level of support the customer's issue needs, ` +
       `not how polite or upset they are:\n${lines(schema.tiers)}\n\n` +
       `Labels (pick every one that clearly applies, or none):\n${lines(schema.labels)}\n\n` +
+      "Summary: one to three plain sentences for the person who picks this ticket up. Say who the customer is (if known), " +
+      "what they need, the product, and anything already tried. No greeting, no field list, never write 'not given'; " +
+      "leave out what the customer did not say.\n\n" +
       (handedOver
         ? "The worker has handed this conversation to a person, so it needs more than a first-line answer."
         : "The worker is answering this itself so far."),
     model: guardrailModel(),
     outputType: ClassificationSchema,
-    modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
+    modelSettings: {
+      reasoning: { effort: "none" },
+      text: { verbosity: "low" },
+    },
   });
 
   const text = transcript
@@ -91,9 +113,46 @@ export async function chooseClassification(args: {
     .join("\n");
 
   try {
-    const result = await run(classifier, `Conversation:\n${text}`, { maxTurns: 1 });
-    const parsed = ClassificationSchema.safeParse(result.finalOutput);
-    return parsed.success ? validateClassification(parsed.data, schema, withRequestType) : null;
+    const result = await run(classifier, `Conversation:\n${text}`, {
+      maxTurns: 1,
+    });
+    const parsed = ClassificationSchema.extend({ summary: z.string().default("") }).safeParse(result.finalOutput);
+    return parsed.success
+      ? validateClassification(parsed.data, schema, withRequestType)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const SUMMARY_WAIT_MS = 8000;
+const SUMMARY_INSTRUCTIONS =
+  "Write one to three plain sentences for the person who picks up this support ticket. Say who the customer is " +
+  "(if known), what they need, the product, and anything already tried. No greeting, no field list, never write " +
+  "'not given'; leave out what the customer did not say.";
+
+/**
+ * A short summary for a ticket that is about to be handed over, so it can go on
+ * the helpdesk ticket as well as the Tickets page. Gives up after a few seconds
+ * and never throws: the handoff goes ahead without it.
+ */
+export async function summarizeForHandoff(transcript: HistoryTurn[]): Promise<string | null> {
+  if (modelUnavailabilityReason()) return null;
+  const text = transcript
+    .slice(-TRANSCRIPT_TURNS)
+    .map((turn) => `${turn.speaker}: ${clip(turn.body, TURN_CHARS)}`)
+    .join("\n");
+  const summarizer = new Agent({
+    name: "Ticket summarizer",
+    instructions: SUMMARY_INSTRUCTIONS,
+    model: guardrailModel(),
+    modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
+  });
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), SUMMARY_WAIT_MS));
+  try {
+    const result = await Promise.race([run(summarizer, `Conversation:\n${text}`, { maxTurns: 1 }), timeout]);
+    const out = result && typeof result.finalOutput === "string" ? result.finalOutput.trim() : "";
+    return out ? out.slice(0, 600) : null;
   } catch {
     return null;
   }
@@ -113,19 +172,29 @@ export type ClassifyResult =
 export async function classifyConversation(input: {
   organizationId: string;
   profile: { ticketSchema: Partial<TicketSchema> | null };
-  conversation: Pick<ConversationRow, "id" | "tier" | "labels" | "classificationSource">;
+  conversation: Pick<
+    ConversationRow,
+    "id" | "tier" | "labels" | "classificationSource" | "ticketSummary"
+  >;
   transcript: HistoryTurn[];
   /** True on the turn the conversation is first handed to a person. */
   handedOverNow: boolean;
 }): Promise<ClassifyResult> {
-  const { organizationId, profile, conversation, transcript, handedOverNow } = input;
-  
-  if (conversation.classificationSource === "manual") return { done: false, reason: "manual" };
-  if (conversation.tier && !handedOverNow) return { done: false, reason: "not_needed" };
+  const { organizationId, profile, conversation, transcript, handedOverNow } =
+    input;
+
+  const manual = conversation.classificationSource === "manual";
+  const needsSummary = !conversation.ticketSummary || handedOverNow;
+  // A person's own classification is never overwritten, but the summary is not theirs.
+  if (manual && !needsSummary) return { done: false, reason: "manual" };
+  if (conversation.tier && !needsSummary)
+    return { done: false, reason: "not_needed" };
   if (modelUnavailabilityReason()) return { done: false, reason: "no_model" };
 
   // A helpdesk that can't be reached just means the worker's own request types are used.
-  const helpdesk = await helpdeskBreakdownSource(organizationId).catch(() => null);
+  const helpdesk = await helpdeskBreakdownSource(organizationId).catch(
+    () => null,
+  );
   const own = resolveTicketSchema(profile.ticketSchema);
   // A desk with several request types is the vocabulary; one that files everything
   // as a single issue type has nothing to choose between, so the request type stays unset.
@@ -138,14 +207,22 @@ export async function classifyConversation(input: {
     handedOver: handedOverNow,
   });
   if (!chosen) return { done: false, reason: "failed" };
+  if (manual && !chosen.summary) return { done: false, reason: "manual" };
 
   await db
     .update(conversations)
     .set({
-      ...(chosen.requestType ? { requestType: chosen.requestType } : {}),
-      ...(chosen.tier ? { tier: chosen.tier } : {}),
-      labels: [...new Set([...(conversation.labels ?? []), ...chosen.labels])],
-      classificationSource: "worker",
+      ...(chosen.summary ? { ticketSummary: chosen.summary } : {}),
+      ...(manual
+        ? {}
+        : {
+            ...(chosen.requestType ? { requestType: chosen.requestType } : {}),
+            ...(chosen.tier ? { tier: chosen.tier } : {}),
+            labels: [
+              ...new Set([...(conversation.labels ?? []), ...chosen.labels]),
+            ],
+            classificationSource: "worker",
+          }),
     })
     .where(eq(conversations.id, conversation.id));
   return { done: true, classification: chosen };

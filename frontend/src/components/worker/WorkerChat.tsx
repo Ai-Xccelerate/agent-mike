@@ -6,7 +6,7 @@ import Markdown from "@/components/worker/Markdown";
 import WorkerChatRail from "@/components/worker/WorkerChatRail";
 import Badge from "@/components/ui/badge/Badge";
 import { ArrowUpIcon, DocsIcon, MicrophoneIcon } from "@/icons";
-import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { useDictation } from "@/hooks/useDictation";
 import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
@@ -100,10 +100,19 @@ function ChatPanelBody({
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
 
-  const { listening, supported: voiceSupported, toggle: toggleVoice, error: voiceError } = useVoiceInput((text) => {
-    setValue((prev) => (prev ? `${prev} ` : "") + text);
-    inputRef.current?.focus();
-  });
+  const {
+    listening,
+    transcribing,
+    supported: voiceSupported,
+    toggle: toggleVoice,
+    error: voiceError,
+  } = useDictation(
+    (text) => {
+      setValue((prev) => (prev ? `${prev} ` : "") + text);
+      inputRef.current?.focus();
+    },
+    { siteToken: compact ? siteToken : undefined },
+  );
 
   const conversationId = compact ? compactConversationId : (externalConversationId ?? undefined);
 
@@ -472,20 +481,28 @@ function ChatPanelBody({
             minRows={1}
             maxRows={6}
             maxLength={MESSAGE_MAX_LENGTH}
-            placeholder={listening ? "Listening. Speak now…" : `Ask ${displayName} a question…`}
+            placeholder={
+              listening
+                ? "Listening. Tap the mic when you are done."
+                : transcribing
+                  ? "Transcribing…"
+                  : `Ask ${displayName} a question…`
+            }
             className="flex-1 resize-none bg-transparent px-2 py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
           />
           <button
             type="button"
             onClick={toggleVoice}
-            disabled={!voiceSupported}
+            disabled={!voiceSupported || transcribing}
             aria-label={listening ? "Stop voice input" : "Start voice input"}
             aria-pressed={listening}
             title={
               voiceSupported
-                ? listening
-                  ? "Stop voice input"
-                  : "Dictate your message"
+                ? transcribing
+                  ? "Transcribing…"
+                  : listening
+                    ? "Stop voice input"
+                    : "Dictate your message"
                 : "Voice input isn't supported in this browser"
             }
             className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${

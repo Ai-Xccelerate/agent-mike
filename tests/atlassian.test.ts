@@ -861,7 +861,7 @@ describe("Confluence searched before answering", () => {
     const matches = await searchConfluenceKnowledge(orgId, "How do I reset my password?", 3);
 
     expect(executeToolMock.mock.calls[0][0]).toBe(CONFLUENCE_CQL_SEARCH_SLUG);
-    expect(executeToolMock.mock.calls[0][1]).toMatchObject({ cql: expect.stringContaining('space = "SK"') });
+    expect(executeToolMock.mock.calls[0][1]).toMatchObject({ cql: expect.stringContaining('space in ("SK")') });
     expect(matches).toEqual([
       {
         documentId: "confluence:123",
