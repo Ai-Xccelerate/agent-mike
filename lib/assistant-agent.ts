@@ -17,6 +17,12 @@ import {
   wrapAsOkf,
 } from "@/lib/knowledge";
 import { assignConceptIds, slugify } from "@/lib/knowledge-ids";
+import {
+  RESOLVED_TICKETS_TOOL_NAME,
+  TICKETS_DEFAULT_LIMIT,
+  TICKETS_MAX_LIMIT,
+  fetchRedactedResolvedTickets,
+} from "@/lib/ticket-knowledge";
 import { modelUnavailabilityReason, type ModelUnavailabilityReason } from "@/lib/env";
 import { ASSISTANT_CHAT_WORKFLOW, runTracedAgent, runTracedAgentStreamed } from "@/lib/agent-tracing";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
@@ -1360,6 +1366,35 @@ function buildIntegrationReadTools(organizationId: string): Tool[] {
         }),
     }),
     tool({
+      name: RESOLVED_TICKETS_TOOL_NAME,
+      description:
+        "Read RESOLVED tickets from one Jira project, with client details already removed, to write how-to knowledge " +
+        "articles from. Use this, not search_jira_issues or read_jira_issue, whenever tickets are the source for knowledge: " +
+        "those return raw ticket text. Returns each ticket's request type, priority, redacted problem and redacted " +
+        "resolution (the team's last replies), newest first, a few at a time. Tickets that mention health or identity " +
+        "documents are left out and counted. To continue, call it again with resolvedBefore set to the oldestResolved " +
+        "date it returned. Read-only. Then write one generic article per distinct problem with " +
+        "propose_publish_knowledge_article; never include a name, company or number, and tell the manager each " +
+        "article came from redacted tickets and needs a careful read before they approve it.",
+      parameters: z.object({
+        projectKey: z.string().describe("The Jira project key to read, e.g. EESD"),
+        limit: z.number().int().min(1).max(TICKETS_MAX_LIMIT).nullable().describe(`How many tickets, up to ${TICKETS_MAX_LIMIT}; null for ${TICKETS_DEFAULT_LIMIT}`),
+        resolvedBefore: z.string().nullable().describe("YYYY-MM-DD: only tickets resolved before this date, to continue a previous batch; else null"),
+      }),
+      execute: async ({ projectKey, limit, resolvedBefore }) =>
+        loggedAssistantTool(organizationId, `${RESOLVED_TICKETS_TOOL_NAME}_call`, { projectKey, limit, resolvedBefore }, async () => {
+          const account = await managerAccount(organizationId, "jira");
+          if (typeof account === "string") return account;
+          return fetchRedactedResolvedTickets({
+            organizationId,
+            connectedAccountId: account.connectedAccountId,
+            projectKey,
+            limit: limit ?? TICKETS_DEFAULT_LIMIT,
+            resolvedBefore,
+          });
+        }),
+    }),
+    tool({
       name: MANAGER_JIRA_READ_TOOL_NAME,
       description: "Read one Jira issue by key (e.g. SUP-12): summary, status, people, description and comments. Read-only.",
       parameters: z.object({ key: z.string().describe("The issue key, e.g. SUP-12") }),
@@ -2183,7 +2218,10 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "Jira and Confluence: when connected, you can always read them, whatever the Assistant actions setting: " +
     `${MANAGER_JIRA_SEARCH_TOOL_NAME} and ${MANAGER_JIRA_READ_TOOL_NAME} for tickets (any project), ` +
     `${MANAGER_CONFLUENCE_SEARCH_TOOL_NAME} and ${CONFLUENCE_READ_TOOL_NAME} for pages. A Jira ticket key looks ` +
-    "like SUP-12; the worker's own ticket numbers look like #1023, and are a different thing. The customer-facing " +
+    "like SUP-12; the worker's own ticket numbers look like #1023, and are a different thing. To turn resolved " +
+    `tickets into knowledge articles, use ${RESOLVED_TICKETS_TOOL_NAME} only (it removes client details first); never ` +
+    `use ${MANAGER_JIRA_SEARCH_TOOL_NAME} or ${MANAGER_JIRA_READ_TOOL_NAME} for that, since they return raw ticket text. ` +
+    "The customer-facing " +
     "worker raises a Jira ticket by itself when it hands a conversation over, if a handoff project is set in " +
     "Settings > Integrations.\n\n" +
     "Permission rules for 4 and 5: propose in one turn and STOP - never call confirm_pending_change in the same " +
