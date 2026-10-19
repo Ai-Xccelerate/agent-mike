@@ -16,7 +16,10 @@ import { isSensitiveTicketText, looksLikeItStillHoldsAName, redactTicketText } f
 export const RESOLVED_TICKETS_TOOL_NAME = "get_resolved_tickets_for_knowledge";
 
 const JIRA_SEARCH_ISSUES_SLUG = "JIRA_SEARCH_ISSUES";
+const JIRA_GET_ISSUE_SLUG = "JIRA_GET_ISSUE";
 const JIRA_TOOLKIT_VERSION = "20260915_00";
+/** Tickets read at once; each is its own Jira call. */
+const READ_CONCURRENCY = 5;
 
 export const TICKETS_DEFAULT_LIMIT = 10;
 export const TICKETS_MAX_LIMIT = 25;
@@ -38,8 +41,10 @@ export type ResolvedTicketsResult = {
   excludedSensitive: number;
   /** Left out because there was nothing usable to write an article from. */
   excludedEmpty: number;
-  /** The earliest resolution date seen, so the next call can continue from there. */
-  oldestResolved: string | null;
+  /** Left out because Jira wouldn't return the ticket to this account. */
+  unreadable: number;
+  /** Pass back as nextPageToken to continue with the next batch; null when there are no more. */
+  nextPageToken: string | null;
 };
 
 type Json = Record<string, unknown>;
@@ -141,32 +146,51 @@ export function redactIssue(issue: unknown): { ticket: RedactedTicket | null; re
   };
 }
 
-/** Turns Jira's search result into redacted tickets. Returns null when the result isn't a list of issues. */
-export function redactSearchResult(result: unknown, limit: number): ResolvedTicketsResult | null {
+const ISSUE_KEY = /^[A-Z][A-Z0-9_]*-\d+$/;
+
+/**
+ * Composio's search returns flat records ({key, summary, ...}) with no comments, so
+ * all that is taken from it is the ticket keys and the paging token. Everything
+ * else is read ticket by ticket, below.
+ */
+export function keysFromSearchResult(result: unknown): { keys: string[]; nextPageToken: string | null } | null {
   const issues = issuesFrom(result);
   if (!issues) return null;
+  const keys = issues
+    .map((issue) => str(obj(issue)?.key))
+    .filter((key) => ISSUE_KEY.test(key));
+  const top = obj(result);
+  const data = obj(top?.data);
+  const token = str(data?.next_page_token) || str(data?.nextPageToken) || str(top?.next_page_token);
+  return { keys, nextPageToken: token || null };
+}
 
-  const tickets: RedactedTicket[] = [];
-  let excludedSensitive = 0;
-  let excludedEmpty = 0;
-  let oldestResolved: string | null = null;
-
-  for (const issue of issues.slice(0, limit)) {
-    const { ticket, reason, resolved } = redactIssue(issue);
-    if (resolved && (!oldestResolved || resolved < oldestResolved)) oldestResolved = resolved;
-    if (ticket) tickets.push(ticket);
-    else if (reason === "sensitive") excludedSensitive++;
-    else excludedEmpty++;
+/** The issue itself from a get-issue reply: {data: {key, fields}}, one level deeper, or bare. */
+export function issueFromGetResult(result: unknown): unknown | null {
+  const top = obj(result);
+  for (const candidate of [obj(top?.data), obj(obj(top?.data)?.data), top]) {
+    if (candidate && obj(candidate.fields)) return candidate;
   }
-  return { tickets, excludedSensitive, excludedEmpty, oldestResolved };
+  return null;
 }
 
 const PROJECT_KEY = /^[A-Z][A-Z0-9_]{1,19}$/;
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const PAGE_TOKEN = /^[A-Za-z0-9_=.+/-]{1,2000}$/;
 
-export function resolvedTicketsJql(projectKey: string, resolvedBefore: string | null): string {
-  const before = resolvedBefore && DATE_ONLY.test(resolvedBefore) ? ` AND resolved < "${resolvedBefore}"` : "";
-  return `project = "${projectKey}" AND statusCategory = Done${before} ORDER BY resolved DESC`;
+export function resolvedTicketsJql(projectKey: string): string {
+  return `project = "${projectKey}" AND statusCategory = Done ORDER BY resolved DESC`;
+}
+
+const GET_ISSUE_FIELDS = ["summary", "description", "comment", "issuetype", "priority", "reporter", "creator", "assignee", "resolutiondate"];
+
+async function logOutcome(
+  organizationId: string,
+  input: Record<string, unknown>,
+  status: "success" | "error",
+  output: Record<string, unknown> | null,
+  errorMessage: string | null,
+) {
+  await logToolCall({ organizationId, toolId: RESOLVED_TICKETS_TOOL_NAME, calledBy: "assistant", input, output, status, errorMessage });
 }
 
 /**
@@ -179,77 +203,70 @@ export async function fetchRedactedResolvedTickets(input: {
   connectedAccountId: string;
   projectKey: string;
   limit: number;
-  resolvedBefore: string | null;
+  nextPageToken: string | null;
 }): Promise<string> {
   const projectKey = input.projectKey.trim().toUpperCase();
   if (!PROJECT_KEY.test(projectKey)) return "That isn't a valid Jira project key (for example EESD).";
   const limit = Math.min(Math.max(Math.trunc(input.limit) || TICKETS_DEFAULT_LIMIT, 1), TICKETS_MAX_LIMIT);
-  const args = {
-    jql: resolvedTicketsJql(projectKey, input.resolvedBefore),
-    fields: ["summary", "description", "comment", "issuetype", "priority", "reporter", "creator", "assignee", "resolutiondate"],
-    max_results: limit,
-  };
+  const token = input.nextPageToken && PAGE_TOKEN.test(input.nextPageToken) ? input.nextPageToken : null;
+  const logged = { projectKey, limit, paged: token !== null };
+  const run = (slug: string, args: Record<string, unknown>) =>
+    executeTool(slug, args, { connectedAccountId: input.connectedAccountId, userId: input.organizationId, version: JIRA_TOOLKIT_VERSION });
 
-  let raw: unknown;
+  let search: unknown;
   try {
-    raw = await executeTool(JIRA_SEARCH_ISSUES_SLUG, args, {
-      connectedAccountId: input.connectedAccountId,
-      userId: input.organizationId,
-      version: JIRA_TOOLKIT_VERSION,
+    search = await run(JIRA_SEARCH_ISSUES_SLUG, {
+      jql: resolvedTicketsJql(projectKey),
+      fields: ["summary"],
+      max_results: limit,
+      ...(token ? { next_page_token: token } : {}),
     });
   } catch {
-    await logToolCall({
-      organizationId: input.organizationId,
-      toolId: RESOLVED_TICKETS_TOOL_NAME,
-      calledBy: "assistant",
-      input: { projectKey, limit },
-      status: "error",
-      errorMessage: "Jira search failed",
-    });
+    await logOutcome(input.organizationId, logged, "error", null, "Jira search failed");
     return "Jira search failed. Try again in a moment.";
   }
-
-  if ((raw as { successful?: boolean } | null)?.successful === false) {
-    await logToolCall({
-      organizationId: input.organizationId,
-      toolId: RESOLVED_TICKETS_TOOL_NAME,
-      calledBy: "assistant",
-      input: { projectKey, limit },
-      status: "error",
-      errorMessage: "Jira refused the search",
-    });
+  if ((search as { successful?: boolean } | null)?.successful === false) {
+    await logOutcome(input.organizationId, logged, "error", null, "Jira refused the search");
     return `Jira refused that search for ${projectKey}. The connected account may not be able to read that project.`;
   }
-
-  const redacted = redactSearchResult(raw, limit);
-  if (!redacted) {
-    await logToolCall({
-      organizationId: input.organizationId,
-      toolId: RESOLVED_TICKETS_TOOL_NAME,
-      calledBy: "assistant",
-      input: { projectKey, limit },
-      status: "error",
-      errorMessage: "Unrecognised result shape",
-    });
+  const found = keysFromSearchResult(search);
+  if (!found) {
+    await logOutcome(input.organizationId, logged, "error", null, "Unrecognised search result shape");
     return "Jira answered, but not in a shape I can read safely, so nothing was returned.";
   }
 
-  await logToolCall({
-    organizationId: input.organizationId,
-    toolId: RESOLVED_TICKETS_TOOL_NAME,
-    calledBy: "assistant",
-    input: { projectKey, limit, resolvedBefore: input.resolvedBefore },
-    output: {
-      returned: redacted.tickets.length,
-      excludedSensitive: redacted.excludedSensitive,
-      excludedEmpty: redacted.excludedEmpty,
-    },
-    status: "success",
-  });
+  const tickets: RedactedTicket[] = [];
+  let excludedSensitive = 0;
+  let excludedEmpty = 0;
+  let unreadable = 0;
+  const keys = found.keys.slice(0, limit);
+  for (let i = 0; i < keys.length; i += READ_CONCURRENCY) {
+    const batch = await Promise.all(
+      keys.slice(i, i + READ_CONCURRENCY).map(async (key) => {
+        try {
+          const reply = await run(JIRA_GET_ISSUE_SLUG, { issue_id_or_key: key, fields: GET_ISSUE_FIELDS });
+          if ((reply as { successful?: boolean } | null)?.successful === false) return "unreadable" as const;
+          const issue = issueFromGetResult(reply);
+          return issue ? redactIssue(issue) : ("unreadable" as const);
+        } catch {
+          return "unreadable" as const;
+        }
+      }),
+    );
+    for (const result of batch) {
+      if (result === "unreadable") unreadable++;
+      else if (result.ticket) tickets.push(result.ticket);
+      else if (result.reason === "sensitive") excludedSensitive++;
+      else excludedEmpty++;
+    }
+  }
 
+  await logOutcome(input.organizationId, logged, "success", { returned: tickets.length, excludedSensitive, excludedEmpty, unreadable }, null);
+
+  const result: ResolvedTicketsResult = { tickets, excludedSensitive, excludedEmpty, unreadable, nextPageToken: found.nextPageToken };
   return JSON.stringify({
     project: projectKey,
-    ...redacted,
+    ...result,
     note:
       "Details were removed automatically, but that can miss names. Write generic how-to articles from these, never copy a " +
       "sentence that looks like it names a person or company, and ask the manager to read each article before approving it.",
