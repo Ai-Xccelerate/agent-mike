@@ -5,6 +5,8 @@ import { conversations, messages } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 import { promisesPersonFollowUp } from "@/lib/agent";
+import { recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { summarizeForHandoff } from "@/lib/ticket-classifier";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 
@@ -22,15 +24,18 @@ vi.mock("@/lib/conversation-memory", async (importOriginal) => ({
   maybeRefreshConversationSummary: vi.fn(async (_profile: unknown, current: unknown) => current),
 }));
 vi.mock("@/lib/handoff-notify", () => ({ notifyManager: vi.fn(async () => undefined) }));
-vi.mock("@/lib/ticket-classifier", () => ({ classifyConversation: vi.fn(async () => ({ done: false, reason: "not_needed" })) }));
+vi.mock("@/lib/ticket-classifier", () => ({
+  classifyConversation: vi.fn(async () => ({ done: false, reason: "not_needed" })),
+  summarizeForHandoff: vi.fn(async () => "Dana needs a custom report."),
+}));
 
 let orgId: string;
 
-async function turn(conversationId: string, body: string) {
+async function turn(conversationId: string, body: string, options: { deferTicket?: boolean } = {}) {
   const [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
   const prior = await db.select().from(messages).where(eq(messages.conversationId, conversationId));
   const [userMessage] = await db.insert(messages).values({ conversationId, senderType: "customer", senderName: "Dana", body }).returning();
-  return runCustomerTurn({ organizationId: orgId, profile: await getOrCreateProfile(orgId), conversation, priorMessages: prior, userMessage, speakerName: "Dana" });
+  return runCustomerTurn({ organizationId: orgId, profile: await getOrCreateProfile(orgId), conversation, priorMessages: prior, userMessage, speakerName: "Dana", ...options });
 }
 const statusOf = async (id: string) => (await db.select().from(conversations).where(eq(conversations.id, id)))[0].status;
 
@@ -65,6 +70,26 @@ describe("a conversation already waiting for a person", () => {
     const row = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "resolved" });
     await turn(row.id, "Thanks");
     expect(await statusOf(row.id)).toBe("open");
+  });
+});
+
+describe("the handover", () => {
+  it("stores a short ticket summary and gives it to the helpdesk ticket, after the reply", async () => {
+    runAgentMock.mockResolvedValue({ answer: "Bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const row = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const outcome = await turn(row.id, "I need a custom report", { deferTicket: true });
+    await outcome.pendingTicket;
+    const [saved] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+    expect(saved.ticketSummary).toBe("Dana needs a custom report.");
+    expect(vi.mocked(recordHandoffInJira).mock.calls.at(-1)?.[0].conversation.ticketSummary).toBe("Dana needs a custom report.");
+  });
+
+  it("does not make the customer wait for a summary when the ticket is raised inline", async () => {
+    vi.mocked(summarizeForHandoff).mockClear();
+    runAgentMock.mockResolvedValue({ answer: "Bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const row = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    await turn(row.id, "I need a custom report");
+    expect(summarizeForHandoff).not.toHaveBeenCalled();
   });
 });
 

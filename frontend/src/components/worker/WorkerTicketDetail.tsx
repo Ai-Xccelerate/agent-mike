@@ -276,10 +276,10 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
               {who.unverified && <span className="text-gray-500 dark:text-gray-400"> (said in chat)</span>} on{" "}
               {CHANNEL_LABEL[ticket.channel] ?? ticket.channel}, {fullTime(ticket.createdAt)}
             </p>
-            {ticket.summary ? (
+            {ticket.ticketSummary ?? ticket.summary ? (
               <div>
                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Summary</p>
-                <p className="leading-6 text-gray-700 dark:text-gray-300">{ticket.summary}</p>
+                <p className="leading-6 text-gray-700 dark:text-gray-300">{ticket.ticketSummary ?? ticket.summary}</p>
               </div>
             ) : (
               <p className="text-gray-500 dark:text-gray-400">No summary yet.</p>

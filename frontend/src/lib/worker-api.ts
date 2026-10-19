@@ -40,6 +40,8 @@ export type Conversation = {
   archived: boolean;
   confidence: number | null;
   summary: string | null;
+  /** What the ticket is about, in a sentence or two, written when it is classified. */
+  ticketSummary?: string | null;
   /** The helpdesk ticket raised when this conversation was handed over, e.g. "SUP-12". */
   externalTicketKey?: string | null;
   /** Why the helpdesk refused that ticket, when it did. */
@@ -609,7 +611,7 @@ export type JiraConnectionSettings = {
   workerChoosesRequestType: boolean;
 };
 
-/** Which Confluence space grounds the worker's answers. */
+/** Which Confluence spaces ground the worker's answers (empty = every space). */
 export type ConfluenceConnectionSettings = {
   spaceKeys: string[];
   searchBeforeAnswering: boolean;
