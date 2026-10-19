@@ -287,7 +287,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
 }
 
 function ConfluenceForm({ integrationType, settings, onClose, onSaved }: FormProps<ConfluenceConnectionSettings>) {
-  const [spaceKey, setSpaceKey] = useState(settings.spaceKey ?? "");
+  const [spaceKeys, setSpaceKeys] = useState(settings.spaceKeys.length > 0 ? settings.spaceKeys : [""]);
   const [searchBeforeAnswering, setSearchBeforeAnswering] = useState(settings.searchBeforeAnswering);
   const { saving, error, save } = useSave(integrationType, onSaved, onClose);
 
@@ -295,20 +295,42 @@ function ConfluenceForm({ integrationType, settings, onClose, onSaved }: FormPro
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        void save({ spaceKey: spaceKey.trim() || null, searchBeforeAnswering });
+        void save({ spaceKeys: spaceKeys.map((key) => key.trim()).filter(Boolean), searchBeforeAnswering });
       }}
     >
       <DialogHeader title="Confluence settings" description="Which pages the worker answers from." />
-      <label className="mt-5 block">
-        <span className={labelClass}>Space key</span>
-        <input
-          className={`mt-1.5 ${fieldClass}`}
-          value={spaceKey}
-          placeholder="Leave empty for every space"
-          onChange={(event) => setSpaceKey(event.target.value)}
-        />
-      </label>
-      <p className={hintClass}>The short key in the space&rsquo;s address, e.g. SK.</p>
+      <div className="mt-5">
+        <span className={labelClass}>Space keys</span>
+        {spaceKeys.map((key, index) => (
+          <div key={index} className="mt-1.5 flex gap-2">
+            <input
+              className={fieldClass}
+              value={key}
+              placeholder={index === 0 ? "Leave empty for every space" : "e.g. PGFP"}
+              aria-label={`Space key ${index + 1}`}
+              onChange={(event) => setSpaceKeys((keys) => keys.map((k, i) => (i === index ? event.target.value : k)))}
+            />
+            {spaceKeys.length > 1 && (
+              <button
+                type="button"
+                className="px-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100"
+                aria-label={`Remove space key ${index + 1}`}
+                onClick={() => setSpaceKeys((keys) => keys.filter((_, i) => i !== index))}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          className="mt-2 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+          onClick={() => setSpaceKeys((keys) => [...keys, ""])}
+        >
+          + Add another space
+        </button>
+      </div>
+      <p className={hintClass}>The short key in each space&rsquo;s address, e.g. EAPX. Answers come from all of them.</p>
       <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
         <SettingsToggleRow
           title="Search before every answer"

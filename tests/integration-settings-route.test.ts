@@ -206,15 +206,15 @@ describe("PATCH /api/v1/integrations/:type settings", () => {
 
   it("changes only the fields sent", async () => {
     await connect("knowledge_base", "confluence");
-    await patch("knowledge_base", { settings: { spaceKey: "SK" } });
+    await patch("knowledge_base", { settings: { spaceKeys: ["SK", "PGFP"] } });
     const res = await patch("knowledge_base", { settings: { searchBeforeAnswering: false } });
-    expect(((await res.json()) as { settings: unknown }).settings).toEqual({ spaceKey: "SK", searchBeforeAnswering: false });
+    expect(((await res.json()) as { settings: unknown }).settings).toEqual({ spaceKeys: ["SK", "PGFP"], searchBeforeAnswering: false });
   });
 
   it("rejects an invalid or unknown field, and a connection with no settings", async () => {
     await connect("helpdesk", "jira");
     expect((await patch("helpdesk", { settings: { projectKey: "not a key" } })).status).toBe(400);
-    expect((await patch("helpdesk", { settings: { spaceKey: "SK" } })).status).toBe(400);
+    expect((await patch("helpdesk", { settings: { spaceKeys: ["SK"] } })).status).toBe(400);
 
     await connect("crm", "zoho");
     expect((await patch("crm", { settings: {} })).status).toBe(400);

@@ -256,12 +256,16 @@ export const jiraSettingsSchema = z.object({
 export type JiraSettings = z.infer<typeof jiraSettingsSchema>;
 
 export const confluenceSettingsSchema = z.object({
-  /** Only search this space, e.g. "SK". Null = every space the connection can read. */
-  spaceKey: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z0-9_~]{1,255}$/, "A Confluence space key is letters and digits (e.g. SK)")
-    .nullable(),
+  /** Only search these spaces, e.g. ["SK", "PGFP"]. Empty = every space the connection can read. */
+  spaceKeys: z
+    .array(
+      z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z0-9_~]{1,255}$/, "A Confluence space key is letters and digits (e.g. SK)"),
+    )
+    .max(20, "Up to 20 spaces")
+    .transform((keys) => [...new Set(keys)]),
   /** Search the space before every answer, not only when the model decides to look. */
   searchBeforeAnswering: z.boolean(),
 });
@@ -280,7 +284,7 @@ export function jiraSettingsDefaults(): JiraSettings {
 }
 
 export function confluenceSettingsDefaults(): ConfluenceSettings {
-  return { spaceKey: null, searchBeforeAnswering: true };
+  return { spaceKeys: [], searchBeforeAnswering: true };
 }
 
 function readSettings<T>(metadata: unknown, schema: z.ZodType<T>, defaults: T): T {
@@ -296,7 +300,14 @@ export function readJiraSettings(metadata: unknown): JiraSettings {
 }
 
 export function readConfluenceSettings(metadata: unknown): ConfluenceSettings {
-  return readSettings(metadata, confluenceSettingsSchema, confluenceSettingsDefaults());
+  const stored = metadata && typeof metadata === "object" ? (metadata as { settings?: unknown }).settings : undefined;
+  const legacy = stored && typeof stored === "object" ? (stored as { spaceKey?: unknown }).spaceKey : undefined;
+  // Settings saved before multi-space support kept one `spaceKey`.
+  const migrated =
+    typeof legacy === "string" && legacy && !("spaceKeys" in (stored as object))
+      ? { ...(metadata as object), settings: { ...(stored as object), spaceKeys: [legacy] } }
+      : metadata;
+  return readSettings(migrated, confluenceSettingsSchema, confluenceSettingsDefaults());
 }
 
 /**
@@ -753,9 +764,10 @@ function cqlString(value: string): string {
 }
 
 /** Pages containing any of the keywords, best match first (Confluence ranks text searches by relevance). */
-export function buildKnowledgeCql(keywords: string[], spaceKey: string | null): string {
+export function buildKnowledgeCql(keywords: string[], spaceKeys: string[]): string {
   const terms = keywords.map((word) => `text ~ ${cqlString(word)}`).join(" OR ");
-  return `type = page AND (${terms})${spaceKey ? ` AND space = ${cqlString(spaceKey)}` : ""}`;
+  const spaces = spaceKeys.length > 0 ? ` AND space in (${spaceKeys.map(cqlString).join(", ")})` : "";
+  return `type = page AND (${terms})${spaces}`;
 }
 
 type CqlResult = {
@@ -799,7 +811,7 @@ export function scorePage(title: string, text: string, keywords: string[]): numb
 export async function rankPagesByKeywords(
   toolId: string,
   keywords: string[],
-  spaceKey: string | null,
+  spaceKeys: string[],
   limit: number,
   organizationId: string,
   connectedAccountId: string,
@@ -815,9 +827,12 @@ export async function rankPagesByKeywords(
   if (result === null || wasRefused(result)) return null;
   const data = (result as { data?: { results?: unknown } }).data;
   const pages = Array.isArray(data?.results) ? (data.results as ListedPage[]) : [];
-  const inSpace = spaceKey ? `/spaces/${spaceKey}/`.toLowerCase() : null;
+  const inSpaces = spaceKeys.map((key) => `/spaces/${key}/`.toLowerCase());
   return pages
-    .filter((page) => !inSpace || (page._links?.webui ?? "").toLowerCase().includes(inSpace))
+    .filter((page) => {
+      const link = (page._links?.webui ?? "").toLowerCase();
+      return inSpaces.length === 0 || inSpaces.some((space) => link.includes(space));
+    })
     .map((page) => {
       const title = page.title ?? "";
       const text = confluenceStorageToText(page.body?.storage?.value ?? "");
@@ -850,7 +865,7 @@ export async function searchConfluenceKnowledge(
   const result = await runReadTool(
     CONFLUENCE_KNOWLEDGE_TOOL_ID,
     CONFLUENCE_CQL_SEARCH_SLUG,
-    { cql: buildKnowledgeCql(keywords, settings.spaceKey), limit, expand: "content.body.storage" },
+    { cql: buildKnowledgeCql(keywords, settings.spaceKeys), limit, expand: "content.body.storage" },
     organizationId,
     connectedAccountId,
     CONFLUENCE_TOOLKIT_VERSION,
@@ -861,7 +876,7 @@ export async function searchConfluenceKnowledge(
     const ranked = await rankPagesByKeywords(
       CONFLUENCE_KNOWLEDGE_TOOL_ID,
       keywords,
-      settings.spaceKey,
+      settings.spaceKeys,
       limit,
       organizationId,
       connectedAccountId,
@@ -967,7 +982,7 @@ export async function executeJiraIssueRead(key: string, organizationId: string, 
 /** Full-text search over page content, for the manager: titles, ids and excerpts. */
 export async function executeConfluenceTextSearch(
   query: string,
-  spaceKey: string | null,
+  spaceKeys: string[],
   organizationId: string,
   connectedAccountId: string,
 ): Promise<string> {
@@ -976,7 +991,7 @@ export async function executeConfluenceTextSearch(
   const result = await runReadTool(
     MANAGER_CONFLUENCE_SEARCH_TOOL_NAME,
     CONFLUENCE_CQL_SEARCH_SLUG,
-    { cql: buildKnowledgeCql(keywords, spaceKey), limit: CONFLUENCE_SEARCH_LIMIT },
+    { cql: buildKnowledgeCql(keywords, spaceKeys), limit: CONFLUENCE_SEARCH_LIMIT },
     organizationId,
     connectedAccountId,
     CONFLUENCE_TOOLKIT_VERSION,
@@ -986,7 +1001,7 @@ export async function executeConfluenceTextSearch(
     const ranked = await rankPagesByKeywords(
       MANAGER_CONFLUENCE_SEARCH_TOOL_NAME,
       keywords,
-      spaceKey,
+      spaceKeys,
       CONFLUENCE_SEARCH_LIMIT,
       organizationId,
       connectedAccountId,

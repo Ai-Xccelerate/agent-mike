@@ -611,7 +611,7 @@ export type JiraConnectionSettings = {
 
 /** Which Confluence space grounds the worker's answers. */
 export type ConfluenceConnectionSettings = {
-  spaceKey: string | null;
+  spaceKeys: string[];
   searchBeforeAnswering: boolean;
 };
 
