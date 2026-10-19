@@ -494,6 +494,14 @@ export async function uploadAssistantAttachments(files: File[]): Promise<Assista
   return apiFetch<AssistantAttachmentUpload[]>("/assistant/attachments", { method: "POST", body: form });
 }
 
+/** Turns a mic recording into text on the server (OpenAI); the audio isn't kept. The widget passes its site token. */
+export async function transcribeRecording(audio: Blob, widgetSiteToken?: string): Promise<string> {
+  const form = new FormData();
+  form.append("audio", audio, "dictation");
+  const result = await apiFetch<{ text: string }>("/transcribe", { method: "POST", body: form, widgetSiteToken });
+  return result.text;
+}
+
 export type ApiFetchOptions = RequestInit & { widgetSiteToken?: string };
 
 export class WorkerApiError extends Error {
