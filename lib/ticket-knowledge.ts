@@ -11,7 +11,12 @@
 
 import { executeTool } from "@/lib/tools-integrations/composio-client";
 import { logToolCall } from "@/lib/tools-integrations/tool-call-log";
-import { isSensitiveTicketText, looksLikeItStillHoldsAName, redactTicketText } from "@/lib/ticket-redaction";
+import {
+  isInternalEngineeringText,
+  isSensitiveTicketText,
+  looksLikeItStillHoldsAName,
+  redactTicketText,
+} from "@/lib/ticket-redaction";
 
 export const RESOLVED_TICKETS_TOOL_NAME = "get_resolved_tickets_for_knowledge";
 
@@ -21,7 +26,7 @@ const JIRA_TOOLKIT_VERSION = "20260915_00";
 /** Tickets read at once; each is its own Jira call. */
 const READ_CONCURRENCY = 5;
 
-export const TICKETS_DEFAULT_LIMIT = 10;
+export const TICKETS_DEFAULT_LIMIT = 4;
 export const TICKETS_MAX_LIMIT = 25;
 const FIELD_CHARS = 900;
 const COMMENTS_USED = 2;
@@ -31,14 +36,16 @@ export type RedactedTicket = {
   priority: string | null;
   problem: string;
   resolution: string | null;
-  /** True when the text may still hold a name; the reviewer should read it closely. */
-  checkForNames: boolean;
 };
 
 export type ResolvedTicketsResult = {
   tickets: RedactedTicket[];
-  /** Left out because they mention health or identity documents. */
+  /** Left out because they mention health or identity documents, or contained a password or key. */
   excludedSensitive: number;
+  /** Left out because they are engineers' database work, not something to publish to customers. */
+  excludedInternal: number;
+  /** Held back because a name or company may still be in the text after redaction. Never passed on. */
+  heldBackForReview: number;
   /** Left out because there was nothing usable to write an article from. */
   excludedEmpty: number;
   /** Left out because Jira wouldn't return the ticket to this account. */
@@ -103,7 +110,11 @@ function clip(text: string): string {
   return text.length > FIELD_CHARS ? `${text.slice(0, FIELD_CHARS).trimEnd()}…` : text;
 }
 
-export function redactIssue(issue: unknown): { ticket: RedactedTicket | null; reason?: "sensitive" | "empty"; resolved: string | null } {
+export function redactIssue(issue: unknown): {
+  ticket: RedactedTicket | null;
+  reason?: "sensitive" | "internal" | "review" | "empty";
+  resolved: string | null;
+} {
   const fields = obj(obj(issue)?.fields) ?? {};
   const resolved = str(fields.resolutiondate) || null;
 
@@ -130,9 +141,21 @@ export function redactIssue(issue: unknown): { ticket: RedactedTicket | null; re
   // Judged on the raw text: redaction could remove the very words that mark it sensitive.
   if (isSensitiveTicketText(`${rawProblem}\n${rawResolution}`)) return { ticket: null, reason: "sensitive", resolved };
 
-  const problem = redactTicketText(rawProblem, names).text;
-  const resolution = rawResolution ? redactTicketText(rawResolution, names).text : "";
+  // Engineers' database work is not a customer-facing how-to, and its text is full of record ids.
+  if (isInternalEngineeringText(`${rawProblem}\n${rawResolution}`)) return { ticket: null, reason: "internal", resolved };
+
+  const redactedProblem = redactTicketText(rawProblem, names);
+  const redactedResolution = rawResolution ? redactTicketText(rawResolution, names) : { text: "", counts: {} as Record<string, number> };
+  // A ticket that held a password, key or username is dropped whole, not trusted to be clean after one replacement.
+  if ((redactedProblem.counts.secrets ?? 0) + (redactedResolution.counts.secrets ?? 0) + (redactedProblem.counts.usernames ?? 0) + (redactedResolution.counts.usernames ?? 0) > 0) {
+    return { ticket: null, reason: "sensitive", resolved };
+  }
+  const problem = redactedProblem.text;
+  const resolution = redactedResolution.text;
   if (!problem) return { ticket: null, reason: "empty", resolved };
+
+  // A name or company that may have survived is not passed on at all: it can't be taken back once a model has it.
+  if (looksLikeItStillHoldsAName(problem) || looksLikeItStillHoldsAName(resolution)) return { ticket: null, reason: "review", resolved };
 
   return {
     ticket: {
@@ -140,7 +163,6 @@ export function redactIssue(issue: unknown): { ticket: RedactedTicket | null; re
       priority: nameOf(fields.priority),
       problem: clip(problem),
       resolution: resolution ? clip(resolution) : null,
-      checkForNames: looksLikeItStillHoldsAName(problem) || looksLikeItStillHoldsAName(resolution),
     },
     resolved,
   };
@@ -237,6 +259,8 @@ export async function fetchRedactedResolvedTickets(input: {
 
   const tickets: RedactedTicket[] = [];
   let excludedSensitive = 0;
+  let excludedInternal = 0;
+  let heldBackForReview = 0;
   let excludedEmpty = 0;
   let unreadable = 0;
   const keys = found.keys.slice(0, limit);
@@ -257,18 +281,30 @@ export async function fetchRedactedResolvedTickets(input: {
       if (result === "unreadable") unreadable++;
       else if (result.ticket) tickets.push(result.ticket);
       else if (result.reason === "sensitive") excludedSensitive++;
+      else if (result.reason === "internal") excludedInternal++;
+      else if (result.reason === "review") heldBackForReview++;
       else excludedEmpty++;
     }
   }
 
-  await logOutcome(input.organizationId, logged, "success", { returned: tickets.length, excludedSensitive, excludedEmpty, unreadable }, null);
+  await logOutcome(input.organizationId, logged, "success", { returned: tickets.length, excludedSensitive, excludedInternal, heldBackForReview, excludedEmpty, unreadable }, null);
 
-  const result: ResolvedTicketsResult = { tickets, excludedSensitive, excludedEmpty, unreadable, nextPageToken: found.nextPageToken };
+  const result: ResolvedTicketsResult = {
+    tickets,
+    excludedSensitive,
+    excludedInternal,
+    heldBackForReview,
+    excludedEmpty,
+    unreadable,
+    nextPageToken: found.nextPageToken,
+  };
   return JSON.stringify({
     project: projectKey,
     ...result,
     note:
-      "Details were removed automatically, but that can miss names. Write generic how-to articles from these, never copy a " +
-      "sentence that looks like it names a person or company, and ask the manager to read each article before approving it.",
+      "Details were removed automatically and tickets that may still hold a name, company or credential were held back, " +
+      "but nothing here is guaranteed clean. Write generic customer-facing how-to articles only, skip anything that reads as an " +
+      "internal procedure, never copy a sentence that looks like it names a person or company, and ask the manager to read " +
+      "each article before approving it.",
   });
 }

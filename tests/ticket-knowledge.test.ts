@@ -87,9 +87,52 @@ describe("redactIssue", () => {
     expect(ticket?.resolution).toBeNull();
   });
 
-  it("flags text that may still hold a name", () => {
-    const { ticket } = redactIssue(issue({ description: adf("Tested together with Jordan Whitfield last week") }));
-    expect(ticket?.checkForNames).toBe(true);
+  it("holds back a ticket whose text may still hold a name, so it is never passed on", () => {
+    const result = redactIssue(issue({ description: adf("Tested together with Jordan Whitfield last week") }));
+    expect(result.ticket).toBeNull();
+    expect(result.reason).toBe("review");
+  });
+});
+
+/** Tickets shaped like the ones that slipped through the first version. Every name, number and password here is made up. */
+describe("tickets that slipped through the first version", () => {
+  it("drops a ticket whose reply contains a password, and a username", () => {
+    const withPassword = redactIssue(issue({ comment: { comments: [{ author: { accountId: "t1", displayName: "Asif Khan" }, body: adf("I have reset her password to Ab3dEf6Gh9. Let us know.") }] } }));
+    expect(withPassword.ticket).toBeNull();
+    expect(withPassword.reason).toBe("sensitive");
+
+    const withUsername = redactIssue(issue({ description: adf("Please reset username jdoe123 for the portal") }));
+    expect(withUsername.ticket).toBeNull();
+    expect(withUsername.reason).toBe("sensitive");
+  });
+
+  it("drops a ticket that is a person's name in the title and a username in the body", () => {
+    const result = redactIssue(issue({ summary: "Reset Jane Doe Parallels Password", description: adf("Hello, please reset username jdoe parallels password") }));
+    expect(result.ticket).toBeNull();
+  });
+
+  it("drops database work", () => {
+    const result = redactIssue(
+      issue({ comment: { comments: [{ author: { accountId: "t1" }, body: adf("select * from ServiceAuthorization a inner join Base b on a.Oid = b.Oid where a.Number = 5") }] } }),
+    );
+    expect(result.reason).toBe("internal");
+  });
+
+  it("holds back a ticket that mentions a company with odd capitals or a bare web address", () => {
+    expect(redactIssue(issue({ description: adf("If no response in 2 days call MYgroup at 416-555-0188") })).reason).toBe("review");
+    expect(redactIssue(issue({ summary: "Integration with a vendor", description: adf("Please integrate with GoRendezvous") })).reason).toBe("review");
+  });
+
+  it("still passes a clean how-to ticket, with template placeholders and plain wording", () => {
+    const { ticket } = redactIssue(
+      issue({
+        summary: "add authorization number to text message",
+        description: adf("Current text: Please call {PrimaryCounselor} at {ProviderPrimaryPhone}. I would like to add the authorization number to the message."),
+        comment: { comments: [{ author: { accountId: "t1", displayName: "Asif Khan" }, body: adf("We will add a new placeholder for the authorization number in the email and sms template.") }] },
+      }),
+    );
+    expect(ticket?.problem).toContain("authorization number");
+    expect(ticket?.resolution).toContain("new placeholder");
   });
 });
 
@@ -210,7 +253,7 @@ describe("fetchRedactedResolvedTickets", () => {
       throw new Error("boom Dana Smith");
     });
     const parsed = JSON.parse(await fetchRedactedResolvedTickets(base));
-    expect(parsed).toMatchObject({ excludedSensitive: 1, excludedEmpty: 1, unreadable: 2 });
+    expect(parsed).toMatchObject({ excludedSensitive: 1, excludedInternal: 0, heldBackForReview: 0, excludedEmpty: 1, unreadable: 2 });
     expect(parsed.tickets).toHaveLength(1);
     expect(JSON.stringify(logMock.mock.calls)).not.toContain("Dana");
   });
