@@ -9,7 +9,7 @@ import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn
 import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
-import { classifyConversation } from "@/lib/ticket-classifier";
+import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
 import { timed } from "@/lib/timing";
 
 /**
@@ -235,7 +235,19 @@ export async function runCustomerTurn(input: {
       const current = earlier
         ? (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation
         : conversation;
-      const ticket = await raiseTicket(current);
+      // The ticket gets a short summary of what it is about, not only the transcript.
+      // Written here, after the reply is stored, so the customer never waits for it.
+      const ticketSummary =
+        conversation.status === "needs_human"
+          ? current.ticketSummary
+          : await summarizeForHandoff([
+              ...toHistoryTurns([...priorMessages, userMessage]),
+              { speaker: profile.displayName, body: result.answer },
+            ]);
+      if (ticketSummary && ticketSummary !== current.ticketSummary) {
+        await db.update(conversations).set({ ticketSummary }).where(eq(conversations.id, conversation.id));
+      }
+      const ticket = await raiseTicket({ ...current, ticketSummary: ticketSummary ?? current.ticketSummary });
       console.info("[timing]", JSON.stringify({ turn: "handoff-ticket", channel: conversation.channel, ms: Date.now() - started }));
       if (!isHandoffTicket(ticket)) return null;
       const [message] = await db

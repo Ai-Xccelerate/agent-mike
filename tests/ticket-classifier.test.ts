@@ -80,11 +80,12 @@ describe("validateClassification", () => {
       DEFAULT_TICKET_SCHEMA,
       true,
     );
-    expect(result).toEqual({ requestType: "Problem", tier: "Tier 2", labels: ["urgent", "billing"] });
+    expect(result).toEqual({ requestType: "Problem", tier: "Tier 2", labels: ["urgent", "billing"], summary: null });
   });
 
   it("drops a request type or tier the worker does not have, and ignores the request type when a helpdesk chooses it", () => {
     expect(validateClassification({ requestType: "Alien", tier: "Tier 9", labels: [] }, DEFAULT_TICKET_SCHEMA, true)).toEqual({
+      summary: null,
       requestType: null,
       tier: null,
       labels: [],
@@ -189,14 +190,14 @@ describe("classifyConversation", () => {
 
   it("never overwrites what a person set", async () => {
     chosen({ requestType: "Problem", tier: "Tier 3" });
-    const row = await conversation({ requestType: "Billing", tier: "Tier 1", classificationSource: "manual" });
-    expect(await classify(row, true)).toEqual({ done: false, reason: "manual" });
+    const row = await conversation({ requestType: "Billing", tier: "Tier 1", classificationSource: "manual", ticketSummary: "Already summarised." });
+    expect(await classify(row)).toEqual({ done: false, reason: "manual" });
     expect(runMock).not.toHaveBeenCalled();
     expect(await reload(row.id)).toMatchObject({ requestType: "Billing", tier: "Tier 1" });
   });
 
   it("does not run again once there is a tier, unless the conversation was just handed over", async () => {
-    const row = await conversation({ tier: "Tier 1", requestType: "Question", labels: ["billing"], classificationSource: "worker" });
+    const row = await conversation({ tier: "Tier 1", requestType: "Question", labels: ["billing"], classificationSource: "worker", ticketSummary: "Already summarised." });
     expect(await classify(row)).toEqual({ done: false, reason: "not_needed" });
     expect(runMock).not.toHaveBeenCalled();
 
@@ -225,6 +226,19 @@ describe("classifyConversation", () => {
     expect(runMock).not.toHaveBeenCalled();
   });
 
+  it("writes a short ticket summary, refreshes it on handover, and still writes it when a person set the classification", async () => {
+    chosen({ requestType: "Problem", tier: "Tier 2", summary: "  Jordan from Pinecrest wants a custom report.  " } as never);
+    const row = await conversation();
+    await classify(row);
+    expect((await reload(row.id)).ticketSummary).toBe("Jordan from Pinecrest wants a custom report.");
+
+    chosen({ requestType: "Problem", tier: "Tier 3", summary: "Now handed over with the report details." } as never);
+    const manual = await conversation({ requestType: "Billing", tier: "Tier 1", classificationSource: "manual" });
+    await classify(manual, true);
+    const after = await reload(manual.id);
+    expect(after).toMatchObject({ requestType: "Billing", tier: "Tier 1", classificationSource: "manual", ticketSummary: "Now handed over with the report details." });
+  });
+
   it("does not wipe a tier when the model picks none", async () => {
     chosen({ requestType: "Question", tier: "nonsense" });
     const row = await conversation({ tier: "Tier 2" });
@@ -243,7 +257,7 @@ describe("a customer turn", () => {
 
   it("classifies the ticket after the reply is stored, then again on handover", async () => {
     runAgentMock.mockResolvedValue({ answer: "Try resetting it.", confidence: 0.9, escalate: false, citations: [] });
-    chosen({ requestType: "Question", tier: "Tier 1" });
+    chosen({ requestType: "Question", tier: "Tier 1", summary: "Asks how to reset a password." } as never);
     const row = await conversation();
 
     const first = await turn(row.id, "How do I reset my password?");
