@@ -2,8 +2,15 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { transcribeRecording } from "@/lib/worker-api";
 
-/** Longest recording; the server takes up to 10 MB, far more than this. */
+/** Longest recording for a signed-in manager. The server takes up to 10 MB, far more than this. */
 const MAX_RECORDING_MS = 120_000;
+/** The public widget takes short messages only (the server allows 2 MB). */
+const WIDGET_MAX_RECORDING_MS = 30_000;
+
+export type DictationOptions = {
+  /** Set in the website widget: the recording is sent with this token and kept short. */
+  siteToken?: string;
+};
 
 const noSubscription = () => () => undefined;
 const canRecord = () =>
@@ -25,7 +32,7 @@ function pickMimeType(): string | undefined {
  * browser's own speech recognition, this works in any browser that can
  * record, and says why when it fails.
  */
-export function useDictation(onTranscript: (text: string) => void) {
+export function useDictation(onTranscript: (text: string) => void, options: DictationOptions = {}) {
   const [state, setState] = useState<DictationState>("idle");
   // True on the server so the first render matches; the browser answer follows.
   const supported = useSyncExternalStore(noSubscription, canRecord, () => true);
@@ -35,9 +42,11 @@ export function useDictation(onTranscript: (text: string) => void) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
   const onTranscriptRef = useRef(onTranscript);
+  const siteTokenRef = useRef(options.siteToken);
 
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
+    siteTokenRef.current = options.siteToken;
   });
 
   useEffect(() => {
@@ -91,7 +100,7 @@ export function useDictation(onTranscript: (text: string) => void) {
       }
       setState("transcribing");
       try {
-        const text = await transcribeRecording(blob);
+        const text = await transcribeRecording(blob, siteTokenRef.current?.trim() || undefined);
         if (cancelledRef.current) return;
         if (text) onTranscriptRef.current(text);
         else setError("Didn't catch any words. Try again a little closer to the microphone.");
@@ -106,7 +115,7 @@ export function useDictation(onTranscript: (text: string) => void) {
     setState("recording");
     timerRef.current = setTimeout(() => {
       if (recorder.state === "recording") recorder.stop();
-    }, MAX_RECORDING_MS);
+    }, siteTokenRef.current?.trim() ? WIDGET_MAX_RECORDING_MS : MAX_RECORDING_MS);
   };
 
   const toggle = () => {

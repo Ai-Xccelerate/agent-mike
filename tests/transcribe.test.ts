@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "@/app/api/v1/transcribe/route";
+import { POST, WIDGET_LIMITS, WIDGET_MAX_BYTES } from "@/app/api/v1/transcribe/route";
+import { checkRateLimit, clientIp, resetRateLimits } from "@/lib/rate-limit";
 import { getIdentityAdapter, setIdentityAdapter } from "@/lib/identity";
 import { TRANSCRIBE_MAX_BYTES, TranscriptionError, transcribeAudio, transcriptionModel } from "@/lib/transcription";
 
@@ -9,11 +10,14 @@ const fetchMock = vi.fn();
 let role: "owner" | "member" = "owner";
 const savedEnv = { key: process.env.OPENAI_API_KEY, demo: process.env.DEMO_MODE, model: process.env.TRANSCRIPTION_MODEL };
 
-function audioRequest(parts: Record<string, Blob | string>) {
+function audioRequest(parts: Record<string, Blob | string>, headers: Record<string, string> = {}) {
   const form = new FormData();
   for (const [name, value] of Object.entries(parts)) form.append(name, value);
-  return new NextRequest("http://localhost/api/v1/transcribe", { method: "POST", body: form });
+  return new NextRequest("http://localhost/api/v1/transcribe", { method: "POST", body: form, headers });
 }
+
+const clip = () => ({ audio: new Blob(["bytes"], { type: "audio/webm" }) });
+const widget = (ip = "203.0.113.7") => ({ "x-worker-site-token": "site-ok", "x-real-ip": ip });
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -24,8 +28,10 @@ beforeEach(() => {
   role = "owner";
   setIdentityAdapter({
     resolveManagerRequest: async () => ({ orgId: "org-x", userId: "manager", role, source: "test" }),
-    resolveWidgetRequest: async () => null,
+    resolveWidgetRequest: async (req) =>
+      req.headers.get("x-worker-site-token") === "site-ok" ? { orgId: "org-x", userId: "widget", role: "member", source: "widget" } : null,
   });
+  resetRateLimits();
 });
 
 afterEach(() => {
@@ -113,5 +119,74 @@ describe("POST /api/v1/transcribe", () => {
     process.env.OPENAI_API_KEY = "sk-test";
     fetchMock.mockResolvedValue(new Response("down", { status: 500 }));
     expect((await POST(audioRequest({ audio: new Blob(["b"], { type: "audio/webm" }) }))).status).toBe(502);
+  });
+});
+
+describe("POST /api/v1/transcribe from the website widget", () => {
+  beforeEach(() => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ text: "hello" }), { status: 200 }));
+  });
+
+  it("transcribes for a valid site token", async () => {
+    const res = await POST(audioRequest(clip(), widget()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ text: "hello" });
+  });
+
+  it("refuses an unknown site token and spends nothing", async () => {
+    const res = await POST(audioRequest(clip(), { "x-worker-site-token": "nope" }));
+    expect(res.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("takes only short recordings", async () => {
+    const big = new Blob([new Uint8Array(WIDGET_MAX_BYTES + 1)], { type: "audio/webm" });
+    const res = await POST(audioRequest({ audio: big }, widget()));
+    expect(res.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("limits one address, then lets it back in when it is another address", async () => {
+    for (let i = 0; i < WIDGET_LIMITS.perIp.limit; i++) expect((await POST(audioRequest(clip(), widget("198.51.100.1")))).status).toBe(200);
+    const blocked = await POST(audioRequest(clip(), widget("198.51.100.1")));
+    expect(blocked.status).toBe(429);
+    expect(Number(blocked.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect((await POST(audioRequest(clip(), widget("198.51.100.2")))).status).toBe(200);
+  });
+
+  it("caps a whole site even when every request comes from a new address", async () => {
+    for (let i = 0; i < WIDGET_LIMITS.perSite.limit; i++) expect((await POST(audioRequest(clip(), widget(`10.0.${Math.floor(i / 250)}.${i % 250}`)))).status).toBe(200);
+    expect((await POST(audioRequest(clip(), widget("10.9.9.9")))).status).toBe(429);
+  });
+
+  it("does not rate limit a signed-in manager", async () => {
+    for (let i = 0; i < WIDGET_LIMITS.perIp.limit + 5; i++) expect((await POST(audioRequest(clip()))).status).toBe(200);
+  });
+});
+
+describe("checkRateLimit", () => {
+  beforeEach(() => resetRateLimits());
+
+  it("slides: a hit is allowed again once the oldest one ages out, with no burst at a window edge", () => {
+    expect(checkRateLimit("k", 2, 1000, 0)).toEqual({ allowed: true });
+    expect(checkRateLimit("k", 2, 1000, 600)).toEqual({ allowed: true });
+    expect(checkRateLimit("k", 2, 1000, 900)).toEqual({ allowed: false, retryAfterSeconds: 1 });
+    // The first hit (t=0) has aged out at t=1001, the second (t=600) has not.
+    expect(checkRateLimit("k", 2, 1000, 1001)).toEqual({ allowed: true });
+    expect(checkRateLimit("k", 2, 1000, 1100)).toEqual({ allowed: false, retryAfterSeconds: 1 });
+  });
+
+  it("keeps separate keys apart", () => {
+    expect(checkRateLimit("a", 1, 1000, 0).allowed).toBe(true);
+    expect(checkRateLimit("a", 1, 1000, 1).allowed).toBe(false);
+    expect(checkRateLimit("b", 1, 1000, 1).allowed).toBe(true);
+  });
+});
+
+describe("clientIp", () => {
+  it("prefers x-real-ip, then the last forwarded address, never the first", () => {
+    expect(clientIp(new Headers({ "x-real-ip": "1.1.1.1", "x-forwarded-for": "9.9.9.9, 2.2.2.2" }))).toBe("1.1.1.1");
+    expect(clientIp(new Headers({ "x-forwarded-for": "9.9.9.9, 2.2.2.2" }))).toBe("2.2.2.2");
+    expect(clientIp(new Headers())).toBe("unknown");
   });
 });

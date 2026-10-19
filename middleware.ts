@@ -66,7 +66,10 @@ function publicRequest(req: NextRequest): boolean {
   if (path === "/api/v1/webhooks/composio") return true;
   if (
     hasWidgetToken(req) &&
-    (path === "/api/v1/chat" || path === "/api/v1/chat/agui" || path === "/api/v1/worker")
+    (path === "/api/v1/chat" ||
+      path === "/api/v1/chat/agui" ||
+      path === "/api/v1/worker" ||
+      path === "/api/v1/transcribe")
   ) {
     return true;
   }

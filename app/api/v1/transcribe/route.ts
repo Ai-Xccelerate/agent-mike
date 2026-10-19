@@ -2,26 +2,56 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { isOrgAdmin } from "@/lib/org-roles";
+import { clientIp, checkRateLimit } from "@/lib/rate-limit";
 import { TRANSCRIBE_MAX_BYTES, TranscriptionError, transcribeAudio } from "@/lib/transcription";
 
 export const dynamic = "force-dynamic";
 
 type UploadedAudio = { type?: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> };
 
+/** The website widget is public by design, so its recordings are short and rate limited. */
+export const WIDGET_MAX_BYTES = 2 * 1024 * 1024;
+export const WIDGET_LIMITS = {
+  perIp: { limit: 10, windowMs: 10 * 60 * 1000 },
+  perSite: { limit: 120, windowMs: 60 * 60 * 1000 },
+};
+
+function tooMany(retryAfterSeconds: number) {
+  return NextResponse.json(
+    { error: "You've used voice input a lot. Please wait a moment and try again." },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+  );
+}
+
 /**
- * Turns a recording from the Assistant's mic into text. Managers only: it
- * spends the org's OpenAI budget, and the customer widget doesn't use it.
- * The audio is sent on and never stored.
+ * Turns a recording from a mic into text. Two callers:
+ * - a signed-in org admin (the Assistant and the Playground);
+ * - the website widget, with its site token. Anonymous visitors can reach it,
+ *   so it takes only short recordings and is limited per address and per site.
+ * It spends the org's OpenAI budget. The audio is sent on and never stored.
  */
 export async function POST(req: NextRequest) {
-  const tenant = await getIdentityAdapter().resolveManagerRequest(req);
-  if (!isOrgAdmin(tenant.role)) {
+  const identity = getIdentityAdapter();
+  const isWidget = Boolean(req.headers.get("x-worker-site-token")?.trim());
+  const tenant = isWidget ? await identity.resolveWidgetRequest(req) : await identity.resolveManagerRequest(req);
+  if (!tenant) {
+    return NextResponse.json({ error: "Invalid or missing site token" }, { status: 401 });
+  }
+  if (!isWidget && !isOrgAdmin(tenant.role)) {
     return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
   }
 
+  const maxBytes = isWidget ? WIDGET_MAX_BYTES : TRANSCRIBE_MAX_BYTES;
   const declared = Number(req.headers.get("content-length") || "0");
-  if (declared > TRANSCRIBE_MAX_BYTES + 1024 * 1024) {
+  if (declared > maxBytes + 1024 * 1024) {
     return NextResponse.json({ error: "That recording is too long. Try a shorter one." }, { status: 413 });
+  }
+
+  if (isWidget) {
+    const ip = checkRateLimit(`transcribe:ip:${tenant.orgId}:${clientIp(req.headers)}`, WIDGET_LIMITS.perIp.limit, WIDGET_LIMITS.perIp.windowMs);
+    if (!ip.allowed) return tooMany(ip.retryAfterSeconds);
+    const site = checkRateLimit(`transcribe:site:${tenant.orgId}`, WIDGET_LIMITS.perSite.limit, WIDGET_LIMITS.perSite.windowMs);
+    if (!site.allowed) return tooMany(site.retryAfterSeconds);
   }
 
   const form = await req.formData().catch(() => null);
@@ -30,6 +60,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No audio provided" }, { status: 400 });
   }
   const file = audio as unknown as UploadedAudio;
+  if (file.size > maxBytes) {
+    return NextResponse.json({ error: "That recording is too long. Try a shorter one." }, { status: 413 });
+  }
 
   try {
     const text = await transcribeAudio(Buffer.from(await file.arrayBuffer()), file.type || "");
