@@ -1371,11 +1371,14 @@ function buildIntegrationReadTools(organizationId: string): Tool[] {
         "Read RESOLVED tickets from one Jira project, with client details already removed, to write how-to knowledge " +
         "articles from. Use this, not search_jira_issues or read_jira_issue, whenever tickets are the source for knowledge: " +
         "those return raw ticket text. Returns each ticket's request type, priority, redacted problem and redacted " +
-        "resolution (the team's last replies), newest first, a few at a time. Tickets that mention health or identity " +
-        "documents are left out and counted. To continue, call it again with nextPageToken set to the nextPageToken " +
+        "resolution (the team's last replies), newest first, a few at a time (4 unless the manager asks for more; one " +
+        "batch per request, and say how many tickets remain). Tickets that mention health or identity documents or " +
+        "contain a credential, that are database work, or that may still hold a name are left out and counted. To continue, call it again with nextPageToken set to the nextPageToken " +
         "it returned (null means there are no more). Read-only. Then write one generic article per distinct problem with " +
-        "propose_publish_knowledge_article; never include a name, company or number, and tell the manager each " +
-        "article came from redacted tickets and needs a careful read before they approve it.",
+        "propose_publish_knowledge_article. Only write articles a customer could follow or that tell Eva what to do: skip " +
+        "tickets whose reply is just an acknowledgement or a status note, and anything that reads as an internal " +
+        "procedure (scripts, database changes, architecture, who to assign it to). Never include a name, company or " +
+        "number, and tell the manager each article came from redacted tickets and needs a careful read before they approve it.",
       parameters: z.object({
         projectKey: z.string().describe("The Jira project key to read, e.g. EESD"),
         limit: z.number().int().min(1).max(TICKETS_MAX_LIMIT).nullable().describe(`How many tickets, up to ${TICKETS_MAX_LIMIT}; null for ${TICKETS_DEFAULT_LIMIT}`),
