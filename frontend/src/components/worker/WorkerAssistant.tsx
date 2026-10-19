@@ -23,7 +23,7 @@ import {
   ShootingStarIcon,
   TimeIcon,
 } from "@/icons";
-import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { useDictation } from "@/hooks/useDictation";
 import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
 import {
   apiFetch,
@@ -169,7 +169,7 @@ function AssistantChat() {
   const { avatarInitials, accentColor, avatarUrl } = identity;
   const displayName = identity.displayName || "your worker";
 
-  const { listening, supported: voiceSupported, toggle: toggleVoice, error: voiceError } = useVoiceInput((text) => {
+  const { listening, transcribing, supported: voiceSupported, toggle: toggleVoice, error: voiceError } = useDictation((text) => {
     setValue((prev) => (prev ? `${prev} ` : "") + text);
     inputRef.current?.focus();
   });
@@ -800,7 +800,13 @@ function AssistantChat() {
               }}
               rows={1}
               maxLength={MESSAGE_MAX_LENGTH}
-              placeholder={listening ? "Listening. Speak now…" : `Ask ${displayName}'s assistant a question…`}
+              placeholder={
+                listening
+                  ? "Listening. Tap the mic when you are done."
+                  : transcribing
+                    ? "Transcribing…"
+                    : `Ask ${displayName}'s assistant a question…`
+              }
               className="max-h-32 min-h-9 w-full resize-none bg-transparent px-1 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
             />
             <div className="flex items-center justify-end gap-2">
@@ -832,14 +838,16 @@ function AssistantChat() {
               <button
                 type="button"
                 onClick={toggleVoice}
-                disabled={!voiceSupported}
+                disabled={!voiceSupported || transcribing}
                 aria-label={listening ? "Stop voice input" : "Start voice input"}
                 aria-pressed={listening}
                 title={
                   voiceSupported
-                    ? listening
-                      ? "Stop voice input"
-                      : "Dictate your message"
+                    ? transcribing
+                      ? "Transcribing…"
+                      : listening
+                        ? "Stop voice input"
+                        : "Dictate your message"
                     : "Voice input isn't supported in this browser"
                 }
                 className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
