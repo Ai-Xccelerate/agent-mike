@@ -76,7 +76,11 @@ export function useWorkerProfile() {
    * saved is not silently discarded by uploading a picture.
    */
   function applyServerUpdate(updated: WorkerProfile, fields: (keyof WorkerProfile)[]) {
-    const next = withIdentityDefaults(updated);
+    // The name isn't part of the row an upload returns; keep the one we have.
+    const next = withIdentityDefaults({
+      ...updated,
+      organizationName: updated.organizationName ?? saved?.organizationName ?? profile?.organizationName,
+    });
     setSaved(next);
     setProfile((current) => {
       if (!current) return next;
@@ -102,12 +106,15 @@ export function useWorkerProfile() {
     setFieldErrors({});
     try {
       const payload = Object.fromEntries(fields.map((field) => [field, profile[field]]));
-      const updated = withIdentityDefaults(
-        await apiFetch<WorkerProfile>("/worker", {
-          method: "PATCH",
-          body: JSON.stringify(payload),
-        }),
-      );
+      const fetched = await apiFetch<WorkerProfile>("/worker", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      // Never lose the org name when a reply omits it: the prompt preview needs it.
+      const updated = withIdentityDefaults({
+        ...fetched,
+        organizationName: fetched.organizationName ?? profile.organizationName,
+      });
       setProfile(updated);
       setSaved(updated);
       setNotice("Saved.");
