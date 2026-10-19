@@ -3,19 +3,19 @@ import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
 import { isOrgAdmin } from "@/lib/org-roles";
 import { clientIp, checkRateLimit } from "@/lib/rate-limit";
-import { TRANSCRIBE_MAX_BYTES, TranscriptionError, transcribeAudio } from "@/lib/transcription";
+import {
+  TRANSCRIBE_MAX_BYTES,
+  TranscriptionError,
+  WIDGET_LIMITS,
+  WIDGET_MAX_BYTES,
+  transcribeAudio,
+} from "@/lib/transcription";
 
 export const dynamic = "force-dynamic";
 
 type UploadedAudio = { type?: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> };
 
-/** The website widget is public by design, so its recordings are short and rate limited. */
-export const WIDGET_MAX_BYTES = 2 * 1024 * 1024;
-export const WIDGET_LIMITS = {
-  perIp: { limit: 10, windowMs: 10 * 60 * 1000 },
-  perSite: { limit: 120, windowMs: 60 * 60 * 1000 },
-};
-
+// Next.js allows only handlers and route config as exports here, so the limits live in lib/transcription.ts.
 function tooMany(retryAfterSeconds: number) {
   return NextResponse.json(
     { error: "You've used voice input a lot. Please wait a moment and try again." },

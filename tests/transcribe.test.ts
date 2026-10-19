@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { POST, WIDGET_LIMITS, WIDGET_MAX_BYTES } from "@/app/api/v1/transcribe/route";
+import { POST } from "@/app/api/v1/transcribe/route";
 import { checkRateLimit, clientIp, resetRateLimits } from "@/lib/rate-limit";
 import { getIdentityAdapter, setIdentityAdapter } from "@/lib/identity";
-import { TRANSCRIBE_MAX_BYTES, TranscriptionError, transcribeAudio, transcriptionModel } from "@/lib/transcription";
+import {
+  TRANSCRIBE_MAX_BYTES,
+  TranscriptionError,
+  WIDGET_LIMITS,
+  WIDGET_MAX_BYTES,
+  transcribeAudio,
+  transcriptionModel,
+} from "@/lib/transcription";
 
 const previousAdapter = getIdentityAdapter();
 const fetchMock = vi.fn();
