@@ -15,14 +15,37 @@ export async function ensureOrganization(orgId: string, name = orgId) {
 }
 
 /**
+ * A new org is stored with its own id as its name (the platform doesn't send
+ * the real name), and Clerk ids look like `org_3Dd3tn5w...`. That placeholder
+ * must never reach a prompt or a screen.
+ */
+export function isPlaceholderOrganizationName(name: string | null | undefined, orgId: string): boolean {
+  const value = (name ?? "").trim();
+  return !value || value === orgId || /^org_[A-Za-z0-9]{8,}$/.test(value);
+}
+
+const ORGANIZATION_NAME_MAX = 80;
+
+/** A display name as one plain line: no control characters, no runs of spaces. */
+export function cleanOrganizationName(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, ORGANIZATION_NAME_MAX);
+}
+
+/** What the prompt says when the real name isn't known yet. */
+export const ORGANIZATION_NAME_FALLBACK = "this company";
+
+/**
  * The org's real display name (e.g. "Default Workspace"), not its id
  * (e.g. "default") — those look similar for the seeded default org, which is
  * how `runAgent`/`buildInstructions` ended up being passed the id in place of
- * this for every worker's prompt until this function existed.
+ * this for every worker's prompt until this function existed. While the real
+ * name isn't known (see PUT /api/v1/organization), a neutral phrase is
+ * returned instead of the id.
  */
 export async function getOrganizationName(orgId: string): Promise<string> {
   const org = await ensureOrganization(orgId, orgId === DEFAULT_ORG_ID ? DEFAULT_ORG_NAME : orgId);
-  return org.name;
+  return isPlaceholderOrganizationName(org.name, orgId) ? ORGANIZATION_NAME_FALLBACK : org.name;
 }
 
 /**
