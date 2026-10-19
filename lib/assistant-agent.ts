@@ -1372,17 +1372,17 @@ function buildIntegrationReadTools(organizationId: string): Tool[] {
         "articles from. Use this, not search_jira_issues or read_jira_issue, whenever tickets are the source for knowledge: " +
         "those return raw ticket text. Returns each ticket's request type, priority, redacted problem and redacted " +
         "resolution (the team's last replies), newest first, a few at a time. Tickets that mention health or identity " +
-        "documents are left out and counted. To continue, call it again with resolvedBefore set to the oldestResolved " +
-        "date it returned. Read-only. Then write one generic article per distinct problem with " +
+        "documents are left out and counted. To continue, call it again with nextPageToken set to the nextPageToken " +
+        "it returned (null means there are no more). Read-only. Then write one generic article per distinct problem with " +
         "propose_publish_knowledge_article; never include a name, company or number, and tell the manager each " +
         "article came from redacted tickets and needs a careful read before they approve it.",
       parameters: z.object({
         projectKey: z.string().describe("The Jira project key to read, e.g. EESD"),
         limit: z.number().int().min(1).max(TICKETS_MAX_LIMIT).nullable().describe(`How many tickets, up to ${TICKETS_MAX_LIMIT}; null for ${TICKETS_DEFAULT_LIMIT}`),
-        resolvedBefore: z.string().nullable().describe("YYYY-MM-DD: only tickets resolved before this date, to continue a previous batch; else null"),
+        nextPageToken: z.string().nullable().describe("The nextPageToken from the previous batch, to get the next one; else null"),
       }),
-      execute: async ({ projectKey, limit, resolvedBefore }) =>
-        loggedAssistantTool(organizationId, `${RESOLVED_TICKETS_TOOL_NAME}_call`, { projectKey, limit, resolvedBefore }, async () => {
+      execute: async ({ projectKey, limit, nextPageToken }) =>
+        loggedAssistantTool(organizationId, `${RESOLVED_TICKETS_TOOL_NAME}_call`, { projectKey, limit, paged: nextPageToken !== null }, async () => {
           const account = await managerAccount(organizationId, "jira");
           if (typeof account === "string") return account;
           return fetchRedactedResolvedTickets({
@@ -1390,7 +1390,7 @@ function buildIntegrationReadTools(organizationId: string): Tool[] {
             connectedAccountId: account.connectedAccountId,
             projectKey,
             limit: limit ?? TICKETS_DEFAULT_LIMIT,
-            resolvedBefore,
+            nextPageToken,
           });
         }),
     }),

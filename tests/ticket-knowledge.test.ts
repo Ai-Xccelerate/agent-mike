@@ -5,8 +5,9 @@ import {
   RESOLVED_TICKETS_TOOL_NAME,
   adfToText,
   fetchRedactedResolvedTickets,
+  issueFromGetResult,
+  keysFromSearchResult,
   redactIssue,
-  redactSearchResult,
   resolvedTicketsJql,
 } from "@/lib/ticket-knowledge";
 
@@ -92,66 +93,126 @@ describe("redactIssue", () => {
   });
 });
 
-describe("redactSearchResult", () => {
-  it("reads the common result envelopes", () => {
-    for (const shape of [{ data: { issues: [issue()] } }, { data: { data: { issues: [issue()] } } }, { issues: [issue()] }]) {
-      expect(redactSearchResult(shape, 10)?.tickets).toHaveLength(1);
-    }
+/** Composio's flat search record: no `fields` wrapper, no comments. Its text is raw and must never be used. */
+const flatHit = (key: string) => ({
+  id: "1",
+  key,
+  summary: "Dana Smith cannot log in",
+  description: "Dana Smith, dana.smith@acme.com, 416-555-0188, case 20481377",
+  issue_type: { id: "1", name: "Report a Bug" },
+  priority: { id: "2", name: "High" },
+  reporter: { account_id: "r1", display_name: "Dana Smith" },
+  status: { id: "3", name: "Done", category: "done" },
+  created: "2026-09-01T00:00:00.000+0000",
+  updated: "2026-09-30T00:00:00.000+0000",
+});
+
+const searchReply = (keys: string[], nextPageToken?: string) => ({
+  successful: true,
+  error: null,
+  data: { issues: keys.map(flatHit), total: keys.length, max_results: 10, jql_used: "x", search_method: "jql", ...(nextPageToken ? { next_page_token: nextPageToken } : {}) },
+});
+
+const getReply = (over: Record<string, unknown> = {}) => ({ successful: true, error: null, data: issue(over) });
+
+describe("keysFromSearchResult", () => {
+  it("takes only the keys and the paging token from Composio's flat search result", () => {
+    const found = keysFromSearchResult(searchReply(["EESD-1", "EESD-2"], "tok123"));
+    expect(found).toEqual({ keys: ["EESD-1", "EESD-2"], nextPageToken: "tok123" });
   });
 
-  it("returns null for a shape it doesn't recognise, rather than guessing", () => {
-    expect(redactSearchResult({ data: { message: "nope" } }, 10)).toBeNull();
-    expect(redactSearchResult(null, 10)).toBeNull();
+  it("drops anything that isn't an issue key, and reports no token when there isn't one", () => {
+    const found = keysFromSearchResult({ data: { issues: [{ key: "EESD-1" }, { key: 'x" OR 1=1' }, { summary: "no key" }] } });
+    expect(found).toEqual({ keys: ["EESD-1"], nextPageToken: null });
   });
 
-  it("counts exclusions, applies the limit and reports the oldest resolution date", () => {
-    const result = redactSearchResult(
-      {
-        data: {
-          issues: [
-            issue(),
-            issue({ description: adf("diagnosis"), resolutiondate: "2026-09-01T00:00:00.000+0000" }),
-            { fields: {} },
-            issue({ resolutiondate: "2026-08-15T00:00:00.000+0000" }),
-          ],
-        },
-      },
-      3,
-    );
-    expect(result).toMatchObject({ excludedSensitive: 1, excludedEmpty: 1, oldestResolved: "2026-09-01T00:00:00.000+0000" });
-    expect(result?.tickets).toHaveLength(1);
+  it("returns null for a shape it doesn't recognise", () => {
+    expect(keysFromSearchResult({ data: { message: "nope" } })).toBeNull();
+    expect(keysFromSearchResult(null)).toBeNull();
+  });
+});
+
+describe("issueFromGetResult", () => {
+  it("finds the issue in the reply, one level deeper, or bare", () => {
+    expect(issueFromGetResult({ data: issue() })).toBeTruthy();
+    expect(issueFromGetResult({ data: { data: issue() } })).toBeTruthy();
+    expect(issueFromGetResult(issue())).toBeTruthy();
+    expect(issueFromGetResult({ data: { message: "no" } })).toBeNull();
   });
 });
 
 describe("resolvedTicketsJql", () => {
-  it("asks for resolved tickets, newest first, and pages by date", () => {
-    expect(resolvedTicketsJql("EESD", null)).toBe('project = "EESD" AND statusCategory = Done ORDER BY resolved DESC');
-    expect(resolvedTicketsJql("EESD", "2026-09-01")).toBe('project = "EESD" AND statusCategory = Done AND resolved < "2026-09-01" ORDER BY resolved DESC');
-  });
-
-  it("ignores a date that isn't a plain date, so nothing can be injected into the query", () => {
-    expect(resolvedTicketsJql("EESD", '2026-09-01" OR project = "X')).toBe('project = "EESD" AND statusCategory = Done ORDER BY resolved DESC');
+  it("asks for resolved tickets in the project, newest first", () => {
+    expect(resolvedTicketsJql("EESD")).toBe('project = "EESD" AND statusCategory = Done ORDER BY resolved DESC');
   });
 });
 
 describe("fetchRedactedResolvedTickets", () => {
-  const base = { organizationId: "org-1", connectedAccountId: "ca_1", projectKey: "eesd", limit: 5, resolvedBefore: null };
+  const base = { organizationId: "org-1", connectedAccountId: "ca_1", projectKey: "eesd", limit: 5, nextPageToken: null };
+  const RAW = ["Dana", "Smith", "Asif", "Khan", "acme.com", "20481377", "416-555"];
 
-  it("searches read-only, returns only redacted text, and never logs the raw result", async () => {
-    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { issues: [issue()] } });
+  function jira(searchResult: unknown, getResult: (key: string) => unknown) {
+    executeToolMock.mockImplementation((async (slug: string, args: Record<string, unknown>) => {
+      if (slug === "JIRA_SEARCH_ISSUES") return searchResult;
+      if (slug === "JIRA_GET_ISSUE") return getResult(String(args.issue_id_or_key));
+      throw new Error(`unexpected tool ${slug}`);
+    }) as never);
+  }
+
+  it("searches for keys, reads each ticket, and returns only redacted text; nothing raw is returned or logged", async () => {
+    jira(searchReply(["EESD-1", "EESD-2"], "next-tok"), () => getReply());
     const out = await fetchRedactedResolvedTickets(base);
 
-    expect(executeToolMock).toHaveBeenCalledTimes(1);
-    const [slug, args] = executeToolMock.mock.calls[0];
-    expect(slug).toBe("JIRA_SEARCH_ISSUES");
-    expect(args).toMatchObject({ jql: 'project = "EESD" AND statusCategory = Done ORDER BY resolved DESC', max_results: 5 });
+    const calls = executeToolMock.mock.calls;
+    expect(calls[0][0]).toBe("JIRA_SEARCH_ISSUES");
+    expect(calls[0][1]).toMatchObject({ jql: 'project = "EESD" AND statusCategory = Done ORDER BY resolved DESC', max_results: 5 });
+    expect(calls.slice(1).map((c) => [c[0], (c[1] as Record<string, unknown>).issue_id_or_key])).toEqual([
+      ["JIRA_GET_ISSUE", "EESD-1"],
+      ["JIRA_GET_ISSUE", "EESD-2"],
+    ]);
 
-    for (const secret of ["Dana", "Smith", "Asif", "acme.com", "20481377"]) expect(out).not.toContain(secret);
-    expect(JSON.parse(out).tickets).toHaveLength(1);
+    const parsed = JSON.parse(out);
+    expect(parsed.tickets).toHaveLength(2);
+    expect(parsed.nextPageToken).toBe("next-tok");
+    expect(parsed.tickets[0].resolution).toContain("account lock");
+    for (const secret of RAW) expect(out).not.toContain(secret);
 
     const logged = JSON.stringify(logMock.mock.calls);
-    for (const secret of ["Dana", "Smith", "Asif", "acme.com", "20481377", "account lock"]) expect(logged).not.toContain(secret);
-    expect(logMock.mock.calls[0][0]).toMatchObject({ toolId: RESOLVED_TICKETS_TOOL_NAME, status: "success", output: { returned: 1 } });
+    for (const secret of [...RAW, "account lock"]) expect(logged).not.toContain(secret);
+    expect(logMock.mock.calls[0][0]).toMatchObject({ toolId: RESOLVED_TICKETS_TOOL_NAME, status: "success", output: { returned: 2, unreadable: 0 } });
+  });
+
+  it("uses nothing from the flat search records except the keys", async () => {
+    jira(searchReply(["EESD-1"]), () => getReply({ summary: "Report export fails", description: adf("Export to Excel returns an error") }));
+    const out = await fetchRedactedResolvedTickets(base);
+    expect(out).toContain("Report export fails");
+    expect(out).not.toContain("cannot log in");
+  });
+
+  it("passes the page token on to continue a batch", async () => {
+    jira(searchReply([]), () => getReply());
+    await fetchRedactedResolvedTickets({ ...base, nextPageToken: "abc123==" });
+    expect(executeToolMock.mock.calls[0][1]).toMatchObject({ next_page_token: "abc123==" });
+  });
+
+  it("ignores a page token with odd characters, so nothing can be injected", async () => {
+    jira(searchReply([]), () => getReply());
+    await fetchRedactedResolvedTickets({ ...base, nextPageToken: 'x" OR project = "Y' });
+    expect(executeToolMock.mock.calls[0][1]).not.toHaveProperty("next_page_token");
+  });
+
+  it("counts sensitive, empty and unreadable tickets separately", async () => {
+    jira(searchReply(["EESD-1", "EESD-2", "EESD-3", "EESD-4", "EESD-5"]), (key) => {
+      if (key === "EESD-1") return getReply();
+      if (key === "EESD-2") return getReply({ description: adf("diagnosis field is empty") });
+      if (key === "EESD-3") return { successful: true, error: null, data: { id: "3", key: "EESD-3", fields: {} } };
+      if (key === "EESD-4") return { successful: false, error: "403 Dana Smith", data: {} };
+      throw new Error("boom Dana Smith");
+    });
+    const parsed = JSON.parse(await fetchRedactedResolvedTickets(base));
+    expect(parsed).toMatchObject({ excludedSensitive: 1, excludedEmpty: 1, unreadable: 2 });
+    expect(parsed.tickets).toHaveLength(1);
+    expect(JSON.stringify(logMock.mock.calls)).not.toContain("Dana");
   });
 
   it("rejects a bad project key without calling Jira", async () => {
@@ -160,12 +221,12 @@ describe("fetchRedactedResolvedTickets", () => {
   });
 
   it("caps the limit", async () => {
-    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { issues: [] } });
+    jira(searchReply([]), () => getReply());
     await fetchRedactedResolvedTickets({ ...base, limit: 500 });
     expect(executeToolMock.mock.calls[0][1]).toMatchObject({ max_results: 25 });
   });
 
-  it("says so, without the raw result, when Jira refuses, fails or answers oddly", async () => {
+  it("says so, without the raw result, when the search is refused, fails or comes back oddly", async () => {
     executeToolMock.mockResolvedValueOnce({ successful: false, error: "secret detail Dana Smith", data: {} });
     expect(await fetchRedactedResolvedTickets(base)).toMatch(/refused/);
 
@@ -173,8 +234,7 @@ describe("fetchRedactedResolvedTickets", () => {
     expect(await fetchRedactedResolvedTickets(base)).toMatch(/failed/);
 
     executeToolMock.mockResolvedValueOnce({ successful: true, error: null, data: { weird: "Dana Smith" } });
-    const odd = await fetchRedactedResolvedTickets(base);
-    expect(odd).toMatch(/not in a shape/);
+    expect(await fetchRedactedResolvedTickets(base)).toMatch(/not in a shape/);
 
     expect(JSON.stringify(logMock.mock.calls)).not.toContain("Dana");
     expect(logMock.mock.calls.map((call) => call[0].status)).toEqual(["error", "error", "error"]);
