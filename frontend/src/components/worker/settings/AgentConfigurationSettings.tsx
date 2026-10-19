@@ -84,7 +84,7 @@ export default function AgentConfigurationSettings() {
 
         <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-white/[0.03]">
           <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-gray-600 dark:text-gray-400">
-            {buildIdentityPreview(profile.displayName, profile.organizationName, profile.role, profile.tone)}
+            {buildIdentityPreview(profile.displayName, profile.organizationName || "this company", profile.role, profile.tone)}
             {buildJobDescriptionPreview(profile.jobDescription)}
           </pre>
           <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">

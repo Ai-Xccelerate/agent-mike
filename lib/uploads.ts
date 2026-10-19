@@ -135,16 +135,15 @@ export function contentTypeFor(filename: string): string | null {
   return null;
 }
 
-function newAvatarFilename(orgId: string, mimeType: string): string {
+/**
+ * An opaque name: random bytes only. It used to start with the org id, which
+ * put `org_...` in a public image URL (it shows in the widget's page source
+ * and in Settings > Identity).
+ */
+function newAvatarFilename(mimeType: string): string {
   const ext = AVATAR_TYPES[mimeType];
   if (!ext) throw new Error(`Unsupported image type: ${mimeType}`);
-
-  const orgSlug = orgId
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 40);
-  return `${orgSlug || "org"}-${randomBytes(8).toString("hex")}.${ext}`;
+  return `avatar-${randomBytes(16).toString("hex")}.${ext}`;
 }
 
 /**
@@ -154,8 +153,8 @@ function newAvatarFilename(orgId: string, mimeType: string): string {
  * uploading `avatar.png` must not collide, and a changed avatar must not be
  * masked by a cached response at the same URL.
  */
-export async function writeAvatar(orgId: string, bytes: Buffer, mimeType: string): Promise<string> {
-  const filename = newAvatarFilename(orgId, mimeType);
+export async function writeAvatar(_orgId: string, bytes: Buffer, mimeType: string): Promise<string> {
+  const filename = newAvatarFilename(mimeType);
   const storage = objectStorageConfig();
 
   if (storage) {

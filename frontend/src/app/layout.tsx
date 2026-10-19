@@ -2,6 +2,7 @@ import "./globals.css";
 import "flatpickr/dist/flatpickr.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import LiquidBackdrop from "@/components/common/LiquidBackdrop";
+import OrganizationNameSync from "@/components/common/OrganizationNameSync";
 import { DensityProvider } from "@/context/DensityContext";
 import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeProvider } from "@/context/ThemeContext";
@@ -56,6 +57,7 @@ export default function RootLayout({
           allowedRedirectOrigins={allowedRedirectOrigins}
         >
           <ManagerAuthBridge>
+            <OrganizationNameSync />
             <ThemeProvider>
               <DensityProvider>
                 <SidebarProvider>{children}</SidebarProvider>
