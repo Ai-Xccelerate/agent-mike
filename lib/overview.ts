@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
 import { helpdeskBreakdownSource } from "@/lib/tools-integrations/atlassian";
+import { feedbackSummary, type FeedbackSummary } from "@/lib/answer-feedback";
 
 /**
  * The Overview page's numbers for one worker: how much customer traffic it
@@ -68,6 +69,8 @@ export type Overview = {
   /** What the filter menus offer. */
   filterOptions: { channels: string[]; requestTypes: string[]; priorities: string[] };
   filters: { channel: string | null; requestType: string | null; priority: string | null };
+  /** Managers' ratings of this period's replies. */
+  quality: FeedbackSummary;
 };
 
 function clip(text: string, max: number): string {
@@ -271,5 +274,6 @@ export async function computeOverview(input: {
     topSources,
     filterOptions,
     filters,
+    quality: await feedbackSummary(organizationId, ids),
   };
 }

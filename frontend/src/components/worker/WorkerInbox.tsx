@@ -1,5 +1,6 @@
 "use client";
 
+import AnswerFeedbackControls from "@/components/worker/AnswerFeedbackControls";
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import InboxApprovals from "@/components/worker/InboxApprovals";
@@ -740,6 +741,21 @@ export default function WorkerInbox() {
                             </div>
                           )}
                         </div>
+                        {isAgent && !message.cards?.some((card) => card.kind === "helpdesk_ticket") && (
+                          <AnswerFeedbackControls
+                            messageId={message.id}
+                            ratings={(selected.feedback ?? []).filter((entry) => entry.messageId === message.id)}
+                            onChange={(next) =>
+                              replaceConversation({
+                                ...selected,
+                                feedback: [
+                                  ...(selected.feedback ?? []).filter((entry) => !(entry.messageId === message.id && entry.mine)),
+                                  ...(next ? [next] : []),
+                                ],
+                              })
+                            }
+                          />
+                        )}
                       </div>
                       <span className="mt-6 shrink-0">
                         {isAgent ? (

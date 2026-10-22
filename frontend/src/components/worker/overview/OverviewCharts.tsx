@@ -169,7 +169,7 @@ export function PriorityColumns({ byPriority }: { byPriority: WorkerOverview["ti
       style={{ gridTemplateColumns: `repeat(${Math.max(1, byPriority.length)}, minmax(0, 1fr))` }}
     >
       {byPriority.map((entry, index) => (
-        <div key={entry.name} className="flex flex-col items-center gap-2">
+        <div key={entry.name} className="mx-auto flex w-full max-w-24 flex-col items-center gap-2">
           <span className="text-sm font-semibold tabular-nums text-gray-800 dark:text-white/90">{entry.count}</span>
           <div className="flex h-28 w-full items-end rounded-md bg-gray-50 dark:bg-white/[0.03]">
             <div
