@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { FEEDBACK_REASON_LABELS } from "@/lib/answer-feedback";
 import { DEFAULT_ROW_LIMIT } from "@/lib/overview-rows";
 import { ConversationsOverTime, CountBars, PriorityColumns, StatusDonut } from "./overview/OverviewCharts";
+import ReviewQueuePanel from "./overview/ReviewQueuePanel";
 
 /**
  * The Overview, laid out like a service desk's summary page: filters across the top, four numbers, a grid of charts,
@@ -344,6 +345,14 @@ export default function WorkerDashboard() {
           )}
         </Panel>
       </div>
+
+      <Panel
+        id="review"
+        title="Needs review"
+        hint={`Questions ${displayName} got wrong, could not find an article for, or handed over, grouped by topic. Fix the biggest first.`}
+      >
+        <ReviewQueuePanel />
+      </Panel>
 
       <section aria-labelledby="recent" className={`${cardClass} flex flex-col`}>
         <div className="flex items-center justify-between px-5 pt-5 md:px-6">
