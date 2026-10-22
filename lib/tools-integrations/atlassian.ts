@@ -2,6 +2,7 @@ import { and, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { isPlaceholderCustomerName } from "@/lib/customer-name";
+import { NO_HELPDESK, type HelpdeskCapabilities } from "@/lib/widget-defaults";
 import { trustedCustomerEmail } from "@/lib/customer-identity";
 import { conversations } from "@/db/schema";
 import type { KnowledgeMatch } from "@/lib/knowledge";
@@ -327,6 +328,22 @@ export function connectionSettingsSchema(integrationType: string, system: string
   if (integrationType === "helpdesk" && system === "jira") return jiraSettingsSchema;
   if (integrationType === "knowledge_base" && system === "confluence") return confluenceSettingsSchema;
   return null;
+}
+
+/**
+ * What the connected helpdesk lets the worker do for a customer, for the widget's
+ * default quick actions (lib/widget-defaults.ts). Never throws: a helpdesk that
+ * can't be read just means the worker is not offered as ticket-capable.
+ */
+export async function helpdeskCapabilities(organizationId: string): Promise<HelpdeskCapabilities> {
+  try {
+    const connection = await getConnectionForOrg(organizationId, "helpdesk");
+    if (!connection || !activeAccount(connection, "jira")) return NO_HELPDESK;
+    const settings = readJiraSettings(connection.metadata);
+    return { raisesTickets: Boolean(settings.createTicketOnHandoff && settings.projectKey), looksUpTickets: true };
+  } catch {
+    return NO_HELPDESK;
+  }
 }
 
 export function readConnectionSettings(connection: Pick<IntegrationConnection, "integrationType" | "system" | "metadata">) {

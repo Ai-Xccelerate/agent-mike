@@ -11,10 +11,10 @@ import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import { counterClass, dividerClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
 import { ChatIcon, CopyIcon, EnvelopeIcon } from "@/icons";
 import {
-  DEFAULT_QUICK_ACTIONS,
   defaultWelcomeMessage,
   QUICK_ACTION_MAX_LENGTH,
   QUICK_ACTIONS_MAX,
+  quickActionsFor,
   WELCOME_MESSAGE_MAX_LENGTH,
 } from "@/lib/widget-defaults";
 import { apiFetch, MailboxStatus, WidgetSite, WorkerProfile } from "@/lib/worker-api";
@@ -108,7 +108,7 @@ function ChatChannelSettings({
   // The API names the bad item ("quickActions.1"), so any of them counts.
   const quickActionsError = Object.entries(fieldErrors).find(([key]) => key === "quickActions" || key.startsWith("quickActions."))?.[1];
   const custom = profile.quickActions != null;
-  const actions = profile.quickActions ?? DEFAULT_QUICK_ACTIONS;
+  const actions = quickActionsFor(profile);
   const welcome = profile.welcomeMessage ?? "";
 
   // Editing the built-in list turns it into the worker's own copy.
@@ -141,7 +141,9 @@ function ChatChannelSettings({
         <legend className="text-sm font-medium text-gray-700 dark:text-gray-300">Quick actions</legend>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Buttons under the welcome message that send their text when tapped.{" "}
-          {custom ? "These are this worker's own." : "These are the built-in ones; edit any to make them your own."}
+          {custom
+            ? "These are this worker's own."
+            : "These are the built-in ones for what this worker can do (ticket buttons only appear with a helpdesk connected); edit any to make them your own."}
         </p>
         <div className="mt-2 space-y-2">
           {actions.map((action, index) => (

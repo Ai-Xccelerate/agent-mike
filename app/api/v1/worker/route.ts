@@ -5,6 +5,8 @@ import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { applyWorkerPatch } from "@/lib/worker-settings";
 import { publicWorkerIdentity } from "@/lib/public-worker-identity";
+import { helpdeskCapabilities } from "@/lib/tools-integrations/atlassian";
+import { defaultQuickActions } from "@/lib/widget-defaults";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -18,15 +20,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid or missing site token" }, { status: 401 });
     }
     const profile = await getOrCreateProfile(widgetTenant.orgId);
-    return NextResponse.json(publicWorkerIdentity(profile));
+    return NextResponse.json(publicWorkerIdentity(profile, defaultQuickActions(await helpdeskCapabilities(widgetTenant.orgId))));
   }
 
   const tenant = await identity.resolveManagerRequest(req);
-  const [profile, organizationName] = await Promise.all([
+  const [profile, organizationName, capabilities] = await Promise.all([
     getOrCreateProfile(tenant.orgId),
     getOrganizationName(tenant.orgId),
+    helpdeskCapabilities(tenant.orgId),
   ]);
-  return NextResponse.json({ ...profile, organizationName });
+  return NextResponse.json({ ...profile, organizationName, defaultQuickActions: defaultQuickActions(capabilities) });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -39,5 +42,6 @@ export async function PATCH(req: NextRequest) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error, errors: result.errors }, { status: result.status });
   }
-  return NextResponse.json({ ...result.profile, organizationName: await getOrganizationName(tenant.orgId) });
+  const [organizationName, capabilities] = await Promise.all([getOrganizationName(tenant.orgId), helpdeskCapabilities(tenant.orgId)]);
+  return NextResponse.json({ ...result.profile, organizationName, defaultQuickActions: defaultQuickActions(capabilities) });
 }

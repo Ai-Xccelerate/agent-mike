@@ -9,18 +9,12 @@ import { ArrowUpIcon, DocsIcon, MicrophoneIcon } from "@/icons";
 import { useDictation } from "@/hooks/useDictation";
 import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
-import { DEFAULT_QUICK_ACTIONS, welcomeText } from "@/lib/widget-defaults";
+import { quickActionsFor, welcomeText } from "@/lib/widget-defaults";
 import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
 import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/customer-cards/CustomerCopilot";
 import { CustomerCardsContext, LatestReplyContext, type ChatIdentity } from "@/components/worker/customer-cards/CustomerCards";
 import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
 import { FormEvent, useEffect, useRef, useState } from "react";
-
-const SAMPLE_PROMPTS = [
-  "My sign-in code never arrived",
-  "How do I invite a teammate?",
-  "I need a refund for my last charge",
-];
 
 const MESSAGE_MAX_LENGTH = 4000;
 
@@ -330,7 +324,7 @@ function ChatPanelBody({
       setIdentityConversationId(conversationId);
     },
   };
-  const showQuickActions = compact && !loading && messages.length <= 1 && (profile?.quickActions ?? DEFAULT_QUICK_ACTIONS).length > 0;
+  const showQuickActions = compact && !loading && messages.length <= 1 && quickActionsFor(profile).length > 0;
 
   if (compact && !siteToken?.trim()) {
     return (
@@ -465,7 +459,7 @@ function ChatPanelBody({
             <p className="text-sm font-semibold text-gray-800 dark:text-white/90">Try the customer experience</p>
             <p className="text-xs text-gray-500 dark:text-gray-400">Live identity, guardrails, and knowledge.</p>
             <div className="mt-1 flex w-full flex-col gap-2">
-              {SAMPLE_PROMPTS.map((prompt) => (
+              {quickActionsFor(profile).map((prompt) => (
                 <button
                   key={prompt}
                   type="button"
@@ -481,7 +475,7 @@ function ChatPanelBody({
 
         {showQuickActions && (
           <div className="flex flex-wrap gap-2 pl-10" role="group" aria-label="Quick actions">
-            {(profile?.quickActions ?? DEFAULT_QUICK_ACTIONS).map((action) => (
+            {quickActionsFor(profile).map((action) => (
               <button
                 key={action}
                 type="button"

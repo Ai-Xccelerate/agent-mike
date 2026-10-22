@@ -60,6 +60,11 @@ describe("publicWorkerIdentity", () => {
     });
   });
 
+  it("carries the built-in quick actions the caller worked out, when it has any", () => {
+    expect(publicWorkerIdentity(profile(), ["Ask a question"])).toMatchObject({ defaultQuickActions: ["Ask a question"] });
+    expect(publicWorkerIdentity(profile())).not.toHaveProperty("defaultQuickActions");
+  });
+
   it("gives the widget its own welcome message and quick actions when they are set", () => {
     const identity = publicWorkerIdentity(profile({ welcomeMessage: "Hi, I'm {name}.", quickActions: ["Report a bug"] }));
     expect(identity).toMatchObject({ welcomeMessage: "Hi, I'm {name}.", quickActions: ["Report a bug"] });
