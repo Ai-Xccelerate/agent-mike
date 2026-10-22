@@ -54,6 +54,33 @@ export const NEVER_CLONED_PROFILE_FIELDS = [
   "restrictEmailDomains",
 ];
 
+/** Knowledge articles kept as OKF markdown files in a folder, one per article; the file name is the concept id. */
+export function readKnowledgeDir(dir, { readdir, readFile }) {
+  return readdir(dir)
+    .filter((name) => name.endsWith(".md"))
+    .sort()
+    .map((name) => ({ conceptId: name.replace(/\.md$/, ""), raw: readFile(`${dir}/${name}`) }));
+}
+
+/** What loading a folder of articles would do on the target: new, changed, or already there. Never deletes. */
+export function planKnowledge(files, targetKnowledge) {
+  const existing = new Map(targetKnowledge.map((doc) => [doc.conceptId, doc]));
+  return files.map((file) => {
+    const body = file.raw.replace(/^---[\s\S]*?---\s*/, "").trim();
+    const current = existing.get(file.conceptId);
+    if (!current) return { action: "create", ...file };
+    return { action: current.body === body ? "same" : "update", ...file };
+  });
+}
+
+export async function applyKnowledge(client, plan, log = () => undefined) {
+  for (const entry of plan) {
+    if (entry.action === "same") continue;
+    await client.post("/knowledge", { conceptId: entry.conceptId, isOkf: true, content: entry.raw });
+    log(`knowledge ${entry.action}d: ${entry.conceptId}`);
+  }
+}
+
 export class ApiError extends Error {
   constructor(message, status, body) {
     super(message);

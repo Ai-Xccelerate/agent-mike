@@ -19,3 +19,6 @@ export function planImport(bundle: any, target: any): any;
 export function describePlan(plan: any): string[];
 export function applyPlan(client: Client, bundle: any, plan: any, log?: (line: string) => void): Promise<void>;
 export function restoreBackup(client: Client, backup: any): Promise<void>;
+export function readKnowledgeDir(dir: string, fs: { readdir: (dir: string) => string[]; readFile: (file: string) => string }): { conceptId: string; raw: string }[];
+export function planKnowledge(files: { conceptId: string; raw: string }[], targetKnowledge: any[]): { action: "create" | "update" | "same"; conceptId: string; raw: string }[];
+export function applyKnowledge(client: Client, plan: any[], log?: (line: string) => void): Promise<void>;

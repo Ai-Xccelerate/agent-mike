@@ -14,6 +14,7 @@ import { PATCH as patchCustomSkill } from "@/app/api/v1/skills/custom/[id]/route
 import { GET as getKnowledge, POST as postKnowledge } from "@/app/api/v1/knowledge/route";
 import {
   ApiError,
+  applyKnowledge,
   applyPlan,
   backupOrg,
   CLONED_PROFILE_FIELDS,
@@ -22,6 +23,8 @@ import {
   knowledgeToOkf,
   NEVER_CLONED_PROFILE_FIELDS,
   planImport,
+  planKnowledge,
+  readKnowledgeDir,
   readTarget,
   restoreBackup,
 } from "../scripts/clone-org-lib.mjs";
@@ -251,5 +254,33 @@ describe("backup and restore", () => {
 
   it("will not restore from a file that is not a backup", async () => {
     await expect(restoreBackup(clientFor(target), { version: 1 })).rejects.toThrow(/not a backup/);
+  });
+});
+
+describe("loading a folder of articles", () => {
+  const fsFor = (files: Record<string, string>) => ({
+    readdir: () => Object.keys(files),
+    readFile: (file: string) => files[file.split("/").pop() as string],
+  });
+  const article = (id: string, title: string, body: string) => `---\ntype: reference\nid: ${id}\ntitle: ${JSON.stringify(title)}\n---\n\n${body}`;
+
+  it("plans new, changed and unchanged articles, and applies only the ones that need it", async () => {
+    const targetClient = clientFor(target);
+    await targetClient.post("/knowledge", { conceptId: "same-one", isOkf: true, content: article("same-one", "Same", "Unchanged text.") });
+    await targetClient.post("/knowledge", { conceptId: "edited", isOkf: true, content: article("edited", "Edited", "Old text.") });
+
+    const files = readKnowledgeDir("seed", fsFor({
+      "same-one.md": article("same-one", "Same", "Unchanged text."),
+      "edited.md": article("edited", "Edited", "New text."),
+      "fresh.md": article("fresh", "Fresh", "Brand new."),
+      "notes.txt": "ignored",
+    }));
+    const plan = planKnowledge(files, await targetClient.get("/knowledge"));
+
+    expect(plan.map((entry) => [entry.conceptId, entry.action])).toEqual([["edited", "update"], ["fresh", "create"], ["same-one", "same"]]);
+    await applyKnowledge(targetClient, plan);
+    const after = await targetClient.get("/knowledge");
+    expect(after.find((doc: any) => doc.conceptId === "edited").body).toBe("New text.");
+    expect(after.find((doc: any) => doc.conceptId === "fresh").title).toBe("Fresh");
   });
 });

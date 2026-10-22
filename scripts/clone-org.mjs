@@ -4,19 +4,23 @@
 //   MIKE_TOKEN=<bearer> node scripts/clone-org.mjs export  --api <url> --out eap-export.json
 //   MIKE_TOKEN=<bearer> node scripts/clone-org.mjs import  --api <url> --in  eap-export.json          (dry run)
 //   MIKE_TOKEN=<bearer> node scripts/clone-org.mjs import  --api <url> --in  eap-export.json --apply   (writes, after a backup)
+//   MIKE_TOKEN=<bearer> node scripts/clone-org.mjs knowledge --api <url> --dir seed/eap-knowledge [--apply]  (load a folder of articles)
 //   MIKE_TOKEN=<bearer> node scripts/clone-org.mjs restore --api <url> --backup <backup.json>
 //
 // The token is read from the environment so it never appears in a command line, a file or the repo. A Clerk session
 // token lasts about a minute: fetch a fresh one just before each command.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
+  applyKnowledge,
   applyPlan,
   backupOrg,
   createClient,
   describePlan,
   exportOrg,
   planImport,
+  planKnowledge,
+  readKnowledgeDir,
   readTarget,
   restoreBackup,
 } from "./clone-org-lib.mjs";
@@ -41,8 +45,8 @@ function fail(message) {
 }
 
 const api = flags.get("api");
-if (!["export", "import", "restore"].includes(command) || !api) {
-  fail("Usage: clone-org.mjs <export|import|restore> --api <url> [--out|--in|--backup <file>] [--apply] [--header k=v]");
+if (!["export", "import", "restore", "knowledge"].includes(command) || !api) {
+  fail("Usage: clone-org.mjs <export|import|restore|knowledge> --api <url> [--out|--in|--backup <file>] [--apply] [--header k=v]");
 }
 const token = process.env.MIKE_TOKEN;
 if (!token && Object.keys(headers).length === 0) fail("Set MIKE_TOKEN to a manager bearer token (or pass --header for a local deployment).");
@@ -67,6 +71,19 @@ async function main() {
     const backup = JSON.parse(readFileSync(flags.get("backup"), "utf8"));
     await restoreBackup(client, backup);
     console.log(`Restored the profile and skills from ${flags.get("backup")}. Skills and articles an import added are still there.`);
+    return;
+  }
+
+  if (command === "knowledge") {
+    if (!looksSafe && !flags.get("allow-production")) fail(`${host} does not look like staging or local, so this will not write to it. Pass --allow-production if you really mean it.`);
+    const dir = flags.get("dir");
+    if (!dir) fail("--dir <folder of .md articles> is required");
+    const files = readKnowledgeDir(dir, { readdir: readdirSync, readFile: (file) => readFileSync(file, "utf8") });
+    const plan = planKnowledge(files, await client.get("/knowledge"));
+    for (const entry of plan) console.log(`  ${entry.action.padEnd(6)} ${entry.conceptId}`);
+    if (!flags.get("apply")) return console.log("\nDry run: nothing was written. Add --apply to write. Existing articles are updated, never deleted.");
+    await applyKnowledge(client, plan, (line) => console.log(`  ${line}`));
+    console.log("Done.");
     return;
   }
 
