@@ -38,6 +38,8 @@ function profile(overrides: Partial<Profile> = {}): Profile {
     channelsConfig: {},
     ticketPrefix: "AIX",
     enabledSkills: [],
+    welcomeMessage: null,
+    quickActions: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -53,7 +55,19 @@ describe("publicWorkerIdentity", () => {
       accentColor: "#4F46E5",
       role: "Customer support for Acme.",
       status: "active",
+      welcomeMessage: null,
+      quickActions: null,
     });
+  });
+
+  it("carries the built-in quick actions the caller worked out, when it has any", () => {
+    expect(publicWorkerIdentity(profile(), ["Ask a question"])).toMatchObject({ defaultQuickActions: ["Ask a question"] });
+    expect(publicWorkerIdentity(profile())).not.toHaveProperty("defaultQuickActions");
+  });
+
+  it("gives the widget its own welcome message and quick actions when they are set", () => {
+    const identity = publicWorkerIdentity(profile({ welcomeMessage: "Hi, I'm {name}.", quickActions: ["Report a bug"] }));
+    expect(identity).toMatchObject({ welcomeMessage: "Hi, I'm {name}.", quickActions: ["Report a bug"] });
   });
 
   it("omits manager-only configuration the widget must not see", () => {
