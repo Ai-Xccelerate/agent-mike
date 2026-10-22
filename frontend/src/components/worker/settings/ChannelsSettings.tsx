@@ -314,7 +314,8 @@ export default function ChannelsSettings() {
         aixId="AIX-164.1"
       >
         <div className={dividerClass}>
-          <div>
+          {/* The toggle row drops its bottom padding as the last child of a wrapper; restore it when no panel follows. */}
+          <div className={profile.channelsConfig.chat ? "" : "pb-4"}>
             <SettingsToggleRow
               title="Chat"
               description="Playground and the embeddable website widget."
@@ -324,8 +325,8 @@ export default function ChannelsSettings() {
             {profile.channelsConfig.chat && <ChatChannelActions />}
             {profile.channelsConfig.chat && <ChatChannelSettings profile={profile} update={update} fieldErrors={fieldErrors} />}
           </div>
-          {/* The row drops its top padding as the first child of a wrapper, so this restores the space under the divider. */}
-          <div className="pt-4">
+          {/* The row drops its top padding as the first child of a wrapper (and its bottom padding as the last), so both are restored. */}
+          <div className={profile.channelsConfig.email ? "pt-4" : "py-4"}>
             <SettingsToggleRow
               title="Email"
               description="Requires an email provider connected under Integrations."
