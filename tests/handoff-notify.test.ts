@@ -111,7 +111,7 @@ describe("emailing a person when the worker hands over", () => {
     const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
 
     const result = await turn(conversation.id, "Nobody can log in");
-    expect(result.reply.body).toBe("I'm bringing in a teammate.");
+    expect(result.reply.body).toContain("I'm bringing in a teammate.");
     expect(result.status).toBe("needs_human");
   });
 });

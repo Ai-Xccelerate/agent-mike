@@ -1207,6 +1207,11 @@ describe("agent Jira lookup tool wiring", () => {
     expect(tools.some(isJiraLookupTool)).toBe(false);
   });
 
+  it("still gives a chat its own-requests lookup without a helpdesk, because every request has a reference", async () => {
+    const tools = await buildAgentTools({ toolsConfig: {}, ticketPrefix: "EAP" }, "org-1", "conv-1");
+    expect(tools.some(isJiraLookupTool)).toBe(true);
+  });
+
   it("omits the Jira lookup tool when the connection is still pending", async () => {
     getConnectionForOrgMock.mockImplementation(async (_org, type) =>
       type === "helpdesk" ? activeJiraConnection({ status: "pending" }) : null,
