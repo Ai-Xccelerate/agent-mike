@@ -776,7 +776,7 @@ export const CONFLUENCE_CQL_SEARCH_SLUG = "CONFLUENCE_CQL_SEARCH";
 export const CONFLUENCE_KNOWLEDGE_TOOL_ID = "confluence_knowledge_search";
 const CONFLUENCE_MATCH_CHARS = 5000;
 /** Candidates fetched per search; re-ranked by title before the best few are kept. */
-const CONFLUENCE_CANDIDATES = 12;
+const CONFLUENCE_CANDIDATES = 15;
 const MAX_KEYWORDS = 6;
 
 const STOP_WORDS = new Set(

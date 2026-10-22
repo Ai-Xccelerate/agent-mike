@@ -874,6 +874,27 @@ describe("Confluence searched before answering", () => {
     expect(rankByTitleMatch(pages, ["unrelated"]).map((p) => p.title)).toEqual(pages.map((p) => p.title));
   });
 
+  it("finds the registration article that Confluence returned sixth for the real question", () => {
+    // Order as Confluence returned it for "Self-Scheduler registration" on EAP Expert's site (22 Oct).
+    const returned = [
+      "EAP Expert V3 Release Notes",
+      "Provider Portal 2020 Release Notes",
+      "Documentation of existing placeholders for all Templates in EAPx",
+      "Self-Scheduler Client Portal",
+      "Service Member Guide: Using the Self-Scheduler Portal",
+      "Service Member Registration for the Self-Scheduler",
+      "Self-Scheduler Client Portal Set-Up",
+      "Archived EAP Expert V3 Release Notes",
+      "Integrations Options",
+      "Client Files Options",
+    ].map((title) => ({ title }));
+    const keywords = searchKeywords("How do members register for the Self-Scheduler?");
+    expect(rankByTitleMatch(returned, keywords).slice(0, 5).map((p) => p.title)).toContain(
+      "Service Member Registration for the Self-Scheduler",
+    );
+    expect(rankByTitleMatch(returned, keywords)[0].title).toBe("Service Member Registration for the Self-Scheduler");
+  });
+
   it("reads the old single spaceKey as a one-item list and dedupes a list", () => {
     expect(readConfluenceSettings({ settings: { spaceKey: "SK" } }).spaceKeys).toEqual(["SK"]);
     expect(readConfluenceSettings({ settings: { spaceKeys: ["A", "B", "A"] } }).spaceKeys).toEqual(["A", "B"]);
