@@ -1098,7 +1098,44 @@ export function buildIdentityBlock(
   return `You are ${displayName}, an AI worker for ${organizationName}.\nRole: ${role}\nTone: ${tone}`;
 }
 
-export type KnownCustomer = { name?: string | null; email?: string | null };
+/**
+ * What the worker may ask for and say about who the customer is. The facts come
+ * from the conversation row (lib/customer-identity.ts): nothing the customer or
+ * the model says changes whether an address counts as verified.
+ */
+export function identityRules(known?: KnownCustomer): string {
+  const identity = known?.identity;
+  if (!identity) return "";
+  const haveBoth = Boolean(known?.name && known?.email);
+  const state = haveBoth
+    ? identity.mode === "email_code" && identity.verified
+      ? "You have their name and email, and the email is VERIFIED (a code sent to it was typed back)."
+      : identity.mode === "email_code"
+        ? "You have their name and email, but the email is NOT verified yet."
+        : "You have their name and email, as they gave them (not checked)."
+    : "You do not have both their name and their email yet.";
+  const needsCode = identity.mode === "email_code" && !identity.verified;
+  return (
+    "\n\nCustomer identity: " +
+    state +
+    " You need their name and email before you raise a ticket for them (hand over with [[ESCALATE]]) or talk about " +
+    "their tickets or account. If you don't have both, ask for them in one short sentence and end your reply with " +
+    "[[NEED_IDENTITY]] instead of [[ESCALATE]]: a card in the chat collects them, so don't ask for them in words again." +
+    (needsCode
+      ? " If they ask about a ticket or their account while the email is not verified, say you need to confirm their " +
+        "email first and end with [[NEED_IDENTITY]]; share no ticket or account details until it is verified."
+      : "") +
+    " Questions that need no ticket or account (how-tos, general questions) never need their details. If something " +
+    "is down for them right now, hand over straight away without asking."
+  );
+}
+
+export type KnownCustomer = {
+  name?: string | null;
+  email?: string | null;
+  /** Settings > Customer identity, and whether a code sent to `email` was typed back. Absent = not asked about. */
+  identity?: { mode: "email_match" | "email_code"; verified: boolean };
+};
 
 export async function buildInstructions(
   profile: WorkerProfileLike,
@@ -1166,6 +1203,8 @@ export async function buildInstructions(
       knownLines.join("\n")
     : "";
 
+  const identityBlock = identityRules(knownCustomer);
+
   const jobDescriptionBlock = profile.jobDescription
     ? `\n\nJob description (additional detail on this role):\n${profile.jobDescription}`
     : "";
@@ -1221,6 +1260,7 @@ export async function buildInstructions(
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]." +
     // ---- Per turn from here: never put fixed text below this line. ----
     knownCustomerBlock +
+    identityBlock +
     knowledgeBlock +
     // Short, and right after the material it is about: the long grounding rule is above the
     // material now, and without these two sentences next to it, a how-to that says "still
@@ -1228,7 +1268,8 @@ export async function buildInstructions(
     "\n\nReminder: if the reference material above answers the question, give that answer and end with [[FOLLOWUP]] " +
     "or [[RESOLVE]]. A step in it like \"contact support\" or \"a teammate will check\" is part of the answer, not a reason " +
     "to hand over. If it does not cover a support question, hand over with [[ESCALATE]]. " +
-    "End this reply with exactly one of [[ESCALATE]], [[RESOLVE]] or [[FOLLOWUP]]."
+    "End this reply with exactly one of [[ESCALATE]], [[RESOLVE]] or [[FOLLOWUP]]" +
+    (knownCustomer?.identity ? " (or [[NEED_IDENTITY]] when you are asking for their details)." : ".")
   );
 }
 
@@ -1254,6 +1295,8 @@ export interface RunAgentResult {
   citations: string[];
   /** Quick replies the worker offered for its question ([[CHOICES: a | b]]); shown as buttons, never on email. */
   choices?: string[];
+  /** The worker needs the customer's name and email: the chat shows the identity card ([[NEED_IDENTITY]]). */
+  needIdentity?: boolean;
 }
 
 const CHOICES_TAG = /\[\[CHOICES:([^\]]*)\]\]/gi;
@@ -1302,7 +1345,7 @@ export function promisesPersonFollowUp(answer: string): boolean {
 
 /** Whether a reply says anything once the control tags are taken out. */
 function hasWords(raw: string): boolean {
-  return raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP)\]\]/gi, "").replace(CHOICES_TAG, "").trim().length > 0;
+  return raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP|NEED_IDENTITY)\]\]/gi, "").replace(CHOICES_TAG, "").trim().length > 0;
 }
 
 const EMPTY_REPLY_RETRY_MESSAGE =
@@ -1310,11 +1353,13 @@ const EMPTY_REPLY_RETRY_MESSAGE =
   "If you cannot help, say so briefly and end with [[ESCALATE]].";
 
 function parseAnswer(raw: string, threshold: number, classifiedConfidence?: number | null): RunAgentResult {
-  const escalate = /\[\[ESCALATE\]\]/i.test(raw);
+  // Asking who they are comes first: the ticket is raised once the details are in.
+  const needIdentity = /\[\[NEED_IDENTITY\]\]/i.test(raw);
+  const escalate = /\[\[ESCALATE\]\]/i.test(raw) && !needIdentity;
   const resolved = /\[\[RESOLVE\]\]/i.test(raw);
   // A handoff isn't a question, so it never offers quick replies.
   const choices = escalate ? [] : choicesFrom(raw);
-  const answer = raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP)\]\]/gi, "").replace(CHOICES_TAG, "").trim();
+  const answer = raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP|NEED_IDENTITY)\]\]/gi, "").replace(CHOICES_TAG, "").trim();
   if (escalate) {
     return {
       answer,
@@ -1330,7 +1375,7 @@ function parseAnswer(raw: string, threshold: number, classifiedConfidence?: numb
       : resolved
         ? 0.9
         : 0.75;
-  return { answer, confidence, escalate: false, citations: [], ...(choices.length ? { choices } : {}) };
+  return { answer, confidence, escalate: false, citations: [], ...(choices.length ? { choices } : {}), ...(needIdentity ? { needIdentity: true } : {}) };
 }
 
 function intentConfidenceFromRun(result: {
@@ -1504,7 +1549,7 @@ export async function runAgent(
     }
     // Intent confidence came from the first turn's input guardrail.
     const parsed = parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
-    if (!parsed.escalate && promisesPersonFollowUp(parsed.answer)) {
+    if (!parsed.escalate && !parsed.needIdentity && promisesPersonFollowUp(parsed.answer)) {
       // The reply says a teammate will follow up but carries no handoff tag.
       console.warn("[agent] reply promised a person but did not hand over; handing over", { conversationId });
       return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined };

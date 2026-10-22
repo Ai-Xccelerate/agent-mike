@@ -1,6 +1,8 @@
 import { and, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { isPlaceholderCustomerName } from "@/lib/customer-name";
+import { trustedCustomerEmail } from "@/lib/customer-identity";
 import { conversations } from "@/db/schema";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { executeTool, getAccountSite, proxyRequest } from "@/lib/tools-integrations/composio-client";
@@ -251,6 +253,12 @@ export const jiraSettingsSchema = z.object({
    * for a default: the ticket fails visibly instead.
    */
   workerChoosesRequestType: z.boolean(),
+  /**
+   * For a visitor whose email was verified by a code (Settings > Customer
+   * identity = email_code): find their Jira customer account, create it if
+   * they have none, and raise the ticket on their behalf. Off by default.
+   */
+  createCustomers: z.boolean(),
 });
 
 export type JiraSettings = z.infer<typeof jiraSettingsSchema>;
@@ -280,6 +288,7 @@ export function jiraSettingsDefaults(): JiraSettings {
     requestTypeName: null,
     createTicketOnHandoff: true,
     workerChoosesRequestType: false,
+    createCustomers: false,
   };
 }
 
@@ -370,6 +379,8 @@ export type HandoffTicketInput = {
   latestMessage: string;
   /** What the worker said in this handoff reply (e.g. its handoff summary), before the ticket notice. */
   workerReply?: string;
+  /** Set only for a customer whose email was verified by a code: the ticket may be raised on their behalf. */
+  verifiedCustomer?: { email: string; name: string | null };
 };
 
 export type HandoffTicketResult = {
@@ -406,7 +417,7 @@ export function handoffTicketSummary(input: Pick<HandoffTicketInput, "conversati
 export function handoffTicketDescription(input: HandoffTicketInput): string {
   const { conversation, workerName } = input;
   const customer = [
-    conversation.customerName && conversation.customerName !== "Website visitor" ? conversation.customerName : null,
+    !isPlaceholderCustomerName(conversation.customerName) ? conversation.customerName : null,
     conversation.customerEmail ? `<${conversation.customerEmail}>` : null,
   ]
     .filter(Boolean)
@@ -555,11 +566,12 @@ export async function recordHandoffInJira(
   }
 
   if (!settings.createTicketOnHandoff || !settings.projectKey) return null;
+  const onBehalf = settings.createCustomers ? input.verifiedCustomer : undefined;
   if (settings.workerChoosesRequestType) {
-    return raiseServiceRequest(input, settings.projectKey, "worker", connectedAccountId);
+    return raiseServiceRequest(input, settings.projectKey, "worker", connectedAccountId, null, onBehalf);
   }
   if (settings.requestTypeId) {
-    return raiseServiceRequest(input, settings.projectKey, settings.requestTypeId, connectedAccountId, settings.requestTypeName);
+    return raiseServiceRequest(input, settings.projectKey, settings.requestTypeId, connectedAccountId, settings.requestTypeName, onBehalf);
   }
   if (!settings.issueType) return null;
 
@@ -652,14 +664,21 @@ const CUSTOMER_TICKET_LIMIT = 10;
 
 export async function customerTicketKeys(organizationId: string, conversationId: string): Promise<string[]> {
   const [conversation] = await db
-    .select({ customerEmail: conversations.customerEmail, externalTicketKey: conversations.externalTicketKey })
+    .select({
+      channel: conversations.channel,
+      customerEmail: conversations.customerEmail,
+      customerEmailVerifiedAt: conversations.customerEmailVerifiedAt,
+      externalTicketKey: conversations.externalTicketKey,
+    })
     .from(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
     .limit(1);
   if (!conversation) return [];
 
   const keys = conversation.externalTicketKey ? [conversation.externalTicketKey] : [];
-  const email = conversation.customerEmail?.trim().toLowerCase();
+  // Other tickets under the same address only for an address that can be relied
+  // on: a visitor's typed email would let anyone read someone else's tickets.
+  const email = trustedCustomerEmail(conversation)?.trim().toLowerCase();
   if (email) {
     const rows = await db
       .select({ key: conversations.externalTicketKey })
@@ -1080,7 +1099,7 @@ export const JSM_REQUEST_TOOL_ID = "create_service_request";
 export const JSM_REQUEST_TYPES_TOOL_ID = "list_service_desk_request_types";
 const ATLASSIAN_SITES_URL = "https://api.atlassian.com/oauth/token/accessible-resources";
 
-type JiraCall = { ok: true; data: unknown } | { ok: false; error: string };
+type JiraCall = { ok: true; data: unknown } | { ok: false; error: string; /** The HTTP status when Jira answered; absent when the call itself failed or timed out. */ status?: number };
 
 const jiraApiBases = new Map<string, string>();
 
@@ -1137,7 +1156,7 @@ async function callJira(
     if (!base) return { ok: false, error: "Couldn't tell which Jira site this connection is for" };
     const response = await proxyRequest({ connectedAccountId, endpoint: `${base}${path}`, method, body });
     if (response.status >= 400) {
-      return { ok: false, error: clip(jiraErrorText(response.data) || `Jira answered ${response.status}`, ERROR_CHARS) };
+      return { ok: false, status: response.status, error: clip(jiraErrorText(response.data) || `Jira answered ${response.status}`, ERROR_CHARS) };
     }
     return { ok: true, data: response.data };
   } catch (thrown) {
@@ -1674,6 +1693,8 @@ async function raiseServiceRequest(
   connectedAccountId: string,
   /** The fixed request type's name, for showing it. */
   requestTypeName: string | null = null,
+  /** A verified customer to raise the request for, when Create customers is on. */
+  onBehalf?: { email: string; name: string | null },
 ): Promise<HandoffTicketResult | HandoffTicketFailure> {
   const { organizationId, conversation } = input;
   const fail = async (error: string): Promise<HandoffTicketFailure> => {
@@ -1687,6 +1708,13 @@ async function raiseServiceRequest(
       : await fixedTarget(projectKey, requestType, connectedAccountId, requestTypeName);
   if ("problem" in target) return fail(target.problem);
 
+  // A customer problem never blocks the ticket: without the account it is raised
+  // as the connected account, with the customer's address in the description.
+  const customer = onBehalf
+    ? await ensureJiraCustomer({ organizationId, connectedAccountId, serviceDeskId: target.serviceDeskId, ...onBehalf })
+    : null;
+  const raiseOnBehalfOf = customer && "accountId" in customer ? customer.accountId : null;
+
   const request = {
     serviceDeskId: target.serviceDeskId,
     requestTypeId: target.requestTypeId,
@@ -1695,8 +1723,17 @@ async function raiseServiceRequest(
       summary: target.title ?? handoffTicketSummary(input),
       description: toJiraWikiMarkup(handoffTicketDescription(input)),
     },
+    ...(raiseOnBehalfOf ? { raiseOnBehalfOf } : {}),
   };
-  const created = await callJira(connectedAccountId, "POST", "/rest/servicedeskapi/request", request);
+  let created = await callJira(connectedAccountId, "POST", "/rest/servicedeskapi/request", request);
+  // Jira answering 4xx means nothing was created (typically the connected
+  // account may not raise on behalf of others), so raising as ourselves is safe.
+  // A call that failed without an answer may have created it, so it is not repeated.
+  if (!created.ok && raiseOnBehalfOf && created.status && created.status >= 400 && created.status < 500) {
+    const { raiseOnBehalfOf: _dropped, ...plain } = request;
+    void _dropped;
+    created = await callJira(connectedAccountId, "POST", "/rest/servicedeskapi/request", plain);
+  }
   const issueKey = created.ok ? (created.data as { issueKey?: unknown } | null)?.issueKey : null;
   const key = typeof issueKey === "string" && ISSUE_KEY_PATTERN.test(issueKey) ? issueKey : null;
   await logToolCall({
@@ -1721,4 +1758,130 @@ async function raiseServiceRequest(
     priority: await ticketPriority(connectedAccountId, key),
   });
   return { key, created: true, title: request.requestFieldValues.summary, requestType: target.requestTypeName ?? null };
+}
+
+
+// ---------------------------------------------------------------------------
+// Jira Service Management customers: find one by email, create one for a
+// visitor whose email was verified, and add them to the desk so a request can
+// be raised on their behalf. Soft-failing: a problem here never stops a ticket.
+// ---------------------------------------------------------------------------
+
+export const JIRA_CUSTOMER_TOOL_ID = "jira_customer";
+const CUSTOMER_LOOKUP_WAIT_MS = 4000;
+
+type CustomerRecord = { accountId?: unknown; emailAddress?: unknown };
+
+function accountIdFrom(records: CustomerRecord[], email: string): string | null {
+  const wanted = email.trim().toLowerCase();
+  for (const record of records) {
+    if (typeof record.accountId !== "string") continue;
+    if (typeof record.emailAddress === "string" && record.emailAddress.trim().toLowerCase() === wanted) return record.accountId;
+  }
+  return null;
+}
+
+async function logCustomerCall(organizationId: string, action: string, input: Record<string, unknown>, outcome: { ok: boolean; detail: string }) {
+  try {
+    await logToolCall({
+      organizationId,
+      toolId: JIRA_CUSTOMER_TOOL_ID,
+      calledBy: "system",
+      input: { action, ...input },
+      output: { detail: outcome.detail },
+      status: outcome.ok ? "success" : "error",
+      errorMessage: outcome.ok ? null : outcome.detail,
+    });
+  } catch {
+    // The audit row must not stop the ticket.
+  }
+}
+
+/** The desk's customer with this email, or null. { problem } if Jira couldn't say. */
+export async function findJiraCustomer(
+  connectedAccountId: string,
+  serviceDeskId: string,
+  email: string,
+): Promise<{ accountId: string } | null | { problem: string }> {
+  const viaDesk = await callJira(
+    connectedAccountId,
+    "GET",
+    `/rest/servicedeskapi/servicedesk/${serviceDeskId}/customer?query=${encodeURIComponent(email)}&limit=50`,
+  );
+  if (viaDesk.ok) {
+    const found = accountIdFrom(pageValues<CustomerRecord>(viaDesk.data), email);
+    if (found) return { accountId: found };
+  }
+  // The desk's customer search is not offered everywhere; the user search sees customers too.
+  const viaUsers = await callJira(connectedAccountId, "GET", `/rest/api/3/user/search?query=${encodeURIComponent(email)}`);
+  if (viaUsers.ok) {
+    const found = accountIdFrom(Array.isArray(viaUsers.data) ? (viaUsers.data as CustomerRecord[]) : [], email);
+    return found ? { accountId: found } : null;
+  }
+  return viaDesk.ok ? null : { problem: viaDesk.error };
+}
+
+/**
+ * Whether this email is already a customer of the connected service desk.
+ * Null when there is no helpdesk, or Jira couldn't say in time. Read-only.
+ */
+export async function lookupJiraCustomerByEmail(organizationId: string, email: string): Promise<boolean | null> {
+  try {
+    const connection = await getConnectionForOrg(organizationId, "helpdesk");
+    const connectedAccountId = activeAccount(connection, "jira");
+    if (!connection || !connectedAccountId) return null;
+    const { projectKey } = readJiraSettings(connection.metadata);
+    if (!projectKey) return null;
+    const lookup = (async () => {
+      const desks = await callJira(connectedAccountId, "GET", "/rest/servicedeskapi/servicedesk?limit=50");
+      if (!desks.ok) return null;
+      const desk = pageValues<{ id?: unknown; projectKey?: unknown }>(desks.data).find((entry) => entry.projectKey === projectKey);
+      if (desk?.id == null) return null;
+      const found = await findJiraCustomer(connectedAccountId, String(desk.id), email);
+      return found && "accountId" in found ? true : found === null ? false : null;
+    })();
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), CUSTOMER_LOOKUP_WAIT_MS));
+    return await Promise.race([lookup, timeout]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The customer's account on the desk: found, or created and added. Only ever
+ * called for an email a code was typed back for. { problem } says what failed.
+ */
+export async function ensureJiraCustomer(input: {
+  organizationId: string;
+  connectedAccountId: string;
+  serviceDeskId: string;
+  email: string;
+  name: string | null;
+}): Promise<{ accountId: string; created: boolean } | { problem: string }> {
+  const { organizationId, connectedAccountId, serviceDeskId, email, name } = input;
+  const existing = await findJiraCustomer(connectedAccountId, serviceDeskId, email);
+  if (existing && "accountId" in existing) {
+    await logCustomerCall(organizationId, "found", { email }, { ok: true, detail: "Customer already exists" });
+    return { accountId: existing.accountId, created: false };
+  }
+  if (existing && "problem" in existing) {
+    await logCustomerCall(organizationId, "lookup", { email }, { ok: false, detail: existing.problem });
+    return { problem: existing.problem };
+  }
+
+  const made = await callJira(connectedAccountId, "POST", "/rest/servicedeskapi/customer", {
+    email,
+    displayName: name && !isPlaceholderCustomerName(name) ? name : email,
+  });
+  const accountId = made.ok ? (made.data as { accountId?: unknown } | null)?.accountId : null;
+  if (typeof accountId !== "string" || !accountId) {
+    const problem = made.ok ? "Jira didn't return the new customer's account" : made.error;
+    await logCustomerCall(organizationId, "create", { email }, { ok: false, detail: problem });
+    return { problem };
+  }
+  const added = await callJira(connectedAccountId, "POST", `/rest/servicedeskapi/servicedesk/${serviceDeskId}/customer`, {
+    accountIds: [accountId],
+  });
+  await logCustomerCall(organizationId, "create", { email }, { ok: true, detail: added.ok ? "Created and added to the desk" : `Created; adding to the desk failed: ${added.error}` });
+  return { accountId, created: true };
 }

@@ -11,7 +11,7 @@ import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
 import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/customer-cards/CustomerCopilot";
-import { CustomerCardsContext, LatestReplyContext } from "@/components/worker/customer-cards/CustomerCards";
+import { CustomerCardsContext, LatestReplyContext, type ChatIdentity } from "@/components/worker/customer-cards/CustomerCards";
 import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
@@ -20,6 +20,9 @@ const SAMPLE_PROMPTS = [
   "How do I invite a teammate?",
   "I need a refund for my last charge",
 ];
+
+// Shown to a visitor who has not typed anything yet (public widget only).
+const WIDGET_QUICK_ACTIONS = ["Report a problem", "Ask a question", "Check my ticket", "Request a feature"];
 
 const MESSAGE_MAX_LENGTH = 4000;
 
@@ -35,6 +38,8 @@ type StoredChat = {
   conversationId?: string;
   messages: Message[];
   escalated?: boolean;
+  /** What the visitor told the chat about themselves, so a reload does not ask again. */
+  identity?: ChatIdentity;
 };
 
 function welcomeMessage(profile: WorkerProfile | null): Message {
@@ -96,6 +101,11 @@ function ChatPanelBody({
   const [preview, setPreview] = useState(false);
   const [restoring, setRestoring] = useState(compact);
   const [identityReady, setIdentityReady] = useState(!compact);
+  const [storedIdentity, setIdentity] = useState<ChatIdentity | undefined>(undefined);
+  // Playground: what one test conversation's visitor said is not true of the next.
+  const [identityConversationId, setIdentityConversationId] = useState<string | undefined>(undefined);
+  // What the server says it is doing right now ("Checking our help articles"). Never made up here.
+  const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
@@ -115,6 +125,7 @@ function ChatPanelBody({
   );
 
   const conversationId = compact ? compactConversationId : (externalConversationId ?? undefined);
+  const identity = compact || identityConversationId === conversationId ? storedIdentity : undefined;
 
   // Widget and Playground both show this worker's Identity. The widget
   // resolves the org from the site token; the manager console uses the
@@ -166,6 +177,7 @@ function ChatPanelBody({
           onlyWelcome || !stored.messages?.length ? [welcomeMessage(profile)] : stored.messages,
         );
         setEscalated(Boolean(stored.escalated));
+        setIdentity(stored.identity);
       } catch {
         sessionStorage.removeItem(storageKey(siteToken));
         setMessages([welcomeMessage(profile)]);
@@ -184,9 +196,9 @@ function ChatPanelBody({
     if (!compact || restoring) return;
     sessionStorage.setItem(
       storageKey(siteToken),
-      JSON.stringify({ conversationId: compactConversationId, messages, escalated } satisfies StoredChat),
+      JSON.stringify({ conversationId: compactConversationId, messages, escalated, identity } satisfies StoredChat),
     );
-  }, [compact, compactConversationId, messages, escalated, restoring, siteToken]);
+  }, [compact, compactConversationId, messages, escalated, identity, restoring, siteToken]);
 
   // Manager mode: the rail owns which conversation is selected. Load its
   // transcript when the selection changes; reset to a blank slate when
@@ -238,6 +250,7 @@ function ChatPanelBody({
       },
     ]);
     setValue("");
+    setStatusLabel(null);
     setLoading(true);
     try {
       // The server holds the history; the agent only carries this message.
@@ -249,6 +262,10 @@ function ChatPanelBody({
         {
           onCustomEvent: ({ event }) => {
             if (event.name === "chat.turn") turn = event.value as ChatResponse;
+            if (event.name === "chat.status") {
+              const label = (event.value as { label?: unknown } | null)?.label;
+              if (typeof label === "string" && label.trim()) setStatusLabel(label.trim());
+            }
           },
           onRunErrorEvent: ({ event }) => {
             failure = event.message;
@@ -289,6 +306,7 @@ function ChatPanelBody({
       setEscalated(true);
     } finally {
       setLoading(false);
+      setStatusLabel(null);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
@@ -303,7 +321,18 @@ function ChatPanelBody({
   );
   // Only the newest reply's quick replies can still be tapped.
   const latestReplyId = [...visibleMessages].reverse().find((message) => message.senderType === "agent")?.id;
-  const cardActions = { busy: loading, onReply: (text: string) => void sendText(text) };
+  const cardActions = {
+    busy: loading,
+    onReply: (text: string) => void sendText(text),
+    conversationId,
+    siteToken: compact ? siteToken : undefined,
+    identity,
+    onIdentity: (next: ChatIdentity) => {
+      setIdentity(next);
+      setIdentityConversationId(conversationId);
+    },
+  };
+  const showQuickActions = compact && !loading && messages.length <= 1;
 
   if (compact && !siteToken?.trim()) {
     return (
@@ -344,7 +373,13 @@ function ChatPanelBody({
           />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">{displayName}</p>
-            <p className="truncate text-xs text-gray-500 dark:text-gray-400">Online</p>
+            <p className="flex min-w-0 items-center gap-1.5 truncate text-xs text-gray-500 dark:text-gray-400">
+              {compact && identity?.verified ? (
+                <span className="truncate font-medium text-success-700 dark:text-success-400">Email verified</span>
+              ) : (
+                <span className="truncate">{compact ? "AI assistant" : "Online"}</span>
+              )}
+            </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -389,9 +424,9 @@ function ChatPanelBody({
               )}
               <div className={`max-w-[82%] ${isAgent ? "" : "text-right"}`}>
                 <div
-                  className={`rounded-2xl px-4 py-3 text-left text-sm leading-6 ${
+                  className={`break-words rounded-2xl px-4 py-2.5 text-left text-sm leading-6 ${
                     isAgent
-                      ? "rounded-tl-md border border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-white/[0.04] dark:text-gray-200"
+                      ? "rounded-tl-md border border-gray-200 bg-white text-gray-700 shadow-xs dark:border-gray-800 dark:bg-white/[0.04] dark:text-gray-200"
                       : "rounded-tr-md bg-brand-500 text-white"
                   }`}
                 >
@@ -446,13 +481,39 @@ function ChatPanelBody({
           </div>
         )}
 
+        {showQuickActions && (
+          <div className="flex flex-wrap gap-2 pl-10" role="group" aria-label="Quick actions">
+            {WIDGET_QUICK_ACTIONS.map((action) => (
+              <button
+                key={action}
+                type="button"
+                onClick={() => void sendText(action)}
+                className="rounded-full border border-brand-200 bg-white px-3 py-1.5 text-xs font-medium text-brand-600 transition-colors hover:border-brand-400 hover:bg-brand-50 dark:border-brand-500/30 dark:bg-white/[0.03] dark:text-brand-300 dark:hover:bg-brand-500/10"
+              >
+                {action}
+              </button>
+            ))}
+          </div>
+        )}
+
         {loading && (
           <div className="flex items-center gap-2.5">
             <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-            <div className="flex gap-1 rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-4 dark:border-gray-800 dark:bg-white/[0.04]">
-              <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
-              <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
-              <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms]" />
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-2 rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-3.5 dark:border-gray-800 dark:bg-white/[0.04]"
+            >
+              <span className="flex gap-1" aria-hidden="true">
+                <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
+                <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
+                <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms]" />
+              </span>
+              {statusLabel ? (
+                <span className="text-xs text-gray-500 dark:text-gray-400">{statusLabel}</span>
+              ) : (
+                <span className="sr-only">{displayName} is typing</span>
+              )}
             </div>
           </div>
         )}

@@ -25,9 +25,18 @@ export type HelpdeskTicketCard = {
   created: boolean;
 };
 
+export type IdentityRequestCard = {
+  /** What the panel does after the form: email_match just saves it, email_code also asks for the emailed code. */
+  mode: "email_match" | "email_code";
+  /** What the conversation already holds, to prefill the form. */
+  name?: string;
+  email?: string;
+};
+
 export type CustomerCardData = {
   choices: ChoicesCard;
   helpdesk_ticket: HelpdeskTicketCard;
+  identity_request: IdentityRequestCard;
 };
 
 export type CustomerCardKind = keyof CustomerCardData;

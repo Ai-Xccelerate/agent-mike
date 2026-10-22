@@ -2,7 +2,7 @@
 
 import { HttpAgent } from "@ag-ui/client";
 import { CopilotKitProvider, type ReactToolCallRenderer } from "@copilotkit/react-core/v2";
-import { CardSkeleton, ChoicesView, HelpdeskTicketView } from "@/components/worker/customer-cards/CustomerCards";
+import { CardSkeleton, ChoicesView, HelpdeskTicketView, IdentityRequestView } from "@/components/worker/customer-cards/CustomerCards";
 import { customerCardToolName, type CustomerCardData } from "@/lib/customer-cards";
 import { getManagerToken } from "@/lib/manager-auth";
 import { useState, type ReactNode } from "react";
@@ -44,6 +44,12 @@ const CARD_RENDERERS: ReactToolCallRenderer<any>[] = [
     agentId: CUSTOMER_CHAT_AGENT_ID,
     render: ({ args, status }) =>
       status === "inProgress" ? <CardSkeleton /> : <HelpdeskTicketView data={args as CustomerCardData["helpdesk_ticket"]} />,
+  },
+  {
+    name: customerCardToolName("identity_request"),
+    agentId: CUSTOMER_CHAT_AGENT_ID,
+    render: ({ args, status }) =>
+      status === "inProgress" ? <CardSkeleton /> : <IdentityRequestView data={args as CustomerCardData["identity_request"]} />,
   },
 ];
 

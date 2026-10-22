@@ -83,6 +83,8 @@ export const workerProfiles = pgTable(
     ),
     allowedDomains: jsonb("allowed_domains").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     requireUserVerification: boolean("require_user_verification").notNull().default(false),
+    // Customer identity in the widget: off | email_match | email_code (lib/customer-identity.ts).
+    identityMode: text("identity_mode").notNull().default("off"),
     // Fail-closed: write tools (create/update in an external system) wait for a
     // human unless this worker is explicitly set to auto-execute.
     requireWriteApproval: boolean("require_write_approval").notNull().default(true),
@@ -168,6 +170,11 @@ export const conversations = pgTable(
     channel: text("channel").notNull().default("chat"), // "chat" | "email" | "widget"
     customerName: text("customer_name").notNull().default("Website visitor"),
     customerEmail: text("customer_email"),
+    // Set once a code sent to customerEmail was typed back. Until then the
+    // email is only what the visitor said (lib/customer-identity.ts).
+    customerEmailVerifiedAt: timestamp("customer_email_verified_at", { withTimezone: true }),
+    // How the identity was learned: widget_card | email_code.
+    identitySource: text("identity_source"),
     subject: text("subject"),
     status: text("status").notNull().default("open"), // open | needs_human | resolved | closed
     priority: text("priority").notNull().default("normal"),
@@ -453,6 +460,36 @@ export const toolCalls = pgTable(
   },
   (table) => ({
     orgIdx: index("tool_calls_org_idx").on(table.organizationId),
+  }),
+);
+
+/**
+ * One row per verification code emailed to a widget visitor (lib/customer-identity.ts).
+ * Only a hash of the code is stored; the rows are also what the rate limits count.
+ */
+export const emailVerificationCodes = pgTable(
+  "email_verification_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    ip: text("ip"),
+    codeHash: text("code_hash").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    emailIdx: index("email_verification_codes_email_idx").on(table.email, table.createdAt),
+    ipIdx: index("email_verification_codes_ip_idx").on(table.ip, table.createdAt),
+    conversationIdx: index("email_verification_codes_conversation_idx").on(table.conversationId, table.createdAt),
+    orgIdx: index("email_verification_codes_org_idx").on(table.organizationId, table.createdAt),
   }),
 );
 

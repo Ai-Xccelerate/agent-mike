@@ -76,9 +76,10 @@ export function ticketTitle(ticket: Pick<Ticket, "subject" | "customerName">): s
   return ticket.subject?.trim() || ticket.customerName;
 }
 
-/** The widget's placeholder for a visitor who has not been identified. */
+/** The widget's placeholder for a visitor who has not been identified: "Website visitor" or "Visitor 4821". */
 export function isPlaceholderName(name: string): boolean {
-  return name.trim().toLowerCase() === "website visitor";
+  const flat = name.trim().toLowerCase();
+  return flat === "website visitor" || /^visitor \d+$/.test(flat);
 }
 
 /**
