@@ -115,6 +115,7 @@ export function confluenceStorageToText(html: string): string {
   return html
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
     .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<h[1-6][^>]*>/gi, "\n\n## ")
     .replace(/<\/(p|div|h[1-6]|li|tr|table|blockquote|pre)>/gi, "\n")
     .replace(/<li[^>]*>/gi, "- ")
     .replace(/<[^>]+>/g, "")
@@ -849,6 +850,165 @@ export const CONFLUENCE_GET_PAGES_SLUG = "CONFLUENCE_GET_PAGES";
 const PAGE_LIST_LIMIT = 250;
 
 type ListedPage = { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } };
+export type CatalogPage = { id: string; title: string; text: string; link: string | null };
+
+const CATALOG_PAGE_CAP = 8;
+const CONFLUENCE_CATALOG_WAIT_MS = 5000;
+const CONFLUENCE_CATALOG_TTL_MS = 10 * 60 * 1000;
+const catalogCache = new Map<string, { at: number; pages: CatalogPage[] }>();
+const catalogInflight = new Map<string, Promise<CatalogPage[] | null>>();
+
+function catalogTtlMs(): number {
+  const parsed = Number(process.env.CONFLUENCE_CONFLUENCE_CATALOG_TTL_MS);
+  return process.env.CONFLUENCE_CONFLUENCE_CATALOG_TTL_MS && Number.isFinite(parsed) && parsed >= 0 ? parsed : CONFLUENCE_CATALOG_TTL_MS;
+}
+
+/** Test hook: forget every remembered catalog. */
+export function clearConfluenceCatalog(): void {
+  catalogCache.clear();
+  catalogInflight.clear();
+}
+
+function nextCursor(data: unknown): string | null {
+  const next = (data as { _links?: { next?: string } } | undefined)?._links?.next;
+  const match = typeof next === "string" ? /[?&]cursor=([^&]+)/.exec(next) : null;
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** Every current page the connection can read, in the configured spaces, with its text. Null when listing fails. */
+async function listSpacePages(
+  toolId: string,
+  spaceKeys: string[],
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<CatalogPage[] | null> {
+  const inSpaces = spaceKeys.map((key) => `/spaces/${key}/`.toLowerCase());
+  const pages: CatalogPage[] = [];
+  const seen = new Set<string>();
+  let cursor: string | null = null;
+  for (let round = 0; round < CATALOG_PAGE_CAP; round += 1) {
+    const result = await runReadTool(
+      toolId,
+      CONFLUENCE_GET_PAGES_SLUG,
+      { limit: PAGE_LIST_LIMIT, status: "current", body_format: "storage", ...(cursor ? { cursor } : {}) },
+      organizationId,
+      connectedAccountId,
+      CONFLUENCE_TOOLKIT_VERSION,
+    );
+    if (result === null || wasRefused(result)) return round === 0 ? null : pages;
+    const data = (result as { data?: { results?: unknown } }).data;
+    const listed = Array.isArray(data?.results) ? (data.results as ListedPage[]) : [];
+    for (const page of listed) {
+      const link = page._links?.webui ?? null;
+      const lower = (link ?? "").toLowerCase();
+      if (inSpaces.length > 0 && !inSpaces.some((space) => lower.includes(space))) continue;
+      const title = page.title ?? "";
+      const text = confluenceStorageToText(page.body?.storage?.value ?? "");
+      const id = page.id ?? title;
+      if (!title || !text || seen.has(id)) continue;
+      seen.add(id);
+      pages.push({ id, title, text, link });
+    }
+    cursor = nextCursor(data);
+    if (!cursor || listed.length === 0) break;
+  }
+  return pages;
+}
+
+/**
+ * Every page of the configured spaces, remembered for a few minutes. Ranking all of them here means a page is not
+ * missed because Confluence's own relevance order put it sixth, or because its body only has the customer's
+ * words in a different form. An edit in Confluence shows up when the memory expires.
+ */
+export async function loadConfluenceCatalog(
+  toolId: string,
+  spaceKeys: string[],
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<CatalogPage[] | null> {
+  const key = [organizationId, connectedAccountId, spaceKeys.join(",")].join("\u0001");
+  const ttl = catalogTtlMs();
+  const cached = catalogCache.get(key);
+  const fresh = cached && ttl > 0 && Date.now() - cached.at < ttl;
+  if (cached && fresh) return cached.pages;
+  let running = catalogInflight.get(key);
+  if (!running) {
+    running = refreshCatalog(key, ttl, toolId, spaceKeys, organizationId, connectedAccountId);
+    catalogInflight.set(key, running);
+  }
+  // An expired copy is still better than making the customer wait: serve it and refresh behind it.
+  return cached ? cached.pages : running;
+}
+
+function refreshCatalog(
+  key: string,
+  ttl: number,
+  toolId: string,
+  spaceKeys: string[],
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<CatalogPage[] | null> {
+  return listSpacePages(toolId, spaceKeys, organizationId, connectedAccountId)
+    .then((pages) => {
+      if (pages && pages.length > 0 && ttl > 0) catalogCache.set(key, { at: Date.now(), pages });
+      return pages;
+    })
+    .catch(() => null)
+    .finally(() => catalogInflight.delete(key));
+}
+
+/** A word's stem for matching across forms: "registering", "registration" and "register" share one. */
+export function wordStem(word: string): string {
+  return word.slice(0, Math.max(4, word.length - 3));
+}
+
+/**
+ * How well a page matches the customer's words. A title hit weighs most, a heading hit next, body hits count up to a cap
+ * per word. Words are matched by stem, so "scheduling" finds "Self-Scheduler".
+ */
+export function scoreCatalogPage(page: { title: string; text: string }, keywords: string[]): number {
+  const title = page.title.toLowerCase();
+  const text = page.text.toLowerCase();
+  const headings = (text.match(/^## .*$/gm) ?? []).join("\n");
+  let score = 0;
+  let inTitle = 0;
+  for (const word of keywords) {
+    const stem = wordStem(word);
+    if (title.includes(stem)) {
+      score += 6;
+      inTitle += 1;
+    }
+    if (headings.includes(stem)) score += 2;
+    score += Math.min(4, text.split(stem).length - 1);
+  }
+  return inTitle >= 2 ? score + 4 : score;
+}
+
+/**
+ * The part of a page worth sending: all of it when it fits, otherwise the opening plus the sections that carry the
+ * customer's words, kept in page order, so a long page is not cut off before its steps.
+ */
+export function pickRelevantText(text: string, keywords: string[], budget: number): string {
+  if (text.length <= budget) return text;
+  const [intro, ...sections] = text.split(/\n+(?=## )/);
+  const stems = keywords.map(wordStem);
+  const scored = sections.map((section, index) => {
+    const lower = section.toLowerCase();
+    return { section, index, score: stems.reduce((sum, stem) => sum + Math.min(5, lower.split(stem).length - 1), 0) };
+  });
+  const kept = new Set<number>();
+  let used = Math.min(intro.length, Math.floor(budget / 4));
+  for (const entry of [...scored].sort((a, b) => b.score - a.score || a.index - b.index)) {
+    if (entry.score === 0) break;
+    if (budget - used < 200) break;
+    kept.add(entry.index);
+    used += Math.min(entry.section.length, budget - used);
+  }
+  if (kept.size === 0) return clip(text, budget);
+  const body = scored.filter((entry) => kept.has(entry.index)).map((entry) => entry.section);
+  return clip([intro.slice(0, Math.floor(budget / 4)), ...body].join("\n\n"), budget);
+}
+
 export type RankedPage = { id: string; title: string; text: string; score: number };
 
 /** How well a page matches the keywords: a title hit counts more than body hits (capped per word). */
@@ -864,11 +1024,9 @@ export function scorePage(title: string, text: string, keywords: string[]): numb
 }
 
 /**
- * The search Confluence would have done, done here: list the space's pages
- * with their text and rank them by keyword. Used when the connection may read
- * pages but not search (Composio's managed Atlassian app has no
- * search:confluence scope unless it's added to the auth config). Only reads
- * the first PAGE_LIST_LIMIT pages, which covers a support knowledge base.
+ * The search Confluence would have done, done here: list the space's pages with their text and rank them by keyword.
+ * Used when the connection may read pages but not search (Composio's managed Atlassian app has no
+ * search:confluence scope unless it's added to the auth config).
  */
 export async function rankPagesByKeywords(
   toolId: string,
@@ -878,29 +1036,11 @@ export async function rankPagesByKeywords(
   organizationId: string,
   connectedAccountId: string,
 ): Promise<RankedPage[] | null> {
-  const result = await runReadTool(
-    toolId,
-    CONFLUENCE_GET_PAGES_SLUG,
-    { limit: PAGE_LIST_LIMIT, status: "current", body_format: "storage" },
-    organizationId,
-    connectedAccountId,
-    CONFLUENCE_TOOLKIT_VERSION,
-  );
-  if (result === null || wasRefused(result)) return null;
-  const data = (result as { data?: { results?: unknown } }).data;
-  const pages = Array.isArray(data?.results) ? (data.results as ListedPage[]) : [];
-  const inSpaces = spaceKeys.map((key) => `/spaces/${key}/`.toLowerCase());
+  const pages = await loadConfluenceCatalog(toolId, spaceKeys, organizationId, connectedAccountId);
+  if (pages === null) return null;
   return pages
-    .filter((page) => {
-      const link = (page._links?.webui ?? "").toLowerCase();
-      return inSpaces.length === 0 || inSpaces.some((space) => link.includes(space));
-    })
-    .map((page) => {
-      const title = page.title ?? "";
-      const text = confluenceStorageToText(page.body?.storage?.value ?? "");
-      return { id: page.id ?? title, title, text, score: scorePage(title, text, keywords) };
-    })
-    .filter((page) => page.title && page.text && page.score > 0)
+    .map((page) => ({ id: page.id, title: page.title, text: page.text, score: scoreCatalogPage(page, keywords) }))
+    .filter((page) => page.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
@@ -924,68 +1064,94 @@ export async function searchConfluenceKnowledge(
   const keywords = searchKeywords(query);
   if (keywords.length === 0) return [];
 
-  const result = await runReadTool(
-    CONFLUENCE_KNOWLEDGE_TOOL_ID,
-    CONFLUENCE_CQL_SEARCH_SLUG,
-    { cql: buildKnowledgeCql(keywords, settings.spaceKeys), limit: Math.max(limit, CONFLUENCE_CANDIDATES), expand: "content.body.storage" },
-    organizationId,
-    connectedAccountId,
-    CONFLUENCE_TOOLKIT_VERSION,
-  );
-  if (result === null) throw new ConfluenceKnowledgeError("Confluence search failed");
-
-  if (wasRefused(result)) {
-    const ranked = await rankPagesByKeywords(
+  // Two searches at once, merged: Confluence's own text search, and every page of the configured spaces ranked
+  // here. Either can miss on its own (Confluence's order, or words in another form); together they rarely do.
+  const [result, catalog] = await Promise.all([
+    runReadTool(
       CONFLUENCE_KNOWLEDGE_TOOL_ID,
-      keywords,
-      settings.spaceKeys,
-      limit,
+      CONFLUENCE_CQL_SEARCH_SLUG,
+      { cql: buildKnowledgeCql(keywords, settings.spaceKeys), limit: Math.max(limit, CONFLUENCE_CANDIDATES), expand: "content.body.storage" },
       organizationId,
       connectedAccountId,
-    );
-    if (ranked === null) throw new ConfluenceKnowledgeError("Confluence search and page listing both failed");
-    return rankByTitleMatch(ranked, keywords).map((page, index) => ({
-      documentId: `confluence:${page.id}`,
-      title: page.title,
-      heading: null,
-      content: clip(page.text, CONFLUENCE_MATCH_CHARS),
-      rank: 1 / (index + 1),
-    }));
+      CONFLUENCE_TOOLKIT_VERSION,
+    ),
+    // A cold start must not hold the customer up: after a few seconds search alone answers, and the catalog keeps loading.
+    Promise.race([
+      loadConfluenceCatalog(CONFLUENCE_KNOWLEDGE_TOOL_ID, settings.spaceKeys, organizationId, connectedAccountId).catch(() => null),
+      sleep(CONFLUENCE_CATALOG_WAIT_MS).then(() => null),
+    ]),
+  ]);
+  const searched = result !== null && !wasRefused(result);
+  if (!searched && catalog === null) throw new ConfluenceKnowledgeError("Confluence search and page listing both failed");
+
+  type Candidate = { id: string; title: string; text: string; full: boolean; score: number };
+  const candidates = new Map<string, Candidate>();
+  for (const page of catalog ?? []) {
+    candidates.set(page.id, { id: page.id, title: page.title, text: page.text, full: true, score: scoreCatalogPage(page, keywords) });
+  }
+  if (searched) {
+    cqlResultsFrom(result).forEach((hit, index) => {
+      const title = hit.content?.title ?? hit.title ?? "";
+      const body = hit.content?.body?.storage?.value;
+      const text = confluenceStorageToText(body ?? hit.excerpt ?? "");
+      if (!title || !text) return;
+      const id = String(hit.content?.id ?? title);
+      // Confluence's own top hits count for something, so a page it ranks first is not lost to word counts.
+      const bonus = index < 3 ? 4 : 1;
+      const known = candidates.get(id);
+      if (known) known.score += bonus;
+      else candidates.set(id, { id, title, text, full: body !== undefined, score: scoreCatalogPage({ title, text }, keywords) + bonus });
+    });
   }
 
-  const found = cqlResultsFrom(result)
-    .map((hit): KnowledgeMatch | null => {
-      const title = hit.content?.title ?? hit.title ?? "";
-      const text = confluenceStorageToText(hit.content?.body?.storage?.value ?? hit.excerpt ?? "");
-      if (!title || !text) return null;
-      return {
-        documentId: `confluence:${hit.content?.id ?? title}`,
-        title,
-        heading: null,
-        content: clip(text, CONFLUENCE_MATCH_CHARS),
-        rank: 0,
-      };
-    })
-    .filter((match): match is KnowledgeMatch => match !== null);
-  const best = rankByTitleMatch(found, keywords)
+  const best = [...candidates.values()]
+    .filter((page) => page.score > 0)
+    .sort((a, b) => b.score - a.score)
     .slice(0, limit)
-    .map((match, index) => ({ ...match, rank: 1 / (index + 1) }));
-  return readBestPagesInFull(best, organizationId, connectedAccountId);
+    .map(
+      (page, index): KnowledgeMatch & { full: boolean } => ({
+        documentId: `confluence:${page.id}`,
+        title: page.title,
+        heading: null,
+        content: pickRelevantText(page.text, keywords, index < CONFLUENCE_FULL_READS ? CONFLUENCE_FULL_PAGE_CHARS : CONFLUENCE_MATCH_CHARS),
+        rank: 1 / (index + 1),
+        full: page.full,
+      }),
+    );
+  const read = await readBestPagesInFull(best, keywords, organizationId, connectedAccountId);
+  return read.map(({ full: _full, ...match }) => match);
+}
+
+/** Every page the worker can search in the configured spaces, for the manager's check of what Eva can find. */
+export async function confluenceInventory(
+  organizationId: string,
+): Promise<{ pages: { id: string; title: string; chars: number; link: string | null }[]; spaceKeys: string[] } | null> {
+  const connection = await getConnectionForOrg(organizationId, "knowledge_base");
+  const connectedAccountId = activeAccount(connection, "confluence");
+  if (!connection || !connectedAccountId) return null;
+  const settings = readConfluenceSettings(connection.metadata);
+  const pages = await loadConfluenceCatalog(CONFLUENCE_KNOWLEDGE_TOOL_ID, settings.spaceKeys, organizationId, connectedAccountId);
+  if (pages === null) throw new ConfluenceKnowledgeError("Confluence page listing failed");
+  return {
+    spaceKeys: settings.spaceKeys,
+    pages: pages.map((page) => ({ id: page.id, title: page.title, chars: page.text.length, link: page.link })).sort((a, b) => a.title.localeCompare(b.title)),
+  };
 }
 
 /**
  * A search hit often carries only a short excerpt, so the steps a customer asked for can be missing from it.
  * The best few pages are read in full instead; if a read fails the hit's own text is kept.
  */
-async function readBestPagesInFull(
-  matches: KnowledgeMatch[],
+async function readBestPagesInFull<T extends KnowledgeMatch & { full: boolean }>(
+  matches: T[],
+  keywords: string[],
   organizationId: string,
   connectedAccountId: string,
-): Promise<KnowledgeMatch[]> {
+): Promise<T[]> {
   return Promise.all(
     matches.map(async (match, index) => {
       const id = match.documentId.startsWith("confluence:") ? match.documentId.slice("confluence:".length) : "";
-      if (index >= CONFLUENCE_FULL_READS || !/^\d+$/.test(id)) return match;
+      if (match.full || index >= CONFLUENCE_FULL_READS || !/^\d+$/.test(id)) return match;
       const result = (await runReadTool(
         CONFLUENCE_READ_TOOL_NAME,
         CONFLUENCE_GET_PAGE_SLUG,
@@ -995,7 +1161,9 @@ async function readBestPagesInFull(
         CONFLUENCE_TOOLKIT_VERSION,
       ).catch(() => null)) as { data?: { body?: { storage?: { value?: string } } } } | null;
       const text = confluenceStorageToText(result?.data?.body?.storage?.value ?? "");
-      return text.length > match.content.length ? { ...match, content: clip(text, CONFLUENCE_FULL_PAGE_CHARS) } : match;
+      return text.length > match.content.length
+        ? { ...match, content: pickRelevantText(text, keywords, CONFLUENCE_FULL_PAGE_CHARS) }
+        : match;
     }),
   );
 }
