@@ -16,7 +16,9 @@ export const OVERVIEW_PERIODS = { "24h": 1, "7d": 7, "30d": 30 } as const;
 export type OverviewPeriod = keyof typeof OVERVIEW_PERIODS;
 
 const MAX_CONVERSATIONS = 1000;
-const RECENT_LIMIT = 8;
+/** Rows per page of the activity list, as on a Jira summary. */
+export const RECENT_PAGE_SIZE = 10;
+const TOP_SOURCES = 5;
 const OPENING_CHARS = 140;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -25,6 +27,14 @@ export type RecentOutcome =
   | { kind: "ticket"; key: string; type: string | null }
   | { kind: "handed_over" }
   | { kind: "in_progress" };
+
+/** Narrow the numbers to one channel, request type or priority. Unset means all. */
+export type OverviewFilters = { channel?: string | null; requestType?: string | null; priority?: string | null };
+
+/** What the status chart counts: the conversation's own status, in the order a manager reads it. */
+export const OVERVIEW_STATUSES = ["open", "needs_human", "resolved", "closed"] as const;
+
+export type OverviewBucket = { start: string; answered: number; handedOver: number };
 
 export type Overview = {
   period: OverviewPeriod;
@@ -45,6 +55,19 @@ export type Overview = {
   handedOverTopics: string[];
   firstReply: { targetHours: number | null; measured: null };
   recent: { conversationId: string; at: string; channel: string; asked: string; outcome: RecentOutcome }[];
+  /** The activity list is paged: which page this is and how many conversations match in all. */
+  recentPage: { page: number; pageSize: number; total: number };
+  /** Conversations waiting for a person right now: any age, but narrowed by the same filters as everything else. */
+  waitingNow: number;
+  /** Answered vs handed over, one entry per hour (24h) or per day (7d, 30d), oldest first. Rolling windows ending now. */
+  series: { bucket: "hour" | "day"; points: OverviewBucket[] };
+  /** Conversation status in the period, every status listed (zeros included). */
+  byStatus: { status: (typeof OVERVIEW_STATUSES)[number]; count: number }[];
+  /** The articles and pages the worker cited most, counting each conversation once. */
+  topSources: { title: string; count: number }[];
+  /** What the filter menus offer. */
+  filterOptions: { channels: string[]; requestTypes: string[]; priorities: string[] };
+  filters: { channel: string | null; requestType: string | null; priority: string | null };
 };
 
 function clip(text: string, max: number): string {
@@ -71,11 +94,20 @@ export async function computeOverview(input: {
   period: OverviewPeriod;
   firstReplyTargetHours: number | null;
   now?: Date;
+  filters?: OverviewFilters;
+  /** Zero-based page of the activity list. */
+  page?: number;
 }): Promise<Overview> {
   const { organizationId, period } = input;
-  const since = new Date((input.now ?? new Date()).getTime() - OVERVIEW_PERIODS[period] * DAY_MS);
+  const now = input.now ?? new Date();
+  const since = new Date(now.getTime() - OVERVIEW_PERIODS[period] * DAY_MS);
+  const filters = {
+    channel: input.filters?.channel?.trim() || null,
+    requestType: input.filters?.requestType?.trim() || null,
+    priority: input.filters?.priority?.trim() || null,
+  };
 
-  const rows = await db
+  const everyRow = await db
     .select()
     .from(conversations)
     .where(
@@ -88,6 +120,14 @@ export async function computeOverview(input: {
     )
     .orderBy(desc(conversations.createdAt))
     .limit(MAX_CONVERSATIONS);
+
+  // Filters narrow every number on the page together, so the tiles and charts always agree.
+  const rows = everyRow.filter(
+    (row) =>
+      (!filters.channel || row.channel === filters.channel) &&
+      (!filters.requestType || row.externalTicketType === filters.requestType) &&
+      (!filters.priority || row.externalTicketPriority === filters.priority),
+  );
 
   const ids = rows.map((row) => row.id);
   const allMessages = ids.length
@@ -122,7 +162,8 @@ export async function computeOverview(input: {
   // A helpdesk that can't be reached still leaves the counts we keep ourselves.
   const source = await helpdeskBreakdownSource(organizationId).catch(() => null);
 
-  const recent = rows.slice(0, RECENT_LIMIT).map((row) => {
+  const page = Math.max(0, Math.floor(input.page ?? 0));
+  const recent = rows.slice(page * RECENT_PAGE_SIZE, (page + 1) * RECENT_PAGE_SIZE).map((row) => {
     const thread = byConversation.get(row.id) ?? [];
     const opening = thread.find((message) => message.senderType === "customer");
     const lastCited = [...thread].reverse().find((message) => message.senderType === "agent" && (message.citations ?? []).length > 0);
@@ -142,6 +183,72 @@ export async function computeOverview(input: {
     };
   });
 
+  // Rolling windows ending now: 24 hours of one hour each, or 7 / 30 days of one day each.
+  const bucket = period === "24h" ? ("hour" as const) : ("day" as const);
+  const stepMs = bucket === "hour" ? 60 * 60 * 1000 : DAY_MS;
+  const bucketCount = Math.round((now.getTime() - since.getTime()) / stepMs);
+  const points: OverviewBucket[] = Array.from({ length: bucketCount }, (_, index) => ({
+    start: new Date(since.getTime() + index * stepMs).toISOString(),
+    answered: 0,
+    handedOver: 0,
+  }));
+  for (const row of rows) {
+    const index = Math.min(bucketCount - 1, Math.floor((row.createdAt.getTime() - since.getTime()) / stepMs));
+    if (index < 0) continue;
+    if (handedOverRow(row)) points[index].handedOver += 1;
+    else if (replied(row.id)) points[index].answered += 1;
+  }
+
+  const statusCounts = new Map<string, number>(OVERVIEW_STATUSES.map((status) => [status, 0]));
+  for (const row of rows) statusCounts.set(row.status, (statusCounts.get(row.status) ?? 0) + 1);
+  const byStatus = OVERVIEW_STATUSES.map((status) => ({ status, count: statusCounts.get(status) ?? 0 }));
+
+  const citedIn = new Map<string, number>();
+  for (const row of rows) {
+    const titles = new Set<string>();
+    for (const message of byConversation.get(row.id) ?? []) {
+      if (message.senderType !== "agent") continue;
+      for (const citation of message.citations ?? []) {
+        const title = citationTitle(citation);
+        if (title) titles.add(title);
+      }
+    }
+    for (const title of titles) citedIn.set(title, (citedIn.get(title) ?? 0) + 1);
+  }
+  const topSources = [...citedIn.entries()]
+    .map(([title, n]) => ({ title, count: n }))
+    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title))
+    .slice(0, TOP_SOURCES);
+
+  // "Waiting now" is not a period: every open handoff counts, however old. The filters still apply, so the number
+  // beside a filtered tile is about the same conversations.
+  const waitingRows = await db
+    .select({ channel: conversations.channel, type: conversations.externalTicketType, priority: conversations.externalTicketPriority })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.organizationId, organizationId),
+        notInArray(conversations.channel, [...INTERNAL_CONVERSATION_CHANNELS]),
+        eq(conversations.archived, false),
+        eq(conversations.status, "needs_human"),
+      ),
+    );
+  const waitingNow = waitingRows.filter(
+    (row) =>
+      (!filters.channel || row.channel === filters.channel) &&
+      (!filters.requestType || row.type === filters.requestType) &&
+      (!filters.priority || row.priority === filters.priority),
+  ).length;
+
+  const observed = (values: (string | null)[]) => [...new Set(values.filter((value): value is string => Boolean(value)))];
+  // The desk's own list first, in its order; anything seen in the data that the desk didn't list (or couldn't be read for) after it.
+  const merged = (listed: string[] | undefined, seen: (string | null)[]) => [...new Set([...(listed ?? []), ...observed(seen)])];
+  const filterOptions = {
+    channels: observed(everyRow.map((row) => row.channel)).sort(),
+    requestTypes: merged(source?.types, everyRow.map((row) => row.externalTicketType)),
+    priorities: merged(source?.priorities, everyRow.map((row) => row.externalTicketPriority)),
+  };
+
   return {
     period,
     since: since.toISOString(),
@@ -157,5 +264,12 @@ export async function computeOverview(input: {
     handedOverTopics: source ? [] : handedOver.slice(0, 5).map((row) => clip(row.subject ?? "", 80)).filter(Boolean),
     firstReply: { targetHours: input.firstReplyTargetHours, measured: null },
     recent,
+    recentPage: { page, pageSize: RECENT_PAGE_SIZE, total: rows.length },
+    waitingNow,
+    series: { bucket, points },
+    byStatus,
+    topSources,
+    filterOptions,
+    filters,
   };
 }
