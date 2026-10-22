@@ -13,6 +13,9 @@ import { runCustomerTurn } from "@/lib/customer-turn";
 import { messages as messagesTable } from "@/db/schema";
 import {
   buildKnowledgeCql,
+  clearConfluenceCatalog,
+  pickRelevantText,
+  scoreCatalogPage,
   rankByTitleMatch,
   CONFLUENCE_CQL_SEARCH_SLUG,
   ConfluenceKnowledgeError,
@@ -138,6 +141,7 @@ function jiraAnswers(post: { status: number; data: unknown }, desks = [{ id: "1"
 let orgId: string;
 
 beforeEach(async () => {
+  clearConfluenceCatalog();
   orgId = `org-${crypto.randomUUID()}`;
   await ensureOrganization(orgId, "Atlassian test org");
   getConnectionMock.mockReset();
@@ -965,6 +969,69 @@ describe("Confluence searched before answering", () => {
     const matches = await searchConfluenceKnowledge(orgId, "How do members register for the Self-Scheduler?", 3);
 
     expect(matches?.[0].content).toContain("receive an email to set a password");
+  });
+
+  it("finds a page that Confluence's own search ranked too low, through the page catalog", async () => {
+    connectionsFor({
+      knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+    });
+    const page = (id: string, title: string, html: string) => ({
+      id,
+      title,
+      body: { storage: { value: html } },
+      _links: { webui: `/spaces/SK/pages/${id}/x` },
+    });
+    const noisy = ["EAP Expert V3 Release Notes", "Provider Portal 2020 Release Notes", "Documentation of placeholders"].map((title, i) =>
+      page(String(i + 1), title, "<p>Members can register for the self-scheduler. Members, members, members register.</p>"),
+    );
+    const wanted = page("9", "Service Member Registration for the Self-Scheduler", "<p>Share the link. They then get an email to set a password.</p>");
+    executeToolMock.mockImplementation(async (slug) =>
+      slug === CONFLUENCE_CQL_SEARCH_SLUG
+        ? {
+            successful: true,
+            error: null,
+            // Confluence's order: the wanted page is not in it at all.
+            data: { results: noisy.map((n) => ({ title: n.title, content: { id: n.id, title: n.title, body: n.body } })) },
+          }
+        : { successful: true, error: null, data: { results: [...noisy, wanted] } },
+    );
+
+    const matches = await searchConfluenceKnowledge(orgId, "How do members register for the Self-Scheduler?", 5);
+
+    expect(matches?.[0].title).toBe("Service Member Registration for the Self-Scheduler");
+    expect(matches?.[0].content).toContain("email to set a password");
+  });
+
+  it("lists every page it can search, once, and remembers it", async () => {
+    connectionsFor({
+      knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+    });
+    executeToolMock.mockResolvedValue({
+      successful: true,
+      error: null,
+      data: { results: [{ id: "1", title: "A page", body: { storage: { value: "<p>text</p>" } }, _links: { webui: "/spaces/SK/pages/1/x" } }] },
+    });
+    const { confluenceInventory } = await import("@/lib/tools-integrations/atlassian");
+    expect((await confluenceInventory(orgId))?.pages.map((p) => p.title)).toEqual(["A page"]);
+    await confluenceInventory(orgId);
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("scores a page named for the question above pages that only mention its words", () => {
+    const keywords = searchKeywords("How do members register for the Self-Scheduler?");
+    const named = { title: "Service Member Registration for the Self-Scheduler", text: "Share the link." };
+    const noisy = { title: "EAP Expert V3 Release Notes", text: "members register self-scheduler ".repeat(10) };
+    expect(scoreCatalogPage(named, keywords)).toBeGreaterThan(scoreCatalogPage(noisy, keywords));
+  });
+
+  it("keeps the section with the steps when a long page has to be cut", () => {
+    const filler = (n: string) => `## Part ${n}\n${"unrelated filler words ".repeat(60)}`;
+    const text = ["Intro line.", filler("one"), filler("two"), "## Setting up modalities\nTick each modality, then save.", filler("three")].join("\n\n");
+    const picked = pickRelevantText(text, ["modalities"], 1500);
+    expect(picked.length).toBeLessThanOrEqual(1501);
+    expect(picked).toContain("Tick each modality, then save.");
+    expect(picked).toContain("Intro line.");
+    expect(pickRelevantText("short page", ["x"], 1500)).toBe("short page");
   });
 
   it("ranks the space's pages itself when Confluence refuses the search (no search scope)", async () => {
