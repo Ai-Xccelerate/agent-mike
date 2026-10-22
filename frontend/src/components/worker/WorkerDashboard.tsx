@@ -6,6 +6,7 @@ import { apiFetch, type OverviewFilters, type OverviewPeriod, type OverviewRecen
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { FEEDBACK_REASON_LABELS } from "@/lib/answer-feedback";
+import { DEFAULT_ROW_LIMIT } from "@/lib/overview-rows";
 import { ConversationsOverTime, CountBars, PriorityColumns, StatusDonut } from "./overview/OverviewCharts";
 
 /**
@@ -259,7 +260,7 @@ export default function WorkerDashboard() {
 
         {helpdesk ? (
           <Panel id="by-type" title="Tickets by request type" hint={`The request types of your connected service desk (${helpdesk.project}).`}>
-            <CountBars rows={overview?.tickets.byType ?? []} empty="No tickets in this period." />
+            <CountBars rows={overview?.tickets.byType ?? []} empty="No tickets in this period." limit={DEFAULT_ROW_LIMIT} noun="request types" />
           </Panel>
         ) : (
           <Panel

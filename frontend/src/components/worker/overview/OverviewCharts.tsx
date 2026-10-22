@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { visibleRows, type CountRow } from "@/lib/overview-rows";
 import type { OverviewStatus, WorkerOverview } from "@/lib/worker-api";
 
 /**
@@ -184,32 +186,55 @@ export function PriorityColumns({ byPriority }: { byPriority: WorkerOverview["ti
   );
 }
 
-/** A horizontal bar per label, for request types and for the most-used articles. */
+/**
+ * A horizontal bar per label, for request types and for the most-used articles. With `limit`, a long list shows the
+ * rows that have a count first and keeps the rest behind "Show all", so the card stays the size of its neighbours.
+ */
 export function CountBars({
   rows,
   empty,
   labelTrack = "minmax(0, 12rem)",
+  limit,
+  noun = "rows",
 }: {
-  rows: { name: string; count: number }[];
+  rows: CountRow[];
   empty: string;
   /** The label column's grid track: request types are short, article titles are not. */
   labelTrack?: string;
+  /** Show at most this many rows until the reader asks for all. */
+  limit?: number;
+  /** What the rows are, for the "Show all" button. */
+  noun?: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const { shown, hidden } = visibleRows(rows, limit ?? rows.length, expanded);
   const peak = Math.max(1, ...rows.map((row) => row.count));
   if (!rows.length) return <p className={mutedClass}>{empty}</p>;
   return (
-    <dl className="grid items-center gap-x-3 gap-y-2.5 text-sm" style={{ gridTemplateColumns: `${labelTrack} minmax(0, 1fr) 2rem` }}>
-      {rows.map((row) => (
-        <div key={row.name} className="contents">
-          <dt className={`truncate ${row.count ? "text-gray-800 dark:text-white/90" : "text-gray-500 dark:text-gray-400"}`} title={row.name}>
-            {row.name}
-          </dt>
-          <dd className="h-2 rounded-full bg-gray-100 dark:bg-white/5" aria-hidden="true">
-            <span className="block h-2 rounded-full bg-brand-500" style={{ width: `${(row.count / peak) * 100}%` }} />
-          </dd>
-          <dd className="text-right font-semibold tabular-nums text-gray-800 dark:text-white/90">{row.count}</dd>
-        </div>
-      ))}
-    </dl>
+    <div>
+      <dl className="grid items-center gap-x-3 gap-y-2.5 text-sm" style={{ gridTemplateColumns: `${labelTrack} minmax(0, 1fr) 2rem` }}>
+        {shown.map((row) => (
+          <div key={row.name} className="contents">
+            <dt className={`truncate ${row.count ? "text-gray-800 dark:text-white/90" : "text-gray-500 dark:text-gray-400"}`} title={row.name}>
+              {row.name}
+            </dt>
+            <dd className="h-2 rounded-full bg-gray-100 dark:bg-white/5" aria-hidden="true">
+              <span className="block h-2 rounded-full bg-brand-500" style={{ width: `${(row.count / peak) * 100}%` }} />
+            </dd>
+            <dd className="text-right font-semibold tabular-nums text-gray-800 dark:text-white/90">{row.count}</dd>
+          </div>
+        ))}
+      </dl>
+      {(hidden > 0 || expanded) && limit !== undefined && rows.length > limit && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((open) => !open)}
+          className="mt-3 text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
+        >
+          {expanded ? "Show fewer" : `Show all ${rows.length} ${noun}`}
+        </button>
+      )}
+    </div>
   );
 }
