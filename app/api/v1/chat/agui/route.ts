@@ -75,6 +75,8 @@ export async function POST(req: NextRequest) {
         const ticket = outcome.pendingTicket ? await outcome.pendingTicket : null;
         if (ticket) {
           const note = ticket.message as { id: string; body: string; cards?: CustomerCard[] };
+          // The panel builds its list from the turn's own messages, so it is handed this one whole.
+          send({ type: "CUSTOM", name: "chat.ticket", value: ticket.message });
           send({ type: "TEXT_MESSAGE_START", messageId: note.id, role: "assistant" });
           send({ type: "TEXT_MESSAGE_CONTENT", messageId: note.id, delta: note.body });
           send({ type: "TEXT_MESSAGE_END", messageId: note.id });

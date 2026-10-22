@@ -249,11 +249,18 @@ function ChatPanelBody({
       agent.setMessages([{ id: crypto.randomUUID(), role: "user", content: trimmed }]);
       let turn: ChatResponse | null = null;
       let failure: string | null = null;
+      // Added as each arrives, so the reply shows at once and the ticket number joins it a few seconds later.
+      const addReply = (message: Message) =>
+        setMessages((items) => (items.some((item) => item.id === message.id) ? items : [...items, message]));
       await agent.runAgent(
         { forwardedProps: { conversation_id: conversationId } },
         {
           onCustomEvent: ({ event }) => {
-            if (event.name === "chat.turn") turn = event.value as ChatResponse;
+            if (event.name === "chat.turn") {
+              turn = event.value as ChatResponse;
+              if (turn.message) addReply(turn.message as Message);
+            }
+            if (event.name === "chat.ticket") addReply(event.value as Message);
             if (event.name === "chat.status") {
               const label = (event.value as { label?: unknown } | null)?.label;
               if (typeof label === "string" && label.trim()) setStatusLabel(label.trim());
@@ -276,9 +283,7 @@ function ChatPanelBody({
         if (!externalConversationId) onConversationCreated?.(response.conversation_id);
         onConversationChanged?.();
       }
-      if (response.message) {
-        setMessages((items) => [...items, response.message as Message]);
-      }
+      if (response.message) addReply(response.message as Message);
       setEscalated(response.escalated);
       setPreview(false);
     } catch {
