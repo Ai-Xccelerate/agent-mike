@@ -13,6 +13,7 @@ import { runCustomerTurn } from "@/lib/customer-turn";
 import { messages as messagesTable } from "@/db/schema";
 import {
   buildKnowledgeCql,
+  rankByTitleMatch,
   CONFLUENCE_CQL_SEARCH_SLUG,
   ConfluenceKnowledgeError,
   customerTicketKeys,
@@ -859,6 +860,18 @@ describe("Confluence searched before answering", () => {
       'type = page AND (text ~ "reset") AND space in ("EAPX", "EESD", "PGFP")',
     );
     expect(buildKnowledgeCql(['say"hi'], [])).toBe('type = page AND (text ~ "say\\"hi")');
+  });
+
+  it("puts the page named for the question ahead of pages that only mention the words", () => {
+    const pages = [
+      { title: "Self-Scheduler Client Portal" },
+      { title: "Expert Additional Forms Feature" },
+      { title: "Service Member Registration for the Self-Scheduler" },
+    ];
+    expect(rankByTitleMatch(pages, searchKeywords("How do members register for the Self-Scheduler?"))[0].title).toBe(
+      "Service Member Registration for the Self-Scheduler",
+    );
+    expect(rankByTitleMatch(pages, ["unrelated"]).map((p) => p.title)).toEqual(pages.map((p) => p.title));
   });
 
   it("reads the old single spaceKey as a one-item list and dedupes a list", () => {

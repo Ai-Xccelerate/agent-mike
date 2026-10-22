@@ -1175,7 +1175,11 @@ export async function buildInstructions(
     "not a reason to escalate. Greetings, thanks, small talk, and short clarifying questions do not need " +
     "reference material — reply to those naturally. Search first and answer when the material covers the " +
     "question; do not ask which product or what they were doing when the question already names the feature. " +
-    "Ask a clarifying question only when the material cannot be searched without it, and never twice in a row.";
+    "Ask a clarifying question only when the material cannot be searched without it, and never twice in a row. " +
+    "Before you tell the customer the material does not cover a how-to, or hand over, and if you have the " +
+    "Confluence search and read tools, search for the likely page title (for example the feature name plus " +
+    "\"registration\", \"set-up\" or \"guide\") and read the best page in full. Only hand over when that " +
+    "page does not answer it. A summary that says a feature exists is not an answer to \"how do I\".";
 
   // No channel gets the signature in the prompt. Chat/widget must never
   // sign ("Best, Mike…" on every website reply), and email replies get it
