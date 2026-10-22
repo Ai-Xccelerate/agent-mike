@@ -115,7 +115,7 @@ function ChatChannelSettings({
   const setActions = (next: string[]) => update("quickActions", next);
 
   return (
-    <div className="space-y-5 pb-5">
+    <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-white/[0.02] space-y-5">
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
         Welcome message
         <AutoGrowTextarea
@@ -233,24 +233,19 @@ function MailboxStatusLine() {
   );
 }
 
-/** The address customers write to and how an email reply ends. Shown under the Email switch. */
+/** The address customers write to and how an email reply ends. Shown only while Email is on, like the Chat block. */
 function EmailChannelSettings({
   profile,
   update,
   fieldErrors,
-  enabled,
 }: {
   profile: WorkerProfile;
   update: Update;
   fieldErrors: Record<string, string>;
-  enabled: boolean;
 }) {
   const signature = profile.emailSignature ?? "";
   return (
-    <div className="space-y-4 pb-5" aria-disabled={!enabled}>
-      {!enabled && (
-        <p className="text-xs text-gray-500 dark:text-gray-400">Email is off. You can still set these now; they apply once you switch it on.</p>
-      )}
+    <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-white/[0.02] space-y-4">
       <MailboxStatusLine />
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
         Support email address
@@ -336,12 +331,7 @@ export default function ChannelsSettings() {
               checked={profile.channelsConfig.email}
               onChange={() => toggle("email")}
             />
-            <EmailChannelSettings
-              profile={profile}
-              update={update}
-              fieldErrors={fieldErrors}
-              enabled={profile.channelsConfig.email}
-            />
+            {profile.channelsConfig.email && <EmailChannelSettings profile={profile} update={update} fieldErrors={fieldErrors} />}
           </div>
           <SettingsToggleRow
             title="Voice"
