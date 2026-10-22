@@ -19,3 +19,7 @@ next-env.d.ts
 
 # Runtime uploads land on the service's own disk; they are not source.
 public/uploads/
+
+# org clone backups and exports (hold a worker's instructions)
+.org-clone-backups/
+*-export.json
