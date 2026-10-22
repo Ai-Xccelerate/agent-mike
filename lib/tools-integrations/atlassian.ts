@@ -775,6 +775,9 @@ export async function lookupCustomerTickets(
 export const CONFLUENCE_CQL_SEARCH_SLUG = "CONFLUENCE_CQL_SEARCH";
 export const CONFLUENCE_KNOWLEDGE_TOOL_ID = "confluence_knowledge_search";
 const CONFLUENCE_MATCH_CHARS = 5000;
+/** How many of the best-ranked pages are read in full, because a search hit can carry only a short excerpt. */
+const CONFLUENCE_FULL_READS = 2;
+const CONFLUENCE_FULL_PAGE_CHARS = 7000;
 /** Candidates fetched per search; re-ranked by title before the best few are kept. */
 const CONFLUENCE_CANDIDATES = 15;
 const MAX_KEYWORDS = 6;
@@ -964,9 +967,37 @@ export async function searchConfluenceKnowledge(
       };
     })
     .filter((match): match is KnowledgeMatch => match !== null);
-  return rankByTitleMatch(found, keywords)
+  const best = rankByTitleMatch(found, keywords)
     .slice(0, limit)
     .map((match, index) => ({ ...match, rank: 1 / (index + 1) }));
+  return readBestPagesInFull(best, organizationId, connectedAccountId);
+}
+
+/**
+ * A search hit often carries only a short excerpt, so the steps a customer asked for can be missing from it.
+ * The best few pages are read in full instead; if a read fails the hit's own text is kept.
+ */
+async function readBestPagesInFull(
+  matches: KnowledgeMatch[],
+  organizationId: string,
+  connectedAccountId: string,
+): Promise<KnowledgeMatch[]> {
+  return Promise.all(
+    matches.map(async (match, index) => {
+      const id = match.documentId.startsWith("confluence:") ? match.documentId.slice("confluence:".length) : "";
+      if (index >= CONFLUENCE_FULL_READS || !/^\d+$/.test(id)) return match;
+      const result = (await runReadTool(
+        CONFLUENCE_READ_TOOL_NAME,
+        CONFLUENCE_GET_PAGE_SLUG,
+        { id },
+        organizationId,
+        connectedAccountId,
+        CONFLUENCE_TOOLKIT_VERSION,
+      ).catch(() => null)) as { data?: { body?: { storage?: { value?: string } } } } | null;
+      const text = confluenceStorageToText(result?.data?.body?.storage?.value ?? "");
+      return text.length > match.content.length ? { ...match, content: clip(text, CONFLUENCE_FULL_PAGE_CHARS) } : match;
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
