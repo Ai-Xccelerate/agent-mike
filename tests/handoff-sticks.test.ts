@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
-import { promisesPersonFollowUp } from "@/lib/agent";
+import { announcesWorkWithoutAnswer, promisesPersonFollowUp } from "@/lib/agent";
 import { recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import { summarizeForHandoff } from "@/lib/ticket-classifier";
 
@@ -112,4 +112,19 @@ describe("promisesPersonFollowUp", () => {
     "A teammate can help with both requests. Please share your work email.",
     "",
   ])("leaves %s alone", (text) => expect(promisesPersonFollowUp(text)).toBe(false));
+});
+
+describe("announcesWorkWithoutAnswer", () => {
+  it.each([
+    "I’ll check the instructions for making a provider available in Self-Scheduler.",
+    "Let me look that up for you.",
+    "Sure, I will search the knowledge base.",
+  ])("recognises %s", (text) => expect(announcesWorkWithoutAnswer(text)).toBe(true));
+
+  it.each([
+    "Which product are you using?",
+    "1. Open Settings.\n2. Choose Providers.",
+    "To make a provider available, open Providers and tick Self-Scheduling. From: Self-Scheduler Client Portal Set-Up",
+    "",
+  ])("leaves %s alone", (text) => expect(announcesWorkWithoutAnswer(text)).toBe(false));
 });

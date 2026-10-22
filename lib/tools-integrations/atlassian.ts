@@ -774,7 +774,9 @@ export async function lookupCustomerTickets(
 
 export const CONFLUENCE_CQL_SEARCH_SLUG = "CONFLUENCE_CQL_SEARCH";
 export const CONFLUENCE_KNOWLEDGE_TOOL_ID = "confluence_knowledge_search";
-const CONFLUENCE_MATCH_CHARS = 3000;
+const CONFLUENCE_MATCH_CHARS = 5000;
+/** Candidates fetched per search; re-ranked by title before the best few are kept. */
+const CONFLUENCE_CANDIDATES = 15;
 const MAX_KEYWORDS = 6;
 
 const STOP_WORDS = new Set(
@@ -796,6 +798,24 @@ export function searchKeywords(message: string): string[] {
     .split(/\s+/)
     .filter((word) => word.length >= 3 && !STOP_WORDS.has(word));
   return [...new Set(words)].slice(0, MAX_KEYWORDS);
+}
+
+/**
+ * Puts pages whose title carries the customer's words first. Confluence ranks an OR of everyday words
+ * ("members", "register") by body text, so the page actually named for the question can fall outside the top few.
+ * Words are matched by a shortened stem, so "scheduling" finds "Self-Scheduler" and "register" finds "Registration".
+ * Equal scores keep Confluence's own order.
+ */
+export function rankByTitleMatch<T extends { title: string }>(pages: T[], keywords: string[]): T[] {
+  const stems = keywords.map((word) => word.slice(0, Math.max(4, word.length - 3)));
+  const score = (title: string) => {
+    const lower = title.toLowerCase();
+    return stems.filter((stem) => lower.includes(stem)).length;
+  };
+  return pages
+    .map((page, index) => ({ page, index, score: score(page.title) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.page);
 }
 
 function cqlString(value: string): string {
@@ -904,7 +924,7 @@ export async function searchConfluenceKnowledge(
   const result = await runReadTool(
     CONFLUENCE_KNOWLEDGE_TOOL_ID,
     CONFLUENCE_CQL_SEARCH_SLUG,
-    { cql: buildKnowledgeCql(keywords, settings.spaceKeys), limit, expand: "content.body.storage" },
+    { cql: buildKnowledgeCql(keywords, settings.spaceKeys), limit: Math.max(limit, CONFLUENCE_CANDIDATES), expand: "content.body.storage" },
     organizationId,
     connectedAccountId,
     CONFLUENCE_TOOLKIT_VERSION,
@@ -921,7 +941,7 @@ export async function searchConfluenceKnowledge(
       connectedAccountId,
     );
     if (ranked === null) throw new ConfluenceKnowledgeError("Confluence search and page listing both failed");
-    return ranked.map((page, index) => ({
+    return rankByTitleMatch(ranked, keywords).map((page, index) => ({
       documentId: `confluence:${page.id}`,
       title: page.title,
       heading: null,
@@ -930,8 +950,8 @@ export async function searchConfluenceKnowledge(
     }));
   }
 
-  return cqlResultsFrom(result)
-    .map((hit, index): KnowledgeMatch | null => {
+  const found = cqlResultsFrom(result)
+    .map((hit): KnowledgeMatch | null => {
       const title = hit.content?.title ?? hit.title ?? "";
       const text = confluenceStorageToText(hit.content?.body?.storage?.value ?? hit.excerpt ?? "");
       if (!title || !text) return null;
@@ -940,11 +960,13 @@ export async function searchConfluenceKnowledge(
         title,
         heading: null,
         content: clip(text, CONFLUENCE_MATCH_CHARS),
-        rank: 1 / (index + 1),
+        rank: 0,
       };
     })
-    .filter((match): match is KnowledgeMatch => match !== null)
-    .slice(0, limit);
+    .filter((match): match is KnowledgeMatch => match !== null);
+  return rankByTitleMatch(found, keywords)
+    .slice(0, limit)
+    .map((match, index) => ({ ...match, rank: 1 / (index + 1) }));
 }
 
 // ---------------------------------------------------------------------------
