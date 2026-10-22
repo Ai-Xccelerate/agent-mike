@@ -32,7 +32,7 @@ const jiraProjects = {
   data: { projects: [{ key: "SUP", name: "Support", issueTypes: [{ name: "Task" }, { name: "[System] Incident" }] }] },
 };
 
-const NO_REQUEST_TYPE = { requestTypeId: null, requestTypeName: null, workerChoosesRequestType: false };
+const NO_REQUEST_TYPE = { requestTypeId: null, requestTypeName: null, workerChoosesRequestType: false, createCustomers: false };
 
 const previousAdapter = getIdentityAdapter();
 let orgId: string;
@@ -125,6 +125,7 @@ describe("PATCH /api/v1/integrations/:type settings", () => {
       requestTypeName: "Report a system problem",
       createTicketOnHandoff: true,
       workerChoosesRequestType: false,
+      createCustomers: false,
     });
     // The issue type isn't checked when a request type decides it.
     expect(executeToolMock).not.toHaveBeenCalled();

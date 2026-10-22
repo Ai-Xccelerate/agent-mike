@@ -53,6 +53,10 @@ export type Conversation = {
   externalTicketUrl?: string | null;
   /** What the customer typed about themselves in the chat. Not verified. */
   customerStated?: StatedCustomer | null;
+  /** Set once the customer proved they own customerEmail (emailed code). */
+  customerEmailVerifiedAt?: string | null;
+  /** How the customer's name and email were captured. */
+  identitySource?: "widget_card" | "email_code" | null;
   /** The worker's own classification, shown on the Tickets page. */
   requestType?: string | null;
   tier?: string | null;
@@ -128,6 +132,9 @@ export type ChannelsConfig = {
 
 export type WorkerStatus = "active" | "paused";
 
+/** How the widget finds out who is chatting: nothing, a name and email, or an emailed code too. */
+export type IdentityMode = "off" | "email_match" | "email_code";
+
 export type WorkerProfile = {
   id: string;
   organizationId: string;
@@ -155,6 +162,7 @@ export type WorkerProfile = {
   escalationTerms: string[];
   allowedDomains: string[];
   requireUserVerification: boolean;
+  identityMode: IdentityMode;
   /** On: every change in a connected app waits for a manager. Off: routine changes run on their own. */
   requireWriteApproval: boolean;
   assistantActionsEnabled: boolean;
@@ -507,12 +515,18 @@ export type ApiFetchOptions = RequestInit & { widgetSiteToken?: string };
 export class WorkerApiError extends Error {
   status: number;
   errors?: Record<string, string>;
+  /** Seconds to wait before trying again (a 429's retry_after). */
+  retryAfter?: number;
+  /** Code attempts left (a wrong-code 422). */
+  attemptsLeft?: number;
 
-  constructor(message: string, status: number, errors?: Record<string, string>) {
+  constructor(message: string, status: number, errors?: Record<string, string>, extra?: { retryAfter?: number; attemptsLeft?: number }) {
     super(message);
     this.name = "WorkerApiError";
     this.status = status;
     this.errors = errors;
+    this.retryAfter = extra?.retryAfter;
+    this.attemptsLeft = extra?.attemptsLeft;
   }
 }
 
@@ -566,13 +580,21 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
     const detail = await response.text();
     let errors: Record<string, string> | undefined;
     let message = `Request failed with ${response.status}`;
+    let retryAfter: number | undefined;
+    let attemptsLeft: number | undefined;
+    const retryHeader = Number(response.headers.get("Retry-After"));
+    if (Number.isFinite(retryHeader) && retryHeader > 0) retryAfter = retryHeader;
     if (response.headers.get("content-type")?.includes("application/json")) {
       try {
         const parsed = JSON.parse(detail) as {
           error?: string;
           errors?: Record<string, string>;
           detail?: { message?: string };
+          retry_after?: number;
+          attempts_left?: number;
         };
+        if (typeof parsed?.retry_after === "number") retryAfter = parsed.retry_after;
+        if (typeof parsed?.attempts_left === "number") attemptsLeft = parsed.attempts_left;
         if (parsed?.errors && typeof parsed.errors === "object") errors = parsed.errors;
         if (typeof parsed?.error === "string") message = parsed.error;
         else if (typeof parsed?.detail?.message === "string") message = parsed.detail.message;
@@ -585,7 +607,7 @@ export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise
         /* keep the generic status message */
       }
     }
-    throw new WorkerApiError(message, response.status, errors);
+    throw new WorkerApiError(message, response.status, errors, { retryAfter, attemptsLeft });
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -617,6 +639,8 @@ export type JiraConnectionSettings = {
   createTicketOnHandoff: boolean;
   /** The worker picks the request type for each handoff from the desk's own list. */
   workerChoosesRequestType: boolean;
+  /** Create a Jira customer account for a verified visitor who is not one yet. Needs identity mode email_code. */
+  createCustomers: boolean;
 };
 
 /** Which Confluence spaces ground the worker's answers (empty = every space). */
@@ -988,3 +1012,36 @@ export type WorkerOverview = {
   firstReply: { targetHours: number | null; measured: null };
   recent: { conversationId: string; at: string; channel: string; asked: string; outcome: OverviewRecentOutcome }[];
 };
+
+export type IdentityResponse = {
+  ok: true;
+  mode: IdentityMode;
+  next: "done" | "code";
+  known_customer: boolean | null;
+  /** Seconds until a code can be sent again. */
+  resend_in: number;
+};
+
+/** Saves the name and email a visitor gave (and sends the code in email_code mode). */
+export function submitIdentity(
+  input: { conversationId: string; name: string; email: string },
+  widgetSiteToken?: string,
+): Promise<IdentityResponse> {
+  return apiFetch<IdentityResponse>("/chat/identity", {
+    method: "POST",
+    body: JSON.stringify({ conversation_id: input.conversationId, name: input.name, email: input.email }),
+    widgetSiteToken,
+  });
+}
+
+/** Checks the 6-digit code the visitor typed. */
+export function verifyIdentityCode(
+  input: { conversationId: string; code: string },
+  widgetSiteToken?: string,
+): Promise<{ ok: true; verified: true }> {
+  return apiFetch<{ ok: true; verified: true }>("/chat/identity/verify", {
+    method: "POST",
+    body: JSON.stringify({ conversation_id: input.conversationId, code: input.code }),
+    widgetSiteToken,
+  });
+}

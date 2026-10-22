@@ -68,6 +68,8 @@ function publicRequest(req: NextRequest): boolean {
     hasWidgetToken(req) &&
     (path === "/api/v1/chat" ||
       path === "/api/v1/chat/agui" ||
+      path === "/api/v1/chat/identity" ||
+      path === "/api/v1/chat/identity/verify" ||
       path === "/api/v1/worker" ||
       path === "/api/v1/transcribe")
   ) {

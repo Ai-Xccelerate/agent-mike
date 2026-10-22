@@ -1,3 +1,4 @@
+import { trustedCustomerEmail } from "@/lib/customer-identity";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations } from "@/db/schema";
@@ -120,11 +121,16 @@ export async function executeSearchActions(
 export async function customerEmailFor(organizationId: string, conversationId: string | null | undefined): Promise<string | null> {
   if (!conversationId) return null;
   const [row] = await db
-    .select({ customerEmail: conversations.customerEmail })
+    .select({
+      channel: conversations.channel,
+      customerEmail: conversations.customerEmail,
+      customerEmailVerifiedAt: conversations.customerEmailVerifiedAt,
+    })
     .from(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
     .limit(1);
-  return row?.customerEmail ?? null;
+  // Only an address that can be relied on may skip approval as "the customer's own".
+  return row ? trustedCustomerEmail(row) : null;
 }
 
 function resultText(result: unknown): string {

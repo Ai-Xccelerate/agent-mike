@@ -17,9 +17,17 @@ export type HelpdeskTicketCard = {
   created: boolean;
 };
 
+/** Asks the visitor who they are, before the worker raises or reads a ticket. */
+export type IdentityRequestCard = {
+  mode: "email_match" | "email_code";
+  name?: string;
+  email?: string;
+};
+
 export type CustomerCardData = {
   choices: ChoicesCard;
   helpdesk_ticket: HelpdeskTicketCard;
+  identity_request: IdentityRequestCard;
 };
 
 export type CustomerCardKind = keyof CustomerCardData;
@@ -32,7 +40,7 @@ export function customerCardToolName(kind: CustomerCardKind): string {
   return `show_${kind}`;
 }
 
-const KINDS: CustomerCardKind[] = ["choices", "helpdesk_ticket"];
+const KINDS: CustomerCardKind[] = ["choices", "helpdesk_ticket", "identity_request"];
 
 export function isCustomerCard(card: { kind: string }): card is CustomerCard {
   return (KINDS as string[]).includes(card.kind);

@@ -28,6 +28,7 @@ import {
   markConversationRead,
   type ConversationReadMap,
 } from "@/lib/conversation-read-state";
+import { isPlaceholderName } from "@/lib/tickets";
 import { apiFetch, Conversation, WorkerApiError, WorkerProfile } from "@/lib/worker-api";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -76,12 +77,10 @@ function messageTime(iso: string) {
   return `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
 
-// The backend names a conversation "Website visitor" until the customer says who they are.
-function isPlaceholderName(name: string) {
-  return name.trim().toLowerCase() === "website visitor";
-}
-
+// The backend names a conversation "Website visitor" or "Visitor 4821" until the customer says who they are.
 function initials(name: string) {
+  // An anonymous visitor has no initials to show.
+  if (isPlaceholderName(name)) return "#";
   return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
@@ -149,18 +148,38 @@ function statusTag(conversation: Conversation): { label: string; tone: "warning"
 }
 
 const TAG_TONE = {
+  success: "bg-success-50 text-success-700 dark:bg-success-500/15 dark:text-success-400",
   warning: "bg-warning-50 text-warning-700 dark:bg-warning-500/15 dark:text-warning-400",
   brand: "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-400",
   muted: "bg-gray-100 text-gray-600 dark:bg-white/[0.06] dark:text-gray-400",
 };
 
+/** How well the customer is known: only meaningful for chats, where anyone can type anything. */
+function identityTag(conversation: Conversation): { label: string; tone: "success" | "muted" } | null {
+  if (conversation.channel !== "widget" && conversation.channel !== "chat") return null;
+  if (conversation.customerEmailVerifiedAt) return { label: "Verified", tone: "success" };
+  if (conversation.customerEmail) return { label: "Email given", tone: "muted" };
+  if (isPlaceholderName(conversation.customerName)) return { label: "Anonymous", tone: "muted" };
+  return null;
+}
+
 function StatusTag({ conversation }: { conversation: Conversation }) {
   const tag = statusTag(conversation);
-  if (!tag) return null;
+  const identity = identityTag(conversation);
+  if (!tag && !identity) return null;
   return (
-    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-theme-xs font-medium ${TAG_TONE[tag.tone]}`}>
-      {tag.label}
-    </span>
+    <>
+      {tag && (
+        <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-theme-xs font-medium ${TAG_TONE[tag.tone]}`}>
+          {tag.label}
+        </span>
+      )}
+      {identity && (
+        <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-theme-xs font-medium ${TAG_TONE[identity.tone]}`}>
+          {identity.label}
+        </span>
+      )}
+    </>
   );
 }
 

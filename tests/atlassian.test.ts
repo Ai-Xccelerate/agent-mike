@@ -16,6 +16,7 @@ import {
   CONFLUENCE_CQL_SEARCH_SLUG,
   ConfluenceKnowledgeError,
   customerTicketKeys,
+  lookupJiraCustomerByEmail,
   HANDOFF_TICKET_LABEL,
   handoffTicketSummary,
   issueKeyFrom,
@@ -171,6 +172,7 @@ describe("connection settings", () => {
       requestTypeName: null,
       createTicketOnHandoff: true,
       workerChoosesRequestType: false,
+      createCustomers: false,
     });
     expect(readJiraSettings({ settings: { projectKey: "not a key!" } }).projectKey).toBeNull();
     expect(readConfluenceSettings(null)).toEqual({ spaceKeys: [], searchBeforeAnswering: true });
@@ -804,13 +806,27 @@ describe("raising a Jira ticket on handoff", () => {
 });
 
 describe("the customer's own tickets", () => {
-  it("are this conversation's and the same email's, never another customer's", async () => {
-    const mine = await newConversation({ customerEmail: "ana@example.com", externalTicketKey: "SUP-1" });
+  it("are this conversation's and the same verified email's, never another customer's", async () => {
+    const mine = await newConversation({ customerEmail: "ana@example.com", customerEmailVerifiedAt: new Date(), externalTicketKey: "SUP-1" });
     await newConversation({ customerEmail: "ANA@example.com", externalTicketKey: "SUP-2" });
     await newConversation({ customerEmail: "bob@example.com", externalTicketKey: "SUP-3" });
 
     const keys = await customerTicketKeys(orgId, mine.id);
     expect(keys.sort()).toEqual(["SUP-1", "SUP-2"]);
+  });
+
+  it("do not follow an email the visitor only typed: that would let anyone read someone else's tickets", async () => {
+    const typed = await newConversation({ channel: "widget", customerEmail: "ana@example.com", externalTicketKey: "SUP-1" });
+    await newConversation({ customerEmail: "ana@example.com", externalTicketKey: "SUP-2" });
+
+    expect(await customerTicketKeys(orgId, typed.id)).toEqual(["SUP-1"]);
+  });
+
+  it("follow the sender address of an email conversation", async () => {
+    const mail = await newConversation({ channel: "email", customerEmail: "ana@example.com", externalTicketKey: "SUP-1" });
+    await newConversation({ customerEmail: "ana@example.com", externalTicketKey: "SUP-2" });
+
+    expect((await customerTicketKeys(orgId, mail.id)).sort()).toEqual(["SUP-1", "SUP-2"]);
   });
 
   it("reads only those tickets from Jira, by key", async () => {
@@ -1057,10 +1073,15 @@ describe("a handoff in chat", () => {
       }),
     );
     expect(res.headers.get("content-type")).toBe("text/event-stream");
-    const events = (await res.text())
+    const all = (await res.text())
       .split("\n\n")
       .filter(Boolean)
       .map((chunk) => JSON.parse(chunk.replace(/^data: /, "")) as { type: string; [key: string]: unknown });
+    // Progress lines are sent while the turn runs; they are checked apart from the reply's own events.
+    const isStatus = (event: { type: string; name?: unknown }) => event.type === "CUSTOM" && event.name === "chat.status";
+    const statuses = all.filter(isStatus).map((event) => (event.value as { stage: string; label: string }).stage);
+    expect(statuses).toEqual(["retrieval", "reply", "ticket"]);
+    const events = all.filter((event) => !isStatus(event));
     expect(events.map((event) => event.type)).toEqual([
       "RUN_STARTED",
       "TEXT_MESSAGE_START",
@@ -1275,5 +1296,132 @@ describe("a handoff in chat", () => {
 
     await chat("Where are invoices?");
     expect(executeToolMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Jira customers for a verified visitor", () => {
+  const API = "https://api.atlassian.com/ex/jira/cloud-acme";
+  const desk = () =>
+    connection("helpdesk", "jira", {
+      metadata: { settings: { projectKey: "SUP", requestTypeId: "8", requestTypeName: "Report a problem", createTicketOnHandoff: true, ...extraSettings } },
+    });
+  let extraSettings: Record<string, unknown> = {};
+  let existingCustomers: unknown[] = [];
+  let createCustomer: { status: number; data: unknown } = { status: 201, data: { accountId: "acc-new" } };
+  let requestAnswers: { status: number; data: unknown }[] = [];
+
+  const calls = () => proxyRequestMock.mock.calls.map(([call]) => call);
+  const requestBodies = () => calls().filter((call) => call.endpoint === `${API}/rest/servicedeskapi/request`).map((call) => call.body as Record<string, unknown>);
+
+  beforeEach(() => {
+    extraSettings = { createCustomers: true };
+    existingCustomers = [];
+    createCustomer = { status: 201, data: { accountId: "acc-new" } };
+    requestAnswers = [{ status: 201, data: { issueKey: "SUP-50" } }];
+    proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+      if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+      if (method === "GET" && endpoint.includes("/servicedesk/1/customer")) return { status: 200, data: { values: existingCustomers } };
+      if (method === "GET" && endpoint.includes("/user/search")) return { status: 200, data: [] };
+      if (method === "GET" && endpoint.includes("/servicedeskapi/servicedesk")) return { status: 200, data: { values: [{ id: "1", projectKey: "SUP" }] } };
+      if (method === "POST" && endpoint === `${API}/rest/servicedeskapi/customer`) return createCustomer;
+      if (method === "POST" && endpoint.endsWith("/servicedesk/1/customer")) return { status: 204, data: null };
+      if (method === "POST" && endpoint === `${API}/rest/servicedeskapi/request`) return requestAnswers.shift() ?? { status: 201, data: { issueKey: "SUP-50" } };
+      if (method === "GET" && endpoint.includes("/issue/")) return { status: 200, data: { fields: { priority: { name: "Medium" } } } };
+      return { status: 204, data: null };
+    });
+  });
+
+  async function handoff(verifiedCustomer?: { email: string; name: string | null }) {
+    connectionsFor({ helpdesk: desk() });
+    const row = await newConversation({ channel: "widget", customerName: "Dana Reyes", customerEmail: "dana@example.com" });
+    return recordHandoffInJira({
+      organizationId: orgId,
+      workerName: "Eva",
+      conversation: handoffConversation(row),
+      transcript: [{ speaker: "Dana Reyes", body: "The report shows the wrong numbers" }],
+      latestMessage: "The report shows the wrong numbers",
+      ...(verifiedCustomer ? { verifiedCustomer } : {}),
+    });
+  }
+  const dana = { email: "dana@example.com", name: "Dana Reyes" };
+
+  it("creates the customer, adds them to the desk, and raises the request on their behalf", async () => {
+    expect(await handoff(dana)).toMatchObject({ key: "SUP-50", created: true });
+
+    expect(calls().find((call) => call.endpoint === `${API}/rest/servicedeskapi/customer`)?.body).toEqual({ email: "dana@example.com", displayName: "Dana Reyes" });
+    expect(calls().find((call) => call.endpoint.endsWith("/servicedesk/1/customer") && call.method === "POST")?.body).toEqual({ accountIds: ["acc-new"] });
+    expect(requestBodies()[0]).toMatchObject({ raiseOnBehalfOf: "acc-new", serviceDeskId: "1", requestTypeId: "8" });
+  });
+
+  it("uses the account the customer already has, and creates nothing", async () => {
+    existingCustomers = [{ accountId: "acc-old", emailAddress: "Dana@Example.com" }, { accountId: "acc-other", emailAddress: "other@example.com" }];
+    await handoff(dana);
+
+    expect(calls().some((call) => call.endpoint === `${API}/rest/servicedeskapi/customer`)).toBe(false);
+    expect(requestBodies()[0]).toMatchObject({ raiseOnBehalfOf: "acc-old" });
+  });
+
+  it("does nothing about customers for an email no code came back for", async () => {
+    await handoff(undefined);
+
+    expect(calls().some((call) => call.endpoint.includes("/customer"))).toBe(false);
+    expect(requestBodies()[0]).not.toHaveProperty("raiseOnBehalfOf");
+  });
+
+  it("does nothing about customers while the setting is off, even for a verified email", async () => {
+    extraSettings = {};
+    await handoff(dana);
+
+    expect(calls().some((call) => call.endpoint.includes("/customer"))).toBe(false);
+    expect(requestBodies()[0]).not.toHaveProperty("raiseOnBehalfOf");
+  });
+
+  it("still raises the ticket, as itself, when the customer can't be created", async () => {
+    createCustomer = { status: 403, data: { errorMessage: "You can't manage customers" } };
+
+    expect(await handoff(dana)).toMatchObject({ key: "SUP-50" });
+    expect(requestBodies()).toHaveLength(1);
+    expect(requestBodies()[0]).not.toHaveProperty("raiseOnBehalfOf");
+    expect(vi.mocked(logToolCall)).toHaveBeenCalledWith(
+      expect.objectContaining({ toolId: "jira_customer", status: "error", errorMessage: "You can't manage customers" }),
+    );
+  });
+
+  it("raises it as itself, once, when Jira refuses to raise on behalf; nothing was created by that refusal", async () => {
+    requestAnswers = [{ status: 403, data: { errorMessage: "No permission to raise on behalf" } }, { status: 201, data: { issueKey: "SUP-51" } }];
+
+    expect(await handoff(dana)).toMatchObject({ key: "SUP-51" });
+    const bodies = requestBodies();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toHaveProperty("raiseOnBehalfOf");
+    expect(bodies[1]).not.toHaveProperty("raiseOnBehalfOf");
+  });
+
+  it("does not repeat a request that failed without an answer from Jira, since it may have been created", async () => {
+    proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+      if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+      if (method === "GET" && endpoint.includes("/servicedesk/1/customer")) return { status: 200, data: { values: [{ accountId: "acc-old", emailAddress: "dana@example.com" }] } };
+      if (method === "GET" && endpoint.includes("/servicedeskapi/servicedesk")) return { status: 200, data: { values: [{ id: "1", projectKey: "SUP" }] } };
+      if (method === "POST" && endpoint === `${API}/rest/servicedeskapi/request`) throw new Error("socket hang up");
+      return { status: 204, data: null };
+    });
+
+    expect(await handoff(dana)).toEqual({ failed: "socket hang up" });
+    expect(requestBodies()).toHaveLength(1);
+  });
+
+  it("says whether an email is already a customer, for the card's note", async () => {
+    connectionsFor({ helpdesk: desk() });
+    existingCustomers = [{ accountId: "acc-old", emailAddress: "dana@example.com" }];
+    expect(await lookupJiraCustomerByEmail(orgId, "dana@example.com")).toBe(true);
+    // Only an exact match on the email counts, whatever else the search returned.
+    expect(await lookupJiraCustomerByEmail(orgId, "nobody@example.com")).toBe(false);
+    existingCustomers = [];
+    expect(await lookupJiraCustomerByEmail(orgId, "nobody@example.com")).toBe(false);
+  });
+
+  it("says nothing when there is no helpdesk", async () => {
+    connectionsFor({});
+    expect(await lookupJiraCustomerByEmail(orgId, "dana@example.com")).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { isPlaceholderCustomerName } from "@/lib/customer-name";
 import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
@@ -136,7 +137,7 @@ const BACKFILL_PER_LOAD = 10;
 
 /** True while the conversation still has the widget's placeholder name or no email on record. */
 export function lacksVerifiedCustomer(row: Pick<Row, "customerName" | "customerEmail">): boolean {
-  return row.customerName.trim().toLowerCase() === "website visitor" || !row.customerEmail;
+  return isPlaceholderCustomerName(row.customerName) || !row.customerEmail;
 }
 
 /**

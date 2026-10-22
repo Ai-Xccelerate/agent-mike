@@ -30,6 +30,8 @@ export const workerPatchSchema = z
     escalationTerms: z.array(z.string()),
     allowedDomains: z.array(z.string()),
     requireUserVerification: z.boolean(),
+    // Settings > Guardrails > Customer identity (lib/customer-identity.ts).
+    identityMode: z.enum(["off", "email_match", "email_code"]),
     // Shipped as a column with no way to set it. Fail-closed by default, so
     // without this the only way to let a worker auto-execute write tools was
     // editing the database by hand.
