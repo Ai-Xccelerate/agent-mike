@@ -115,7 +115,7 @@ function ChatChannelSettings({
   const setActions = (next: string[]) => update("quickActions", next);
 
   return (
-    <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-white/[0.02] space-y-5">
+    <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-white/[0.02] space-y-5">
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
         Welcome message
         <AutoGrowTextarea
@@ -245,7 +245,7 @@ function EmailChannelSettings({
 }) {
   const signature = profile.emailSignature ?? "";
   return (
-    <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-white/[0.02] space-y-4">
+    <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-white/[0.02] space-y-4">
       <MailboxStatusLine />
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
         Support email address
