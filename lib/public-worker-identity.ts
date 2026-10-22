@@ -11,5 +11,8 @@ export function publicWorkerIdentity(profile: Profile) {
     accentColor: profile.accentColor,
     role: profile.role,
     status: profile.status,
+    // What the widget opens with; null means its built-in greeting and chips.
+    welcomeMessage: profile.welcomeMessage,
+    quickActions: profile.quickActions,
   };
 }

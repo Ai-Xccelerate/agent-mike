@@ -85,6 +85,10 @@ export const workerProfiles = pgTable(
     requireUserVerification: boolean("require_user_verification").notNull().default(false),
     // Customer identity in the widget: off | email_match | email_code (lib/customer-identity.ts).
     identityMode: text("identity_mode").notNull().default("off"),
+    // What the website widget opens with (Settings > Channels > Chat). Null = the built-in
+    // greeting / quick actions. "{name}" in the message becomes the worker's customer-facing name.
+    welcomeMessage: text("welcome_message"),
+    quickActions: jsonb("quick_actions").$type<string[] | null>(),
     // Fail-closed: write tools (create/update in an external system) wait for a
     // human unless this worker is explicitly set to auto-execute.
     requireWriteApproval: boolean("require_write_approval").notNull().default(true),

@@ -9,6 +9,7 @@ import { ArrowUpIcon, DocsIcon, MicrophoneIcon } from "@/icons";
 import { useDictation } from "@/hooks/useDictation";
 import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
+import { DEFAULT_QUICK_ACTIONS, welcomeText } from "@/lib/widget-defaults";
 import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
 import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/customer-cards/CustomerCopilot";
 import { CustomerCardsContext, LatestReplyContext, type ChatIdentity } from "@/components/worker/customer-cards/CustomerCards";
@@ -20,9 +21,6 @@ const SAMPLE_PROMPTS = [
   "How do I invite a teammate?",
   "I need a refund for my last charge",
 ];
-
-// Shown to a visitor who has not typed anything yet (public widget only).
-const WIDGET_QUICK_ACTIONS = ["Report a problem", "Ask a question", "Check my ticket", "Request a feature"];
 
 const MESSAGE_MAX_LENGTH = 4000;
 
@@ -50,7 +48,7 @@ function welcomeMessage(profile: WorkerProfile | null): Message {
     senderName: profile?.displayName ?? "AI Worker",
     // Not the Role: that's an instruction written for the worker, and read
     // out to a customer it sounded like a job description.
-    body: `Hi! I'm ${profile?.displayName ?? "your AI worker"}. How can I help today?`,
+    body: welcomeText(profile?.welcomeMessage, profile?.displayName ?? "your AI worker"),
     citations: [],
     createdAt: new Date().toISOString(),
   };
@@ -332,7 +330,7 @@ function ChatPanelBody({
       setIdentityConversationId(conversationId);
     },
   };
-  const showQuickActions = compact && !loading && messages.length <= 1;
+  const showQuickActions = compact && !loading && messages.length <= 1 && (profile?.quickActions ?? DEFAULT_QUICK_ACTIONS).length > 0;
 
   if (compact && !siteToken?.trim()) {
     return (
@@ -483,7 +481,7 @@ function ChatPanelBody({
 
         {showQuickActions && (
           <div className="flex flex-wrap gap-2 pl-10" role="group" aria-label="Quick actions">
-            {WIDGET_QUICK_ACTIONS.map((action) => (
+            {(profile?.quickActions ?? DEFAULT_QUICK_ACTIONS).map((action) => (
               <button
                 key={action}
                 type="button"
