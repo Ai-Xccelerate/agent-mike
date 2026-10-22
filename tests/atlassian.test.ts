@@ -1407,7 +1407,9 @@ describe("a handoff in chat", () => {
     };
 
     expect(body.status).toBe("needs_human");
-    expect(body.message.body).toBe("I'm bringing in a teammate who can help.");
+    expect(body.message.body).toContain("I'm bringing in a teammate who can help.");
+    // No helpdesk ticket, so the customer is still given the request's own reference.
+    expect(body.message.body).toMatch(/logged this for the team as [A-Z]+-\d+/);
     const [stored] = await db.select().from(conversations).where(eq(conversations.id, body.conversation_id));
     expect(stored.externalTicketError).toBe("Jira down");
   });

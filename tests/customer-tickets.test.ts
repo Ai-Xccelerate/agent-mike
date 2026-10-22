@@ -1,0 +1,110 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { conversations, messages } from "@/db/schema";
+import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
+import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
+import { customerTickets } from "@/lib/customer-tickets";
+import { customerStatusWord, referenceNotice, ticketReference } from "@/lib/ticket-reference";
+
+const runAgentMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/agent", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/agent")>()),
+  runAgent: runAgentMock,
+}));
+vi.mock("@/lib/retrieval", () => ({ retrieveKnowledge: vi.fn(async () => ({ matches: [], sources: [] })) }));
+vi.mock("@/lib/tools-integrations/atlassian", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/tools-integrations/atlassian")>()),
+  recordHandoffInJira: vi.fn(async () => null),
+}));
+vi.mock("@/lib/conversation-memory", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/conversation-memory")>()),
+  maybeRefreshConversationSummary: vi.fn(async (_profile: unknown, current: unknown) => current),
+}));
+
+let orgId: string;
+
+beforeEach(async () => {
+  orgId = `org-tickets-${crypto.randomUUID()}`;
+  await ensureOrganization(orgId);
+  runAgentMock.mockReset();
+});
+
+async function turn(conversationId: string, body: string, deferTicket = false) {
+  const [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
+  const prior = await db.select().from(messages).where(eq(messages.conversationId, conversationId));
+  const [userMessage] = await db.insert(messages).values({ conversationId, senderType: "customer", senderName: "Visitor", body }).returning();
+  return runCustomerTurn({ organizationId: orgId, profile: await getOrCreateProfile(orgId), conversation, priorMessages: prior, userMessage, speakerName: "Visitor", deferTicket });
+}
+
+describe("the reference a customer is given", () => {
+  it("formats the reference and the status words", () => {
+    expect(ticketReference("EAP", 1042)).toBe("EAP-1042");
+    expect(ticketReference(null, 7)).toBe("TCK-7");
+    expect(referenceNotice("EAP-1042")).toContain("EAP-1042");
+    expect(customerStatusWord("needs_human")).toBe("With the support team");
+    expect(customerStatusWord("resolved")).toBe("Resolved");
+    expect(customerStatusWord("open")).toBe("Open");
+  });
+
+  it("is told to the customer on a handoff when no helpdesk ticket was raised", async () => {
+    runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const result = await turn(conversation.id, "Our system is down");
+    const prefix = (await getOrCreateProfile(orgId)).ticketPrefix;
+    expect(result.reply.body).toContain(`logged this for the team as ${prefix}-${conversation.ticketNumber}`);
+  });
+
+  it("follows the reply as its own message with a card when the ticket is deferred (chat panel)", async () => {
+    runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const result = await turn(conversation.id, "Our system is down", true);
+    expect(result.reply.body).not.toContain("logged this");
+    const followUp = await result.pendingTicket;
+    const prefix = (await getOrCreateProfile(orgId)).ticketPrefix;
+    expect(followUp?.message.body).toContain(`${prefix}-${conversation.ticketNumber}`);
+    expect(JSON.stringify(followUp?.message.cards)).toContain(`${prefix}-${conversation.ticketNumber}`);
+  });
+
+  it("is not repeated when the customer writes again after the handoff", async () => {
+    runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    await turn(conversation.id, "Our system is down");
+    await db.update(conversations).set({ status: "needs_human" }).where(eq(conversations.id, conversation.id));
+    const second = await turn(conversation.id, "Any news?");
+    expect(second.reply.body).not.toContain("logged this");
+  });
+});
+
+describe("checking a request's status", () => {
+  it("returns this conversation's request with its reference and status", async () => {
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    await db.update(conversations).set({ status: "needs_human" }).where(eq(conversations.id, conversation.id));
+    const tickets = await customerTickets(orgId, conversation.id, "EAP");
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0]).toMatchObject({ reference: `EAP-${conversation.ticketNumber}`, status: "With the support team" });
+  });
+
+  it("shows other requests under the same email only when that email is trusted", async () => {
+    const first = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com" });
+    const second = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com" });
+    // A typed address is not proof: the visitor sees only their own conversation.
+    expect(await customerTickets(orgId, second.id, "EAP")).toHaveLength(1);
+    await db.update(conversations).set({ customerEmailVerifiedAt: new Date() }).where(eq(conversations.id, second.id));
+    const verified = await customerTickets(orgId, second.id, "EAP");
+    expect(verified.map((t) => t.reference).sort()).toEqual([`EAP-${first.ticketNumber}`, `EAP-${second.ticketNumber}`].sort());
+  });
+
+  it("never shows another organization's requests", async () => {
+    const other = `org-other-${crypto.randomUUID()}`;
+    await ensureOrganization(other);
+    const theirs = await insertConversationWithTicket({ organizationId: other, channel: "widget", customerEmail: "pat@example.com" });
+    const mine = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com" });
+    await db.update(conversations).set({ customerEmailVerifiedAt: new Date() }).where(eq(conversations.id, mine.id));
+    const tickets = await customerTickets(orgId, mine.id, "EAP");
+    // Both organizations number from 1001, so count rather than compare references: only their own request is returned.
+    expect(tickets).toHaveLength(1);
+    expect(await customerTickets(orgId, theirs.id, "EAP")).toEqual([]);
+  });
+});

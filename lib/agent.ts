@@ -34,6 +34,7 @@ import {
   SEARCH_ACTIONS_TOOL_NAME,
 } from "@/lib/tools-integrations/composio-actions";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
+import { customerTickets } from "@/lib/customer-tickets";
 import {
   CONFLUENCE_READ_TOOL_NAME,
   CONFLUENCE_SEARCH_TOOL_NAME,
@@ -78,6 +79,8 @@ export interface WorkerProfileLike {
   enabledSkills?: string[];
   /** Read for the skill repository toggle; see lib/integrations.ts. */
   integrationsConfig?: unknown;
+  /** The prefix of the reference a customer is given for a request, e.g. "EAP" for EAP-1042. */
+  ticketPrefix?: string | null;
   /**
    * Fail-closed default (true): a tool that creates/sends/modifies something
    * in an external system queues for a human instead of running immediately.
@@ -767,7 +770,7 @@ export const CUSTOMER_EXCLUDED_TOOLKITS = ["jira", "confluence"];
 export async function buildAgentTools(
   profile: Pick<
     WorkerProfileLike,
-    "toolsConfig" | "enabledSkills" | "integrationsConfig" | "requireWriteApproval"
+    "toolsConfig" | "enabledSkills" | "integrationsConfig" | "requireWriteApproval" | "ticketPrefix"
   >,
   organizationId: string,
   conversationId?: string | null,
@@ -977,22 +980,44 @@ export async function buildAgentTools(
   }
 
   const helpdeskConnection = await getConnectionForOrg(organizationId, "helpdesk");
-  if (
+  const jiraAccountId =
     helpdeskConnection?.status === "active" &&
     helpdeskConnection.composioConnectedAccountId &&
     helpdeskConnection.system === "jira"
-  ) {
-    const connectedAccountId = helpdeskConnection.composioConnectedAccountId;
-    // Only this customer's own tickets: a free-text search of the project
-    // would let anyone in the chat read other customers' tickets.
+      ? helpdeskConnection.composioConnectedAccountId
+      : null;
+  // Only this customer's own requests: a free-text search of the project would let anyone in the chat read
+  // other customers' tickets. Available with or without a helpdesk, because every request has a reference.
+  if (conversationId || jiraAccountId) {
     tools.push(
       tool({
         name: CUSTOMER_TICKETS_TOOL_NAME,
         description:
-          "Check the status of this customer's own support tickets (the ones raised for this conversation or " +
-          "this customer's email). Read-only. Use it when they ask about a ticket or an earlier request.",
+          "Check the status of this customer's own support requests (the ones raised for this conversation or " +
+          "this customer's email). Read-only. Use it when they ask about a ticket, a reference number or an earlier " +
+          "request. Give them the reference and the status.",
         parameters: z.object({}),
-        execute: async () => lookupCustomerTickets(organizationId, conversationId, connectedAccountId),
+        execute: async () => {
+          const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix) : [];
+          const desk = jiraAccountId && conversationId ? await lookupCustomerTickets(organizationId, conversationId, jiraAccountId) : null;
+          const deskByKey = new Map<string, unknown>();
+          try {
+            for (const ticket of (JSON.parse(desk ?? "{}") as { tickets?: { key?: string }[] }).tickets ?? []) {
+              if (ticket.key) deskByKey.set(ticket.key, ticket);
+            }
+          } catch {
+            // A helpdesk answer that cannot be read leaves the worker's own status in place.
+          }
+          if (own.length === 0) {
+            return JSON.stringify({
+              tickets: [],
+              note: "This customer has no requests on record. If they quote a number you can't find here, tell them a teammate will check it.",
+            });
+          }
+          return JSON.stringify({
+            tickets: own.map((ticket) => ({ ...ticket, serviceDesk: ticket.serviceDeskKey ? deskByKey.get(ticket.serviceDeskKey) ?? null : null })),
+          });
+        },
       }),
     );
   }
