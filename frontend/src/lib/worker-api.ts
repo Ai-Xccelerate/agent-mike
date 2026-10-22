@@ -163,6 +163,12 @@ export type WorkerProfile = {
   allowedDomains: string[];
   requireUserVerification: boolean;
   identityMode: IdentityMode;
+  /** What the website widget opens with (Settings > Channels > Chat); null = the built-in greeting. */
+  welcomeMessage?: string | null;
+  /** The tap-to-send buttons under the greeting; null = the built-in four. */
+  quickActions?: string[] | null;
+  /** What the widget shows while quickActions is null; follows what the worker can do (e.g. no ticket buttons without a helpdesk). */
+  defaultQuickActions?: string[];
   /** On: every change in a connected app waits for a manager. Off: routine changes run on their own. */
   requireWriteApproval: boolean;
   assistantActionsEnabled: boolean;

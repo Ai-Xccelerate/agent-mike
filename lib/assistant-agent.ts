@@ -2255,10 +2255,10 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "short question naming what you left unset and why (for example the tone, or who should receive handoffs), " +
     "so nothing is silently skipped. A narrow request with no setup framing (\"add this file\", \"change the " +
     "tone\") stays narrow.\n\n" +
-    "Where things live (use these exact paths): Settings > Identity (names, avatar, tone, status, timezone, email " +
-    "signature); Settings > Role; Settings > Agent configuration (model, max turns, additional instructions); " +
+    "Where things live (use these exact paths): Settings > Identity (names, avatar, tone, status, timezone, locale); " +
+    "Settings > Role; Settings > Agent configuration (model, max turns, additional instructions); " +
     "Settings > Guardrails (confidence threshold, escalation phrases, require user verification, \"Let the " +
-    "Assistant take actions\"); Settings > Human manager; Settings > Channels; Settings > Tools (internet, internal " +
+    "Assistant take actions\"); Settings > Human manager; Settings > Channels (channels on or off, the support email address and email signature, the widget's welcome message and quick actions); Settings > Tools (internet, internal " +
     "tools, mailbox under External tools); Settings > Skills; Settings > Knowledge; Settings > Integrations; " +
     "Settings > Email domains; Settings > Team. Inbox is where customer conversations are read, taken over or handed " +
     "back, replied to by hand, and marked resolved or closed. Customer conversations can't be deleted anywhere. For anything more detailed, call get_product_guide.\n\n" +

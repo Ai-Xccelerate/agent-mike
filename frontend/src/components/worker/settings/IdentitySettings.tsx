@@ -5,13 +5,11 @@ import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import AvatarUploadCard from "@/components/worker/settings/AvatarUploadCard";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import { cardClass, counterClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
-import { EnvelopeIcon } from "@/icons";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 import type { WorkerProfile } from "@/lib/worker-api";
 
 const TONE_MAX_LENGTH = 500;
 const BIO_MAX_LENGTH = 500;
-const SIGNATURE_MAX_LENGTH = 300;
 
 const IDENTITY_FIELDS: (keyof WorkerProfile)[] = [
   "name",
@@ -24,8 +22,6 @@ const IDENTITY_FIELDS: (keyof WorkerProfile)[] = [
   "bio",
   "timezone",
   "locale",
-  "email",
-  "emailSignature",
   "tone",
 ];
 
@@ -208,10 +204,10 @@ export default function IdentitySettings() {
       </section>
 
       <section className={`${cardClass} mt-5 md:mt-6`} data-aix-id="AIX-160.4">
-        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">How it signs off</h2>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-white/90">Regional settings</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Regional formatting and email identity. The mailbox it actually sends from is connected
-          under Settings &gt; Tools &gt; External tools.
+          How it reads dates and times, on every channel. The support email address and email signature
+          now live under Settings &gt; Channels &gt; Email.
         </p>
 
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -236,34 +232,6 @@ export default function IdentitySettings() {
             />
             <span className="mt-1.5 block text-xs font-normal text-gray-500">BCP-47 locale such as en-GB.</span>
             <FieldError message={fieldErrors.locale} />
-          </label>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            Support email address
-            <div className="relative mt-2">
-              <EnvelopeIcon className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-              <input
-                value={profile.email ?? ""}
-                onChange={(e) => update("email", e.target.value || null)}
-                className={`${fieldClass} pl-10`}
-              />
-            </div>
-            <FieldError message={fieldErrors.email} />
-          </label>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 sm:col-span-2">
-            Email signature
-            <AutoGrowTextarea
-              minRows={3}
-              maxRows={8}
-              maxLength={SIGNATURE_MAX_LENGTH}
-              value={profile.emailSignature}
-              onChange={(e) => update("emailSignature", e.target.value)}
-              className={`${textareaClass} mt-2`}
-            />
-            <span className="mt-1.5 block text-xs font-normal text-gray-500">
-              Added to outbound email only — not to chat or the website widget.
-            </span>
-            <span className={counterClass}>{profile.emailSignature.length}/{SIGNATURE_MAX_LENGTH}</span>
-            <FieldError message={fieldErrors.emailSignature} />
           </label>
         </div>
       </section>

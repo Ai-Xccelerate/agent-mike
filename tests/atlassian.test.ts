@@ -16,6 +16,7 @@ import {
   CONFLUENCE_CQL_SEARCH_SLUG,
   ConfluenceKnowledgeError,
   customerTicketKeys,
+  helpdeskCapabilities,
   lookupJiraCustomerByEmail,
   HANDOFF_TICKET_LABEL,
   handoffTicketSummary,
@@ -1423,5 +1424,31 @@ describe("Jira customers for a verified visitor", () => {
   it("says nothing when there is no helpdesk", async () => {
     connectionsFor({});
     expect(await lookupJiraCustomerByEmail(orgId, "dana@example.com")).toBeNull();
+  });
+});
+
+describe("what the helpdesk lets the worker do for a customer", () => {
+  it("is nothing without a helpdesk", async () => {
+    connectionsFor({});
+    expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: false, looksUpTickets: false });
+  });
+
+  it("is raising and reading tickets for a connected Jira set up for handoffs", async () => {
+    connectionsFor({ helpdesk: jiraReady() });
+    expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: true, looksUpTickets: true });
+  });
+
+  it("is reading only when Jira is connected but handoffs don't raise tickets", async () => {
+    connectionsFor({
+      helpdesk: connection("helpdesk", "jira", { metadata: { settings: { projectKey: "SUP", issueType: "Task", createTicketOnHandoff: false } } }),
+    });
+    expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: false, looksUpTickets: true });
+  });
+
+  it("is nothing for a connection that is no longer active, or that can't be read", async () => {
+    connectionsFor({ helpdesk: jiraReady({ status: "revoked" }) });
+    expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: false, looksUpTickets: false });
+    getConnectionMock.mockRejectedValue(new Error("db down"));
+    expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: false, looksUpTickets: false });
   });
 });

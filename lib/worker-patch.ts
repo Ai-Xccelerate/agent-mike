@@ -32,6 +32,12 @@ export const workerPatchSchema = z
     requireUserVerification: z.boolean(),
     // Settings > Guardrails > Customer identity (lib/customer-identity.ts).
     identityMode: z.enum(["off", "email_match", "email_code"]),
+    // The widget's opening message and the tap-to-send chips under it. null = back to the built-in ones.
+    welcomeMessage: z.union([z.literal(""), z.string().trim().max(300)]).nullable().transform((value) => (value ? value : null)),
+    quickActions: z
+      .array(z.string().trim().min(1, "A quick action can't be empty").max(40, "Keep a quick action under 40 characters"))
+      .max(6, "Six quick actions at most")
+      .nullable(),
     // Shipped as a column with no way to set it. Fail-closed by default, so
     // without this the only way to let a worker auto-execute write tools was
     // editing the database by hand.
