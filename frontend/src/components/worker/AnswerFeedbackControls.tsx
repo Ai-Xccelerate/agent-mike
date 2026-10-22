@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CORRECTION_MAX_LENGTH, FEEDBACK_REASONS, FEEDBACK_REASON_LABELS, type FeedbackReason } from "@/lib/answer-feedback";
 import { rateReply, unrateReply, type AnswerFeedback } from "@/lib/worker-api";
 
@@ -46,6 +46,11 @@ export default function AnswerFeedbackControls({
   const [correction, setCorrection] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const formRef = useRef<HTMLDivElement>(null);
+  // The form opens at the bottom of the thread, under the reply box; bring all of it, Save included, into view.
+  useEffect(() => {
+    if (editing) formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [editing]);
 
   async function save(rating: "good" | "bad") {
     setSaving(true);
@@ -87,7 +92,7 @@ export default function AnswerFeedbackControls({
   return (
     <div className="mt-1.5 flex max-w-full flex-col items-end gap-1.5 text-xs text-gray-500 dark:text-gray-400">
       {editing ? (
-        <div className="w-full min-w-[16rem] max-w-md rounded-xl border border-gray-200 bg-white p-3 text-left dark:border-white/[0.12] dark:bg-white/[0.03]">
+        <div ref={formRef} className="w-full min-w-[16rem] max-w-md rounded-xl border border-gray-200 bg-white p-3 text-left dark:border-white/[0.12] dark:bg-white/[0.03]">
           <p className="font-medium text-gray-800 dark:text-white/90">What was wrong?</p>
           <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="What was wrong">
             {FEEDBACK_REASONS.map((reason) => {

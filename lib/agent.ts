@@ -995,7 +995,7 @@ export async function buildAgentTools(
         description:
           "Check the status of this customer's own support requests (the ones raised for this conversation or " +
           "this customer's email). Read-only. Use it when they ask about a ticket, a reference number or an earlier " +
-          "request. Give them the reference and the status.",
+          "request. Quote each request by its `number` only and give its status in plain words.",
         parameters: z.object({}),
         execute: async () => {
           const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix) : [];
@@ -1015,7 +1015,12 @@ export async function buildAgentTools(
             });
           }
           return JSON.stringify({
-            tickets: own.map((ticket) => ({ ...ticket, serviceDesk: ticket.serviceDeskKey ? deskByKey.get(ticket.serviceDeskKey) ?? null : null })),
+            // `number` is the one the customer was told: the helpdesk key when there is one, else the reference.
+            tickets: own.map((ticket) => ({
+              number: ticket.serviceDeskKey ?? ticket.reference,
+              ...ticket,
+              serviceDesk: ticket.serviceDeskKey ? deskByKey.get(ticket.serviceDeskKey) ?? null : null,
+            })),
           });
         },
       }),
