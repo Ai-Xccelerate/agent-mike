@@ -1002,6 +1002,10 @@ export type OverviewRecentOutcome =
   | { kind: "handed_over" }
   | { kind: "in_progress" };
 
+export type OverviewStatus = "open" | "needs_human" | "resolved" | "closed";
+
+export type OverviewFilters = { channel: string | null; requestType: string | null; priority: string | null };
+
 export type WorkerOverview = {
   period: OverviewPeriod;
   since: string;
@@ -1017,6 +1021,14 @@ export type WorkerOverview = {
   handedOverTopics: string[];
   firstReply: { targetHours: number | null; measured: null };
   recent: { conversationId: string; at: string; channel: string; asked: string; outcome: OverviewRecentOutcome }[];
+  recentPage: { page: number; pageSize: number; total: number };
+  /** Waiting for a person right now, whatever the period or filters. */
+  waitingNow: number;
+  series: { bucket: "hour" | "day"; points: { start: string; answered: number; handedOver: number }[] };
+  byStatus: { status: OverviewStatus; count: number }[];
+  topSources: { title: string; count: number }[];
+  filterOptions: { channels: string[]; requestTypes: string[]; priorities: string[] };
+  filters: OverviewFilters;
 };
 
 export type IdentityResponse = {
