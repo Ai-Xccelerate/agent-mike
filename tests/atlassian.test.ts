@@ -1210,6 +1210,7 @@ describe("a handoff in chat", () => {
       "TEXT_MESSAGE_CONTENT",
       "TEXT_MESSAGE_END",
       "CUSTOM",
+      "CUSTOM",
       "TEXT_MESSAGE_START",
       "TEXT_MESSAGE_CONTENT",
       "TEXT_MESSAGE_END",
@@ -1222,10 +1223,12 @@ describe("a handoff in chat", () => {
     // The reply does not wait for Jira: it is the worker's words alone.
     expect(events[2]).toMatchObject({ delta: "I'm bringing in a teammate." });
     expect(events[4]).toMatchObject({ name: "chat.turn", value: { escalated: true } });
-    // The number arrives after it, with the ticket card.
-    expect(String(events[6].delta)).toContain("SUP-12");
-    expect(events[8]).toMatchObject({ toolCallName: "show_helpdesk_ticket" });
-    expect(JSON.parse(String(events[9].delta))).toMatchObject({ key: "SUP-12", created: true });
+    // The number arrives after it, as a whole message the panel can add to its list, then the card.
+    expect(events[5]).toMatchObject({ name: "chat.ticket", value: { senderType: "agent" } });
+    expect(String((events[5].value as { body: string }).body)).toContain("SUP-12");
+    expect(String(events[7].delta)).toContain("SUP-12");
+    expect(events[9]).toMatchObject({ toolCallName: "show_helpdesk_ticket" });
+    expect(JSON.parse(String(events[10].delta))).toMatchObject({ key: "SUP-12", created: true });
   });
 
   it("answers before the ticket exists, then stores its number as a second message", async () => {
