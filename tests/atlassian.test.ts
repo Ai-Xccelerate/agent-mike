@@ -947,6 +947,26 @@ describe("Confluence searched before answering", () => {
     ]);
   });
 
+  it("reads the best pages in full when the search hit carries only an excerpt", async () => {
+    connectionsFor({
+      knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+    });
+    const steps = "Share the registration link. Members then enter their details and receive an email to set a password.";
+    executeToolMock.mockImplementation(async (slug) =>
+      slug === CONFLUENCE_CQL_SEARCH_SLUG
+        ? {
+            successful: true,
+            error: null,
+            data: { results: [{ title: "Service Member Registration for the Self-Scheduler", excerpt: "Registration", content: { id: "555", title: "Service Member Registration for the Self-Scheduler" } }] },
+          }
+        : { successful: true, error: null, data: { id: "555", title: "x", body: { storage: { value: `<p>${steps}</p>` } } } },
+    );
+
+    const matches = await searchConfluenceKnowledge(orgId, "How do members register for the Self-Scheduler?", 3);
+
+    expect(matches?.[0].content).toContain("receive an email to set a password");
+  });
+
   it("ranks the space's pages itself when Confluence refuses the search (no search scope)", async () => {
     connectionsFor({
       knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
