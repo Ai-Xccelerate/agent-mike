@@ -1173,7 +1173,13 @@ export async function buildInstructions(
     "[[ESCALATE]]. When the reference material does answer it, give that answer and end with " +
     "[[FOLLOWUP]] or [[RESOLVE]] — a step in the material like \"contact support\" is part of the answer, " +
     "not a reason to escalate. Greetings, thanks, small talk, and short clarifying questions do not need " +
-    "reference material — reply to those naturally.";
+    "reference material — reply to those naturally. Search first and answer when the material covers the " +
+    "question; do not ask which product or what they were doing when the question already names the feature. " +
+    "Ask a clarifying question only when the material cannot be searched without it, and never twice in a row. " +
+    "Before you tell the customer the material does not cover a how-to, or hand over, and if you have the " +
+    "Confluence search and read tools, search for the likely page title (for example the feature name plus " +
+    "\"registration\", \"set-up\" or \"guide\") and read the best page in full. Only hand over when that " +
+    "page does not answer it. A summary that says a feature exists is not an answer to \"how do I\".";
 
   // No channel gets the signature in the prompt. Chat/widget must never
   // sign ("Best, Mike…" on every website reply), and email replies get it
@@ -1343,6 +1349,17 @@ export function promisesPersonFollowUp(answer: string): boolean {
   );
 }
 
+/**
+ * Whether a reply only announces the lookup it should have done ("I'll check the
+ * instructions for ...") and then stops. The model sometimes ends the turn on that
+ * line, so the customer waits for an answer that never comes.
+ */
+export function announcesWorkWithoutAnswer(answer: string): boolean {
+  const text = answer.replace(/\[\[[A-Z_]+\]\]/g, "").trim();
+  if (text.length === 0 || text.length > 200 || /[?]|\n\s*(\d+[.)]|[-*])\s/.test(text)) return false;
+  return /^(?:ok(?:ay)?[,.]?\s+|sure[,.]?\s+|one moment[,.]?\s+)?(?:I['’]ll|I will|I['’]m going to|I am going to|let me|checking|looking)\b[^.!?]{0,60}\b(?:check|look|search|find|pull up|review|see|confirm|verify|checking|looking)\b[^.!?]*[.!…]?$/i.test(text);
+}
+
 /** Whether a reply says anything once the control tags are taken out. */
 function hasWords(raw: string): boolean {
   return raw.replace(/\[\[(ESCALATE|RESOLVE|FOLLOWUP|NEED_IDENTITY)\]\]/gi, "").replace(CHOICES_TAG, "").trim().length > 0;
@@ -1351,6 +1368,11 @@ function hasWords(raw: string): boolean {
 const EMPTY_REPLY_RETRY_MESSAGE =
   "Your last reply was empty. Reply to the customer now, in words, using what you already know. " +
   "If you cannot help, say so briefly and end with [[ESCALATE]].";
+
+const STUB_REPLY_RETRY_MESSAGE =
+  "Your last reply only said you would look something up, and gave no answer. Do the lookup now, then reply " +
+  "with the answer in numbered steps and name the article you used. If the reference material does not cover it, " +
+  "say so briefly and end with [[ESCALATE]].";
 
 function parseAnswer(raw: string, threshold: number, classifiedConfidence?: number | null): RunAgentResult {
   // Asking who they are comes first: the ticket is raised once the details are in.
@@ -1546,6 +1568,21 @@ export async function runAgent(
       if (retriedPolicy?.action === "block") return handoffBecause(profile, "the retried reply was blocked by the reply check", { reason: retriedPolicy.reason });
       adjusted = applyReplyPolicy(retriedText, retriedPolicy);
       if (!hasWords(adjusted)) return handoffBecause(profile, "the reply was empty twice");
+    }
+    if (announcesWorkWithoutAnswer(adjusted)) {
+      console.warn("[agent] reply announced a lookup but gave no answer, retrying once", { conversationId });
+      const retried = await timed("agent.retryStub", () => runTracedAgent(
+        CUSTOMER_CHAT_WORKFLOW,
+        { organizationId, conversationId },
+        repairAgent,
+        `${baseInput}\n\n${STUB_REPLY_RETRY_MESSAGE}`,
+        { maxTurns, context: guardrailContext },
+      ));
+      const retriedText = typeof retried.finalOutput === "string" ? retried.finalOutput : String(retried.finalOutput ?? "");
+      const retriedPolicy = replyPolicyFromRun(retried);
+      if (retriedPolicy?.action === "block") return handoffBecause(profile, "the retried reply was blocked by the reply check", { reason: retriedPolicy.reason });
+      adjusted = applyReplyPolicy(retriedText, retriedPolicy);
+      if (!hasWords(adjusted) || announcesWorkWithoutAnswer(adjusted)) return handoffBecause(profile, "the reply only announced a lookup twice");
     }
     // Intent confidence came from the first turn's input guardrail.
     const parsed = parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
