@@ -6,6 +6,7 @@ import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
 import { withNormalizedCitations } from "@/lib/citations";
+import { feedbackForConversations } from "@/lib/answer-feedback";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -38,6 +39,9 @@ export async function GET(req: NextRequest) {
     .where(includeArchived ? scopeCondition : and(scopeCondition, eq(conversations.archived, false)))
     .orderBy(desc(conversations.updatedAt));
 
+  // The managers' ratings of these conversations' replies, in one query rather than one per conversation.
+  const ratings = await feedbackForConversations(tenant.orgId, rows.map((row) => row.id), tenant.userId);
+
   const withMessages = await Promise.all(
     rows.map(async (conversation) => {
       const msgs = await db
@@ -48,6 +52,7 @@ export async function GET(req: NextRequest) {
       return {
         ...conversation,
         messages: msgs.map(withNormalizedCitations),
+        feedback: ratings.get(conversation.id) ?? [],
       };
     }),
   );

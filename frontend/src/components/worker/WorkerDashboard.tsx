@@ -5,6 +5,7 @@ import { ChatIcon, CheckCircleIcon, ChevronLeftIcon, ChevronDownIcon, TaskIcon, 
 import { apiFetch, type OverviewFilters, type OverviewPeriod, type OverviewRecentOutcome, type WorkerOverview } from "@/lib/worker-api";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
+import { FEEDBACK_REASON_LABELS } from "@/lib/answer-feedback";
 import { ConversationsOverTime, CountBars, PriorityColumns, StatusDonut } from "./overview/OverviewCharts";
 
 /**
@@ -295,13 +296,51 @@ export default function WorkerDashboard() {
           id="sources"
           title="Most-used articles"
           hint={`What ${displayName} cited most. A topic that is handed over but never cited is a gap in your knowledge.`}
-          className={helpdesk ? "xl:col-span-2" : ""}
         >
           <CountBars
             rows={(overview?.topSources ?? []).map((source) => ({ name: source.title, count: source.count }))}
             empty="No answers cited an article in this period."
             labelTrack="minmax(14rem, 26rem)"
           />
+        </Panel>
+
+        <Panel
+          id="quality"
+          title="Answer quality"
+          hint={`How your managers rated ${displayName}'s replies. Rate them in the Inbox.`}
+        >
+          {overview && overview.quality.rated > 0 ? (
+            <div className="space-y-5">
+              <div className="flex items-baseline gap-3">
+                <span className="font-display text-3xl font-semibold tabular-nums text-gray-800 dark:text-white/90">
+                  {Math.round((overview.quality.good / overview.quality.rated) * 100)}%
+                </span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">
+                  rated good ({overview.quality.good} good, {overview.quality.bad} bad)
+                </span>
+              </div>
+              {overview.quality.byReason.length > 0 && (
+                <div>
+                  <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">What was wrong</p>
+                  <CountBars rows={overview.quality.byReason.map((entry) => ({ name: FEEDBACK_REASON_LABELS[entry.reason], count: entry.count }))} empty="" />
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className={mutedClass}>
+              {overview ? (
+                <>
+                  No replies rated in this period. Open a conversation in the{" "}
+                  <Link href="/inbox" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+                    Inbox
+                  </Link>{" "}
+                  and mark an answer good or bad.
+                </>
+              ) : (
+                "Loading…"
+              )}
+            </p>
+          )}
         </Panel>
       </div>
 

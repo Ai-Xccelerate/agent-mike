@@ -497,6 +497,39 @@ export const emailVerificationCodes = pgTable(
   }),
 );
 
+/**
+ * A manager's rating of one of the worker's replies (lib/answer-feedback.ts). Feeds the Overview's answer quality and,
+ * later, the test set: a bad rating with a correction is a test case waiting to be written.
+ */
+export const answerFeedback = pgTable(
+  "answer_feedback",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    rating: text("rating").notNull(), // good | bad
+    reasons: jsonb("reasons").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    correction: text("correction"),
+    ratedBy: text("rated_by").notNull(),
+    // What the worker was running when it wrote the reply: model, release, guardrail settings.
+    context: jsonb("context").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    messageRaterUnique: uniqueIndex("answer_feedback_message_rater_unique").on(table.messageId, table.ratedBy),
+    orgIdx: index("answer_feedback_org_idx").on(table.organizationId, table.createdAt),
+    conversationIdx: index("answer_feedback_conversation_idx").on(table.conversationId),
+  }),
+);
+
 export const toolApprovals = pgTable(
   "tool_approvals",
   {
