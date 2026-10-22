@@ -324,7 +324,8 @@ export default function ChannelsSettings() {
             {profile.channelsConfig.chat && <ChatChannelActions />}
             {profile.channelsConfig.chat && <ChatChannelSettings profile={profile} update={update} fieldErrors={fieldErrors} />}
           </div>
-          <div>
+          {/* The row drops its top padding as the first child of a wrapper, so this restores the space under the divider. */}
+          <div className="pt-4">
             <SettingsToggleRow
               title="Email"
               description="Requires an email provider connected under Integrations."
