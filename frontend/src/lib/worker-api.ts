@@ -1,3 +1,4 @@
+import type { FeedbackReason } from "@/lib/answer-feedback";
 import type { AssistantCard } from "@/lib/assistant-cards";
 import type { CustomerCard } from "@/lib/customer-cards";
 
@@ -65,6 +66,8 @@ export type Conversation = {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  /** Managers' ratings of the worker's replies in this conversation. */
+  feedback?: AnswerFeedback[];
   /** Admin Assistant threads only: proposals still waiting for Approve / Cancel. */
   pendingActions?: AssistantPendingAction[];
   /** Admin Assistant threads only: false for members, who can read but not approve changes. */
@@ -1002,6 +1005,23 @@ export type OverviewRecentOutcome =
   | { kind: "handed_over" }
   | { kind: "in_progress" };
 
+/** A manager's rating of one of the worker's replies. */
+export type AnswerFeedback = {
+  messageId: string;
+  rating: "good" | "bad";
+  reasons: FeedbackReason[];
+  correction: string | null;
+  /** True when it is the signed-in manager's own rating. */
+  mine: boolean;
+  ratedAt: string;
+};
+
+export type AnswerQuality = { rated: number; good: number; bad: number; byReason: { reason: FeedbackReason; count: number }[] };
+
+export type OverviewStatus = "open" | "needs_human" | "resolved" | "closed";
+
+export type OverviewFilters = { channel: string | null; requestType: string | null; priority: string | null };
+
 export type WorkerOverview = {
   period: OverviewPeriod;
   since: string;
@@ -1017,6 +1037,15 @@ export type WorkerOverview = {
   handedOverTopics: string[];
   firstReply: { targetHours: number | null; measured: null };
   recent: { conversationId: string; at: string; channel: string; asked: string; outcome: OverviewRecentOutcome }[];
+  recentPage: { page: number; pageSize: number; total: number };
+  /** Waiting for a person right now, whatever the period or filters. */
+  waitingNow: number;
+  series: { bucket: "hour" | "day"; points: { start: string; answered: number; handedOver: number }[] };
+  byStatus: { status: OverviewStatus; count: number }[];
+  topSources: { title: string; count: number }[];
+  filterOptions: { channels: string[]; requestTypes: string[]; priorities: string[] };
+  filters: OverviewFilters;
+  quality: AnswerQuality;
 };
 
 export type IdentityResponse = {
@@ -1050,4 +1079,14 @@ export function verifyIdentityCode(
     body: JSON.stringify({ conversation_id: input.conversationId, code: input.code }),
     widgetSiteToken,
   });
+}
+
+/** Rate one of the worker's replies. Returns the saved rating. */
+export function rateReply(messageId: string, input: { rating: "good" | "bad"; reasons?: FeedbackReason[]; correction?: string | null }) {
+  return apiFetch<AnswerFeedback>(`/messages/${encodeURIComponent(messageId)}/feedback`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Take back your own rating of a reply. */
+export function unrateReply(messageId: string) {
+  return apiFetch<{ ok: true }>(`/messages/${encodeURIComponent(messageId)}/feedback`, { method: "DELETE" });
 }

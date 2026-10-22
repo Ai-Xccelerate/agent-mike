@@ -30,3 +30,21 @@ export function withNormalizedCitations<T extends { citations?: unknown }>(
 ): Omit<T, "citations"> & { citations: string[] } {
   return { ...message, citations: normalizeCitations(message.citations) };
 }
+
+/**
+ * The retrieved articles a reply actually names. The agent's own result carries no citations, so this is how a reply
+ * gets them: an article counts only if the reply mentions its title (the instructions have it end an answer with
+ * "From: <title>"). Nothing is credited that the customer was not told about, and an answer that cites nothing says so.
+ */
+export function citedTitles(answer: string, matches: { title: string }[]): string[] {
+  const text = answer.toLowerCase();
+  const seen = new Set<string>();
+  const titles: string[] = [];
+  for (const match of matches) {
+    const title = match.title.trim();
+    if (!title || seen.has(title.toLowerCase())) continue;
+    seen.add(title.toLowerCase());
+    if (text.includes(title.toLowerCase())) titles.push(title);
+  }
+  return titles;
+}

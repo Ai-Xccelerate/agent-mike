@@ -40,3 +40,27 @@ describe("normalizeCitations", () => {
     expect(message.id).toBe("m1");
   });
 });
+
+import { citedTitles } from "@/lib/citations";
+
+describe("citedTitles", () => {
+  const matches = [{ title: "Choosing the right support request type" }, { title: "Priority levels and what each means" }, { title: "Screen sharing with the support team" }];
+
+  it("credits only the articles the reply names", () => {
+    const answer = "Use User / License Change.\n\nFrom: Choosing the right support request type";
+    expect(citedTitles(answer, matches)).toEqual(["Choosing the right support request type"]);
+  });
+
+  it("matches without regard to case, and lists each article once", () => {
+    const answer = "See PRIORITY LEVELS AND WHAT EACH MEANS. From: priority levels and what each means";
+    expect(citedTitles(answer, matches)).toEqual(["Priority levels and what each means"]);
+  });
+
+  it("credits nothing for an answer that names no article, even if articles were retrieved", () => {
+    expect(citedTitles("Happy to help. What product is this about?", matches)).toEqual([]);
+  });
+
+  it("ignores empty titles and repeated matches", () => {
+    expect(citedTitles("From: A guide", [{ title: "A guide" }, { title: "a guide" }, { title: "  " }])).toEqual(["A guide"]);
+  });
+});

@@ -11,6 +11,7 @@ import { livePendingApprovals, toPendingActionView } from "@/lib/assistant-agent
 import { backfillFromJira, jiraLinkFor, withTimeout } from "@/lib/ticket-jira";
 import { extractStatedCustomer } from "@/lib/customer-stated";
 import { lacksVerifiedCustomer } from "@/lib/tickets";
+import { feedbackForConversation } from "@/lib/answer-feedback";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -47,6 +48,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     ...conversation,
     ...(filled ?? {}),
     externalTicketUrl,
+    // Ratings on this conversation's replies, with the signed-in manager's own flagged.
+    feedback: await feedbackForConversation(tenant.orgId, conversation.id, tenant.userId),
     customerStated,
     messages: msgs.map(withNormalizedCitations),
     pendingActions,

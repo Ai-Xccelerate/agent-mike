@@ -1,16 +1,19 @@
 "use client";
 
 import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
-import { apiFetch, type OverviewPeriod, type OverviewRecentOutcome, type WorkerOverview } from "@/lib/worker-api";
+import { ChatIcon, CheckCircleIcon, ChevronLeftIcon, ChevronDownIcon, TaskIcon, UserCircleIcon } from "@/icons";
+import { apiFetch, type OverviewFilters, type OverviewPeriod, type OverviewRecentOutcome, type WorkerOverview } from "@/lib/worker-api";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { FEEDBACK_REASON_LABELS } from "@/lib/answer-feedback";
+import { DEFAULT_ROW_LIMIT } from "@/lib/overview-rows";
+import { ConversationsOverTime, CountBars, PriorityColumns, StatusDonut } from "./overview/OverviewCharts";
 
 /**
- * The Overview: how much customer traffic this worker had, how much it
- * answered itself, what it handed to the team (broken down by the connected
- * helpdesk's own request types and priorities), and what it did lately. The
- * numbers come from /worker/overview; nothing here knows any one customer's
- * helpdesk.
+ * The Overview, laid out like a service desk's summary page: filters across the top, four numbers, a grid of charts,
+ * then the activity list. Everything is Mike's own: how much customer traffic the worker had, how much it answered
+ * itself, what it handed to a person, and what it cited. The numbers come from /worker/overview; nothing here knows
+ * any one customer's helpdesk, and nothing is drawn that the API did not count.
  */
 
 const PERIODS: { id: OverviewPeriod; label: string }[] = [
@@ -19,13 +22,15 @@ const PERIODS: { id: OverviewPeriod; label: string }[] = [
   { id: "30d", label: "30 days" },
 ];
 
+const NO_FILTERS: OverviewFilters = { channel: null, requestType: null, priority: null };
+
 const cardClass = "rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]";
 const headingClass = "text-base font-semibold text-gray-800 dark:text-white/90";
 const mutedClass = "text-sm text-gray-500 dark:text-gray-400";
+const selectClass =
+  "h-10 rounded-lg border border-gray-300 bg-white pl-3 pr-8 text-sm text-gray-700 outline-none transition-colors hover:bg-gray-50 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-white/[0.03] dark:text-gray-300 dark:[color-scheme:dark]";
 
-// Priorities come in the helpdesk's own order, most urgent first.
-// Red and amber for the two most urgent, then greys: orange stays the brand accent.
-const PRIORITY_COLORS = ["bg-error-500", "bg-warning-500", "bg-gray-500", "bg-gray-400", "bg-gray-300 dark:bg-gray-600"];
+const CHANNEL_LABELS: Record<string, string> = { widget: "Website chat", email: "Email", chat: "Playground" };
 
 function timeOfDay(iso: string, period: OverviewPeriod) {
   const date = new Date(iso);
@@ -35,17 +40,64 @@ function timeOfDay(iso: string, period: OverviewPeriod) {
 }
 
 function channelLine(byChannel: Record<string, number>) {
-  const parts = Object.entries(byChannel).map(([channel, count]) => `${channel} ${count}`);
+  const parts = Object.entries(byChannel).map(([channel, count]) => `${CHANNEL_LABELS[channel] ?? channel} ${count}`);
   return parts.length ? parts.join(" · ") : "No customer conversations yet";
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note: React.ReactNode }) {
+function Tile({ icon, value, label, note }: { icon: ReactNode; value: string; label: string; note?: ReactNode }) {
   return (
-    <div className={`${cardClass} flex flex-col gap-1 p-5 md:p-6`}>
-      <span className={mutedClass}>{label}</span>
-      <span className="font-display text-3xl font-semibold tabular-nums text-gray-800 dark:text-white/90">{value}</span>
-      <span className="text-xs text-gray-500 dark:text-gray-400">{note}</span>
+    <div className={`${cardClass} flex items-center gap-4 p-5`}>
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-600 dark:bg-white/5 dark:text-gray-300" aria-hidden="true">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="font-display text-2xl font-semibold tabular-nums text-gray-800 dark:text-white/90">{value}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-300">{label}</p>
+        {note && <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">{note}</p>}
+      </div>
     </div>
+  );
+}
+
+function Panel({ id, title, hint, children, className = "" }: { id: string; title: string; hint?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <section aria-labelledby={id} className={`${cardClass} p-5 md:p-6 ${className}`}>
+      <h2 id={id} className={headingClass}>
+        {title}
+      </h2>
+      {hint && <p className={`${mutedClass} mt-0.5`}>{hint}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  options,
+  format = (option) => option,
+  onChange,
+}: {
+  label: string;
+  value: string | null;
+  options: string[];
+  format?: (option: string) => string;
+  onChange: (value: string | null) => void;
+}) {
+  if (!options.length && !value) return null;
+  return (
+    <label className="relative">
+      <span className="sr-only">{label}</span>
+      <select value={value ?? ""} onChange={(event) => onChange(event.target.value || null)} className={`${selectClass} appearance-none ${value ? "border-brand-500 text-brand-600 dark:text-brand-400" : ""}`}>
+        <option value="">{label}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {format(option)}
+          </option>
+        ))}
+      </select>
+      <ChevronDownIcon className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-gray-500" />
+    </label>
   );
 }
 
@@ -65,13 +117,19 @@ function Outcome({ outcome }: { outcome: OverviewRecentOutcome }) {
 
 export default function WorkerDashboard() {
   const [period, setPeriod] = useState<OverviewPeriod>("24h");
+  const [filters, setFilters] = useState<OverviewFilters>(NO_FILTERS);
+  const [page, setPage] = useState(0);
   const [overview, setOverview] = useState<WorkerOverview | null>(null);
   const [failed, setFailed] = useState(false);
   const { displayName } = useWorkerIdentityDisplay("This worker");
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<WorkerOverview>(`/worker/overview?period=${period}`)
+    const query = new URLSearchParams({ period, page: String(page) });
+    if (filters.channel) query.set("channel", filters.channel);
+    if (filters.requestType) query.set("request_type", filters.requestType);
+    if (filters.priority) query.set("priority", filters.priority);
+    apiFetch<WorkerOverview>(`/worker/overview?${query.toString()}`)
       .then((data) => {
         if (cancelled) return;
         setOverview(data);
@@ -81,31 +139,43 @@ export default function WorkerDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [period]);
+  }, [period, filters, page]);
+
+  const narrow = (next: Partial<OverviewFilters>) => {
+    setFilters((current) => ({ ...current, ...next }));
+    setPage(0);
+  };
+  const filtered = Boolean(filters.channel || filters.requestType || filters.priority);
 
   const total = overview?.conversations.total ?? 0;
   const answered = overview?.answeredByWorker ?? 0;
   const answeredPct = total ? Math.round((answered / total) * 100) : 0;
   const helpdesk = overview?.tickets.helpdesk ?? null;
-  const target = overview?.firstReply.targetHours ?? null;
-  const maxType = Math.max(1, ...(overview?.tickets.byType.map((entry) => entry.count) ?? [1]));
-  const priorityTotal = overview?.tickets.byPriority.reduce((sum, entry) => sum + entry.count, 0) ?? 0;
+  const waiting = overview?.waitingNow ?? 0;
+  const paging = overview?.recentPage;
+  const lastPage = paging ? Math.max(0, Math.ceil(paging.total / paging.pageSize) - 1) : 0;
+  const shownFrom = paging && paging.total ? paging.page * paging.pageSize + 1 : 0;
+  const shownTo = paging ? Math.min(paging.total, (paging.page + 1) * paging.pageSize) : 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 md:gap-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-xl font-semibold text-gray-800 dark:text-white/90">Overview</h1>
-          <p className={mutedClass}>What {displayName} handled, and what it passed to your team.</p>
-        </div>
+      <header>
+        <h1 className="font-display text-xl font-semibold text-gray-800 dark:text-white/90">Overview</h1>
+        <p className={mutedClass}>What {displayName} handled, and what it passed to your team.</p>
+      </header>
+
+      <div className="flex flex-wrap items-center gap-2" aria-label="Filters">
         <div role="group" aria-label="Period" className="flex gap-2">
           {PERIODS.map((entry) => (
             <button
               key={entry.id}
               type="button"
               aria-pressed={period === entry.id}
-              onClick={() => setPeriod(entry.id)}
-              className={`rounded-lg border px-3.5 py-2 text-sm transition-colors ${
+              onClick={() => {
+                setPeriod(entry.id);
+                setPage(0);
+              }}
+              className={`h-10 rounded-lg border px-3.5 text-sm transition-colors ${
                 period === entry.id
                   ? "border-brand-500 bg-brand-50 font-semibold text-brand-600 dark:bg-brand-500/10 dark:text-brand-400"
                   : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-white/[0.03] dark:text-gray-300"
@@ -115,7 +185,28 @@ export default function WorkerDashboard() {
             </button>
           ))}
         </div>
-      </header>
+        <FilterSelect
+          label="Channel"
+          value={filters.channel}
+          options={overview?.filterOptions.channels ?? []}
+          format={(option) => CHANNEL_LABELS[option] ?? option}
+          onChange={(channel) => narrow({ channel })}
+        />
+        <FilterSelect label="Request type" value={filters.requestType} options={overview?.filterOptions.requestTypes ?? []} onChange={(requestType) => narrow({ requestType })} />
+        <FilterSelect label="Priority" value={filters.priority} options={overview?.filterOptions.priorities ?? []} onChange={(priority) => narrow({ priority })} />
+        {filtered && (
+          <button
+            type="button"
+            onClick={() => {
+              setFilters(NO_FILTERS);
+              setPage(0);
+            }}
+            className="h-10 rounded-lg px-3 text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400"
+          >
+            Reset
+          </button>
+        )}
+      </div>
 
       {failed && (
         <p className="rounded-lg bg-warning-50 px-4 py-3 text-sm text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">
@@ -124,99 +215,141 @@ export default function WorkerDashboard() {
       )}
 
       <section aria-label="Key numbers" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 md:gap-6">
-        <Stat label="Conversations" value={overview ? String(total) : "…"} note={overview ? channelLine(overview.conversations.byChannel) : ""} />
-        <Stat
-          label={`Answered by ${displayName}`}
+        <Tile
+          icon={<ChatIcon className="size-5" />}
+          value={overview ? String(total) : "…"}
+          label="Conversations"
+          note={overview ? channelLine(overview.conversations.byChannel) : ""}
+        />
+        <Tile
+          icon={<CheckCircleIcon className="size-5" />}
           value={overview ? `${answeredPct}%` : "…"}
+          label={`Answered by ${displayName}`}
           note={overview ? `${answered} of ${total}, without a person` : ""}
         />
-        <Stat
-          label={helpdesk ? "Tickets raised" : "Handed to your team"}
-          value={overview ? String(helpdesk ? overview.tickets.raised : overview.handedOver) : "…"}
-          note={helpdesk ? `in ${helpdesk.project}` : "waiting for a person in the Inbox"}
-        />
-        <Stat
-          label="First reply within target"
-          value="Not measured yet"
+        <Tile
+          icon={<UserCircleIcon className="size-5" />}
+          value={overview ? String(overview.handedOver) : "…"}
+          label="Handed to a person"
           note={
-            <>
-              {target ? `Target: ${target} ${target === 1 ? "hour" : "hours"}. ` : "No target set. "}
-              <Link href="/settings/manager" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
-                {target ? "Change" : "Set one"}
-              </Link>
-              {helpdesk ? ". Reply times come from your helpdesk." : ""}
-            </>
+            overview ? (
+              waiting > 0 ? (
+                <Link href="/inbox" className="font-medium text-warning-600 hover:text-warning-700 dark:text-warning-400">
+                  {waiting} waiting for a person now
+                </Link>
+              ) : (
+                "None waiting right now"
+              )
+            ) : (
+              ""
+            )
           }
+        />
+        <Tile
+          icon={<TaskIcon className="size-5" />}
+          value={overview ? String(helpdesk ? overview.tickets.raised : waiting) : "…"}
+          label={helpdesk ? "Tickets raised" : "Waiting for a person"}
+          note={helpdesk ? `in ${helpdesk.project}` : "in the Inbox now"}
         />
       </section>
 
-      {helpdesk ? (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 md:gap-6">
-          <section aria-labelledby="by-type" className={`${cardClass} p-5 md:p-6`}>
-            <h2 id="by-type" className={headingClass}>Tickets by request type</h2>
-            <p className={mutedClass}>The request types of your connected service desk ({helpdesk.project}).</p>
-            <dl className="mt-4 grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_2rem] items-center gap-x-3 gap-y-2.5 text-sm">
-              {overview?.tickets.byType.map((entry) => (
-                <div key={entry.name} className="contents">
-                  <dt className={entry.count ? "text-gray-800 dark:text-white/90" : "text-gray-500 dark:text-gray-400"}>{entry.name}</dt>
-                  <dd className="h-2 rounded-full bg-gray-100 dark:bg-white/5" aria-hidden="true">
-                    <span className="block h-2 rounded-full bg-gray-700 dark:bg-gray-300" style={{ width: `${(entry.count / maxType) * 100}%` }} />
-                  </dd>
-                  <dd className="text-right font-semibold tabular-nums text-gray-800 dark:text-white/90">{entry.count}</dd>
-                </div>
-              ))}
-              {!overview?.tickets.byType.length && <p className={`${mutedClass} col-span-3`}>No tickets in this period.</p>}
-            </dl>
-          </section>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 md:gap-6">
+        <Panel id="over-time" title="Conversations over time" hint={`Per ${overview?.series.bucket ?? "day"}, answered without a person and handed to one.`}>
+          {overview ? <ConversationsOverTime series={overview.series} /> : <p className={mutedClass}>Loading…</p>}
+        </Panel>
 
-          <section aria-labelledby="by-priority" className={`${cardClass} p-5 md:p-6`}>
-            <h2 id="by-priority" className={headingClass}>By priority</h2>
-            <p className={mutedClass}>Your service desk&apos;s priorities. {displayName} sets them from the impact the customer describes.</p>
-            <div
-              role="img"
-              aria-label={overview?.tickets.byPriority.map((entry) => `${entry.name} ${entry.count}`).join(", ")}
-              className="mt-4 flex h-3 gap-0.5 overflow-hidden rounded-full bg-gray-100 dark:bg-white/5"
-            >
-              {overview?.tickets.byPriority.map((entry, index) =>
-                entry.count ? (
-                  <span
-                    key={entry.name}
-                    className={PRIORITY_COLORS[Math.min(index, PRIORITY_COLORS.length - 1)]}
-                    style={{ width: `${(entry.count / Math.max(1, priorityTotal)) * 100}%` }}
-                  />
-                ) : null,
+        {helpdesk ? (
+          <Panel id="by-type" title="Tickets by request type" hint={`The request types of your connected service desk (${helpdesk.project}).`}>
+            <CountBars rows={overview?.tickets.byType ?? []} empty="No tickets in this period." limit={DEFAULT_ROW_LIMIT} noun="request types" />
+          </Panel>
+        ) : (
+          <Panel
+            id="topics"
+            title="Handed over by topic"
+            hint={
+              <>
+                Connect a helpdesk under{" "}
+                <Link href="/settings/integrations" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+                  Integrations
+                </Link>{" "}
+                to see these by request type and priority.
+              </>
+            }
+          >
+            <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+              {overview?.handedOverTopics.map((topic) => <li key={topic}>{topic}</li>)}
+              {overview && !overview.handedOverTopics.length && <li className={mutedClass}>Nothing handed over in this period.</li>}
+            </ul>
+          </Panel>
+        )}
+
+        <Panel id="status" title="Status" hint="Where this period's conversations stand now.">
+          {overview ? <StatusDonut byStatus={overview.byStatus} /> : <p className={mutedClass}>Loading…</p>}
+        </Panel>
+
+        {helpdesk && (
+          <Panel id="by-priority" title="Priority" hint={`Your service desk's priorities. ${displayName} sets them from the impact the customer describes.`}>
+            <PriorityColumns byPriority={overview?.tickets.byPriority ?? []} />
+          </Panel>
+        )}
+
+        <Panel
+          id="sources"
+          title="Most-used articles"
+          hint={`What ${displayName} cited most. A topic that is handed over but never cited is a gap in your knowledge.`}
+        >
+          <CountBars
+            rows={(overview?.topSources ?? []).map((source) => ({ name: source.title, count: source.count }))}
+            empty="No answers cited an article in this period."
+            labelTrack="minmax(14rem, 26rem)"
+          />
+        </Panel>
+
+        <Panel
+          id="quality"
+          title="Answer quality"
+          hint={`How your managers rated ${displayName}'s replies. Rate them in the Inbox.`}
+        >
+          {overview && overview.quality.rated > 0 ? (
+            <div className="space-y-5">
+              <div className="flex items-baseline gap-3">
+                <span className="font-display text-3xl font-semibold tabular-nums text-gray-800 dark:text-white/90">
+                  {Math.round((overview.quality.good / overview.quality.rated) * 100)}%
+                </span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">
+                  rated good ({overview.quality.good} good, {overview.quality.bad} bad)
+                </span>
+              </div>
+              {overview.quality.byReason.length > 0 && (
+                <div>
+                  <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">What was wrong</p>
+                  <CountBars rows={overview.quality.byReason.map((entry) => ({ name: FEEDBACK_REASON_LABELS[entry.reason], count: entry.count }))} empty="" />
+                </div>
               )}
             </div>
-            <ul className="mt-4 grid grid-cols-2 gap-2 text-sm">
-              {overview?.tickets.byPriority.map((entry, index) => (
-                <li key={entry.name} className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-                  <span className={`size-2 rounded-full ${PRIORITY_COLORS[Math.min(index, PRIORITY_COLORS.length - 1)]}`} aria-hidden="true" />
-                  {entry.name} {entry.count}
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-      ) : (
-        <section aria-labelledby="topics" className={`${cardClass} p-5 md:p-6`}>
-          <h2 id="topics" className={headingClass}>Handed over by topic</h2>
-          <p className={mutedClass}>
-            Connect a helpdesk under{" "}
-            <Link href="/settings/integrations" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
-              Integrations
-            </Link>{" "}
-            to see these by request type and priority.
-          </p>
-          <ul className="mt-4 space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            {overview?.handedOverTopics.map((topic) => <li key={topic}>{topic}</li>)}
-            {overview && !overview.handedOverTopics.length && <li className={mutedClass}>Nothing handed over in this period.</li>}
-          </ul>
-        </section>
-      )}
+          ) : (
+            <p className={mutedClass}>
+              {overview ? (
+                <>
+                  No replies rated in this period. Open a conversation in the{" "}
+                  <Link href="/inbox" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+                    Inbox
+                  </Link>{" "}
+                  and mark an answer good or bad.
+                </>
+              ) : (
+                "Loading…"
+              )}
+            </p>
+          )}
+        </Panel>
+      </div>
 
       <section aria-labelledby="recent" className={`${cardClass} flex flex-col`}>
         <div className="flex items-center justify-between px-5 pt-5 md:px-6">
-          <h2 id="recent" className={headingClass}>Recent activity</h2>
+          <h2 id="recent" className={headingClass}>
+            Activity
+          </h2>
           <Link href="/inbox" className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
             View inbox
           </Link>
@@ -248,10 +381,42 @@ export default function WorkerDashboard() {
           </table>
           {overview && !overview.recent.length && (
             <p className="px-5 py-10 text-center text-sm text-gray-500 md:px-6">
-              No customer conversations in this period. They appear here once someone writes in over the website widget or email.
+              {filtered
+                ? "Nothing matches these filters."
+                : "No customer conversations in this period. They appear here once someone writes in over the website widget or email."}
             </p>
           )}
         </div>
+        {paging && paging.total > paging.pageSize && (
+          <nav aria-label="Activity pages" className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-5 py-3 text-sm dark:border-gray-800 md:px-6">
+            <span className={mutedClass}>
+              Showing rows {shownFrom}-{shownTo} of {paging.total}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+                aria-label="Previous page"
+                className="flex size-9 items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/5"
+              >
+                <ChevronLeftIcon className="size-4" />
+              </button>
+              <span className="tabular-nums text-gray-700 dark:text-gray-300">
+                {page + 1} / {lastPage + 1}
+              </span>
+              <button
+                type="button"
+                disabled={page >= lastPage}
+                onClick={() => setPage((current) => Math.min(lastPage, current + 1))}
+                aria-label="Next page"
+                className="flex size-9 items-center justify-center rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/5"
+              >
+                <ChevronLeftIcon className="size-4 rotate-180" />
+              </button>
+            </div>
+          </nav>
+        )}
       </section>
     </div>
   );

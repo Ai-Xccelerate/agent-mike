@@ -11,6 +11,7 @@ import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
 import { timed } from "@/lib/timing";
+import { citedTitles } from "@/lib/citations";
 import { isPlaceholderCustomerName } from "@/lib/customer-name";
 import { normalizeIdentityMode, trustedCustomerEmail } from "@/lib/customer-identity";
 
@@ -191,6 +192,8 @@ export async function runCustomerTurn(input: {
 
   // Before the ticket is raised, so the reply quoted on it matches what the customer saw.
   result = { ...result, answer: withoutEmDashes(result.answer) };
+  // The agent returns no citations of its own; record the retrieved articles the reply names.
+  if (result.citations.length === 0) result = { ...result, citations: citedTitles(result.answer, knowledgeMatches) };
 
   // A handoff raises (or updates) the helpdesk ticket here, in code, so it
   // can't be skipped or invented by the model. A Jira failure never blocks
