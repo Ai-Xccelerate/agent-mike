@@ -253,6 +253,13 @@
       "when": 1790660000016,
       "tag": "0035_ticket_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790660000017,
+      "tag": "0036_widget_identity",
+      "breakpoints": true
     }
   ]
 }

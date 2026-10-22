@@ -11,6 +11,8 @@ import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
 import { timed } from "@/lib/timing";
+import { isPlaceholderCustomerName } from "@/lib/customer-name";
+import { normalizeIdentityMode, trustedCustomerEmail } from "@/lib/customer-identity";
 
 /**
  * One customer-facing agent turn, shared by every channel (chat, widget,
@@ -61,9 +63,19 @@ export async function insertConversationWithTicket(
  * What the conversation already says about who the customer is: an email's
  * sender address and name. The website widget's placeholder name isn't one.
  */
-function knownCustomerOf(conversation: { customerName: string; customerEmail: string | null }) {
-  const name = conversation.customerName && conversation.customerName !== "Website visitor" ? conversation.customerName : null;
-  return { name, email: conversation.customerEmail };
+function knownCustomerOf(
+  conversation: { customerName: string; customerEmail: string | null; customerEmailVerifiedAt?: Date | null; channel: string },
+  identityMode: string | null | undefined,
+) {
+  const name = isPlaceholderCustomerName(conversation.customerName) ? null : conversation.customerName;
+  const mode = normalizeIdentityMode(identityMode);
+  // Email conversations know their sender already; only chat and the widget ask who someone is.
+  const asks = mode !== "off" && conversation.channel !== "email";
+  return {
+    name,
+    email: conversation.customerEmail,
+    ...(asks ? { identity: { mode, verified: Boolean(conversation.customerEmailVerifiedAt) } } : {}),
+  };
 }
 
 /** The ticket's number, as its own message after the reply (see `deferTicket`). */
@@ -106,8 +118,17 @@ export async function runCustomerTurn(input: {
    * and the JSON route keep it in the reply, so they leave this off.
    */
   deferTicket?: boolean;
+  /** Told what the turn is really doing (chat panel progress); never states an outcome. */
+  onStatus?: (stage: string, label: string) => void;
 }): Promise<CustomerTurn> {
   const { organizationId, profile, conversation, priorMessages, userMessage, speakerName } = input;
+  const progress = (stage: string, label: string) => {
+    try {
+      input.onStatus?.(stage, label);
+    } catch {
+      // Progress is a courtesy: it never fails the turn.
+    }
+  };
   const message = userMessage.body;
 
   // The sender allowlist is the Guardrails page's own "Allowed email domains"
@@ -117,13 +138,15 @@ export async function runCustomerTurn(input: {
   // every chat message the moment any outbound domain was approved.
   const guardrail = evaluateMessage({
     message,
-    senderEmail: conversation.customerEmail,
+    // A visitor's typed email must not pass the sender allow-list.
+    senderEmail: trustedCustomerEmail(conversation),
     escalationTerms: profile.escalationTerms,
     allowedDomains: profile.allowedDomains,
     requireUserVerification: profile.requireUserVerification,
   });
 
   // Local knowledge plus any enabled knowledge integration (e.g. Parchment).
+  progress("retrieval", "Checking our help articles…");
   const { matches: knowledgeMatches, sources: knowledgeSources } = await timed("retrieval", () => retrieveKnowledge(profile, message));
 
   const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
@@ -136,6 +159,7 @@ export async function runCustomerTurn(input: {
     result = handoffToManager(profile);
   } else {
     try {
+      progress("reply", "Putting together a reply…");
       const organizationName = await timed("db.orgName", () => getOrganizationName(organizationId));
       result = await timed("agent.total", () =>
         runAgent(
@@ -149,7 +173,7 @@ export async function runCustomerTurn(input: {
         conversation.summary,
         speakerName,
         conversation.channel,
-        knownCustomerOf(conversation),
+        knownCustomerOf(conversation, profile.identityMode),
         ),
       );
     } catch (error) {
@@ -178,6 +202,22 @@ export async function runCustomerTurn(input: {
   if (showsCards && result.choices?.length) {
     cards.push({ id: crypto.randomUUID(), kind: "choices", data: { options: result.choices.map(withoutEmDashes) } });
   }
+  // The worker asked who this is. The card is only shown to someone who still has
+  // something to give: details already on record (and, for codes, verified) need no form.
+  const identityMode = normalizeIdentityMode(profile.identityMode);
+  const verified = Boolean(conversation.customerEmailVerifiedAt);
+  const identityKnown = Boolean(conversation.customerEmail) && !isPlaceholderCustomerName(conversation.customerName);
+  if (showsCards && result.needIdentity && identityMode !== "off" && !(identityKnown && (identityMode === "email_match" || verified))) {
+    cards.push({
+      id: crypto.randomUUID(),
+      kind: "identity_request",
+      data: {
+        mode: identityMode,
+        ...(isPlaceholderCustomerName(conversation.customerName) ? {} : { name: conversation.customerName }),
+        ...(conversation.customerEmail ? { email: conversation.customerEmail } : {}),
+      },
+    });
+  }
 
   const raiseTicket = (fromConversation: ConversationRow) =>
     recordHandoffInJira({
@@ -187,6 +227,10 @@ export async function runCustomerTurn(input: {
       transcript: toHistoryTurns([...priorMessages, userMessage]),
       latestMessage: message,
       workerReply: result.answer,
+      // Only an email a code was typed back for may be raised on behalf of.
+      ...(verified && conversation.customerEmail
+        ? { verifiedCustomer: { email: conversation.customerEmail, name: isPlaceholderCustomerName(conversation.customerName) ? null : conversation.customerName } }
+        : {}),
     }).catch((error: unknown) => {
       console.warn("[handoff] Jira ticket failed:", error instanceof Error ? error.message : error);
       return null;
@@ -196,6 +240,7 @@ export async function runCustomerTurn(input: {
   const deferTicket = Boolean(input.deferTicket) && result.escalate && showsCards;
 
   if (result.escalate && !deferTicket) {
+    progress("ticket", "Raising your ticket…");
     const ticket = await timed("handoff.jira", () => raiseTicket(conversation));
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.

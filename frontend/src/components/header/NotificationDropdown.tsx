@@ -9,6 +9,7 @@ import {
   markConversationsRead,
   type ConversationReadMap,
 } from "@/lib/conversation-read-state";
+import { isPlaceholderName } from "@/lib/tickets";
 import { apiFetch, type Conversation } from "@/lib/worker-api";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -33,7 +34,7 @@ function channelLabel(channel: Conversation["channel"]) {
 
 function titleFor(conversation: Conversation) {
   const name = conversation.customerName?.trim();
-  if (name && name.toLowerCase() !== "website visitor") {
+  if (name && !isPlaceholderName(name)) {
     return `${name} needs review`;
   }
   return "Escalation needs review";

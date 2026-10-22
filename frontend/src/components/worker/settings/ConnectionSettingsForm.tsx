@@ -134,6 +134,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
   const [requestTypeId, setRequestTypeId] = useState(settings.requestTypeId ?? "");
   const [createTicketOnHandoff, setCreateTicketOnHandoff] = useState(settings.createTicketOnHandoff);
   const [workerChooses, setWorkerChooses] = useState(settings.workerChoosesRequestType);
+  const [createCustomers, setCreateCustomers] = useState(Boolean(settings.createCustomers));
   // Null while loading; "failed" falls back to typing the values in.
   const [projects, setProjects] = useState<JiraProject[] | "failed" | null>(null);
   const { saving, error, save } = useSave(integrationType, onSaved, onClose);
@@ -167,6 +168,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
           requestTypeId: listed ? (asRequest && !workerChooses && requestTypeId) || null : settings.requestTypeId,
           workerChoosesRequestType: listed ? asRequest && workerChooses : settings.workerChoosesRequestType,
           createTicketOnHandoff,
+          createCustomers,
         });
       }}
     >
@@ -279,6 +281,13 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
           checked={createTicketOnHandoff}
           disabled={saving}
           onChange={() => setCreateTicketOnHandoff((value) => !value)}
+        />
+        <SettingsToggleRow
+          title="Create Jira customers"
+          description="When a visitor who verified their email is not a Jira customer yet, create their account so the ticket is raised in their name. Only works when Customer identity is set to the emailed code, under Guardrails."
+          checked={createCustomers}
+          disabled={saving}
+          onChange={() => setCreateCustomers((value) => !value)}
         />
       </div>
       <DialogFooter saving={saving} error={error} onCancel={onClose} />

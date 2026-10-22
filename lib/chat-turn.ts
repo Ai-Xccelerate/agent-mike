@@ -6,6 +6,7 @@ import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn, type TicketFollowUp } from "@/lib/customer-turn";
 import { timed, withTurnTimer } from "@/lib/timing";
+import { anonymousVisitorName } from "@/lib/customer-identity";
 
 /**
  * One chat turn for the Playground and the website widget, shared by the JSON
@@ -24,6 +25,8 @@ export type ChatOutcome = {
 };
 
 export type ChatRequestOptions = {
+  /** Told what the turn is doing, for the panel's progress line (AG-UI only). */
+  onStatus?: (stage: string, label: string) => void;
   /** Reply first, ticket number after (the chat panel). Off keeps the number in the reply. */
   deferTicket?: boolean;
 };
@@ -39,6 +42,12 @@ export function runChatRequest(
   return withTurnTimer({ turn: "customer-chat", channel: req.headers.get("x-worker-site-token") ? "widget" : "chat" }, () =>
     runChatRequestTimed(req, body, options),
   );
+}
+
+/** The caller's organization: a widget by its site token, the Playground by the manager's own sign-in. */
+export async function resolveChatTenant(req: NextRequest) {
+  const identity = getIdentityAdapter();
+  return req.headers.get("x-worker-site-token") ? identity.resolveWidgetRequest(req) : identity.resolveManagerRequest(req);
 }
 
 async function runChatRequestTimed(
@@ -105,6 +114,8 @@ async function runChatRequestTimed(
       organizationId: tenant.orgId,
       channel: tenant.source === "widget" ? "widget" : "chat",
       subject: message.slice(0, 120),
+      // A name for the inbox until the visitor gives theirs.
+      ...(tenant.source === "widget" ? { customerName: anonymousVisitorName() } : {}),
     });
   }
 
@@ -141,6 +152,7 @@ async function runChatRequestTimed(
     userMessage,
     speakerName,
     deferTicket: options.deferTicket,
+    onStatus: options.onStatus,
   });
 
   return {

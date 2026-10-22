@@ -5,6 +5,21 @@ import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import UserVerificationToggle from "@/components/worker/settings/UserVerificationToggle";
 import { cardClass, fieldClass, sectionHintClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
+import type { IdentityMode } from "@/lib/worker-api";
+
+const IDENTITY_MODES: { value: IdentityMode; label: string; help: string }[] = [
+  { value: "off", label: "Off", help: "The worker never asks who the customer is." },
+  {
+    value: "email_match",
+    label: "Name and email",
+    help: "Asks for a name and email before raising or reading tickets. Not verified: a visitor can type anyone's address, so the worker raises tickets as an unverified contact and never reads tickets out.",
+  },
+  {
+    value: "email_code",
+    label: "Name, email and emailed code",
+    help: "Also emails a 6-digit code to prove the visitor owns the address. Needed before the worker shows ticket details or creates Jira customers. Needs a connected mailbox.",
+  },
+];
 
 export default function GuardrailsSettings() {
   const { profile, update, save, discard, dirty, saving, notice, noticeError, lastEditedAt } = useWorkerProfile();
@@ -21,6 +36,7 @@ export default function GuardrailsSettings() {
             "escalationTerms",
             "allowedDomains",
             "requireUserVerification",
+            "identityMode",
             "requireWriteApproval",
             "assistantActionsEnabled",
           ])
@@ -85,6 +101,30 @@ export default function GuardrailsSettings() {
           checked={profile.requireUserVerification}
           onChange={(next) => update("requireUserVerification", next)}
         />
+      </section>
+
+      <section className={cardClass}>
+        <h2 className={sectionTitleClass}>Customer identity</h2>
+        <p className={sectionHintClass}>
+          How the website chat finds out who is writing. Only asked when the customer wants to raise or check a ticket.
+        </p>
+        <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          Identity check
+          <select
+            value={profile.identityMode ?? "off"}
+            onChange={(e) => update("identityMode", e.target.value as IdentityMode)}
+            className={`${fieldClass} mt-2`}
+          >
+            {IDENTITY_MODES.map((mode) => (
+              <option key={mode.value} value={mode.value}>
+                {mode.label}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1.5 block text-xs font-normal leading-5 text-gray-500">
+            {IDENTITY_MODES.find((mode) => mode.value === (profile.identityMode ?? "off"))?.help}
+          </span>
+        </label>
       </section>
 
       <section className={cardClass}>
