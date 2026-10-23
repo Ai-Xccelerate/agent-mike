@@ -14,7 +14,7 @@ vi.mock("@/lib/tools-integrations/atlassian", async (importOriginal) => ({
   confluenceSearchesIndex: searchesIndex,
   searchConfluenceKnowledge: liveSearch,
 }));
-vi.mock("@/lib/knowledge-search", () => ({ searchKnowledgeIndex: indexSearch }));
+vi.mock("@/lib/knowledge-search", () => ({ searchKnowledgeIndex: indexSearch, DEFAULT_TUNING: { limit: 8 } }));
 vi.mock("@/lib/knowledge-index", () => ({ refreshKnowledgeIndexIfStale: refresh }));
 
 const match = (title: string) => ({ documentId: `confluence:${title}`, title, heading: null, content: `${title} text`, rank: 1 });
@@ -46,6 +46,20 @@ describe("which Confluence search answers", () => {
     expect(liveSearch).not.toHaveBeenCalled();
     expect(refresh).toHaveBeenCalledWith(orgId);
     expect(sources.find((s) => s.source === "confluence")).toMatchObject({ count: 1, error: null });
+  });
+
+  it("hands over all eight sections from the saved copy, not just five", async () => {
+    searchesIndex.mockResolvedValue(true);
+    indexSearch.mockResolvedValue({ matches: Array.from({ length: 8 }, (_, i) => match(`Section ${i + 1}`)), timings: {}, details: [] });
+    const { matches } = await retrieveKnowledge(profile(), "how do I register");
+    expect(matches).toHaveLength(8);
+  });
+
+  it("keeps the live search to five", async () => {
+    searchesIndex.mockResolvedValue(false);
+    liveSearch.mockResolvedValue(Array.from({ length: 8 }, (_, i) => match(`Live ${i + 1}`)));
+    const { matches } = await retrieveKnowledge(profile(), "how do I register");
+    expect(matches).toHaveLength(5);
   });
 
   it("falls back to the live search when the saved copy has nothing", async () => {
