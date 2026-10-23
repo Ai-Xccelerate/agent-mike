@@ -222,3 +222,29 @@ describe("a handover whose helpdesk ticket never came to be", () => {
     expect(recordHandoffInJira).not.toHaveBeenCalled();
   });
 });
+
+describe("a verified customer chasing an earlier request", () => {
+  const chase = { answer: "I'm sorry nobody called. SUP-5 is still open; I'm passing on that you are chasing it.", confidence: 0.9, escalate: true, citations: [], checkedTickets: true, chasedTicketKey: "SUP-5" };
+
+  it("adds the chase to that request and links the new conversation to it, instead of raising a second ticket", async () => {
+    runAgentMock.mockResolvedValue(chase);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-5", created: false });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const result = await turn(conversation.id, "third time I'm writing about SUP-5, nobody called");
+    const sent = vi.mocked(recordHandoffInJira).mock.calls[0][0];
+    expect(sent.conversation.externalTicketKey).toBe("SUP-5");
+    expect(result.reply.body).toContain("added this to your ticket SUP-5");
+    const [row] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
+    expect(row.externalTicketKey).toBe("SUP-5");
+  });
+
+  it("changes nothing when the conversation already has its own ticket", async () => {
+    runAgentMock.mockResolvedValue(chase);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-2", created: false });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", externalTicketKey: "SUP-2" });
+    await turn(conversation.id, "still nothing on SUP-5");
+    expect(vi.mocked(recordHandoffInJira).mock.calls[0][0].conversation.externalTicketKey).toBe("SUP-2");
+  });
+});

@@ -266,6 +266,14 @@ export async function runCustomerTurn(input: {
     result = { ...result, escalate: false };
   }
 
+  // A customer chasing an earlier request of theirs (a verified customer who quoted its number): the chase goes
+  // on that request as a comment, and the conversation is linked to it, instead of opening a second ticket.
+  const chasedKey = result.escalate && !conversation.externalTicketKey ? result.chasedTicketKey : undefined;
+  if (chasedKey) {
+    await db.update(conversations).set({ externalTicketKey: chasedKey }).where(eq(conversations.id, conversation.id));
+  }
+  const withChased = <T extends ConversationRow>(row: T): T => (chasedKey && !row.externalTicketKey ? { ...row, externalTicketKey: chasedKey } : row);
+
   // A handover whose helpdesk ticket never came to be (the server restarted mid-way, the helpdesk was briefly
   // unreachable) is tried again on the customer's next message. A ticket the helpdesk refused is not: that is
   // recorded on the conversation for the manager. Nothing is said to the customer unless a ticket results.
@@ -285,7 +293,7 @@ export async function runCustomerTurn(input: {
 
   if (raisesTicket && !deferTicket) {
     progress("ticket", "Logging this for the team…");
-    const ticket = await timed("handoff.jira", () => raiseTicket(conversation));
+    const ticket = await timed("handoff.jira", () => raiseTicket(withChased(conversation)));
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
     if (isHandoffTicket(ticket)) {
@@ -370,7 +378,7 @@ export async function runCustomerTurn(input: {
       if (ticketSummary && ticketSummary !== current.ticketSummary) {
         await db.update(conversations).set({ ticketSummary }).where(eq(conversations.id, conversation.id));
       }
-      const ticket = await raiseTicket({ ...current, ticketSummary: ticketSummary ?? current.ticketSummary });
+      const ticket = await raiseTicket({ ...withChased(current), ticketSummary: ticketSummary ?? current.ticketSummary });
       console.info("[timing]", JSON.stringify({ turn: "handoff-ticket", channel: conversation.channel, ms: Date.now() - started }));
       if (!isHandoffTicket(ticket)) {
         if (!firstHandoff) return null;

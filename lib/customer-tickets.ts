@@ -13,6 +13,8 @@ export type CustomerTicket = {
   about: string | null;
   status: string;
   updated: string;
+  /** A number the customer quoted that is theirs (checked email) and has a helpdesk key: a chase can go on it. */
+  chaseable?: boolean;
 };
 
 /**
@@ -90,6 +92,7 @@ async function quotedTicket(
     reference: ticketReference(ticketPrefix, row.ticketNumber),
     serviceDeskKey: row.externalTicketKey ?? null,
     about: theirs ? row.ticketSummary ?? row.subject ?? null : null,
+    ...(theirs && row.externalTicketKey ? { chaseable: true } : {}),
     status: customerStatusWord(row.status),
     updated: row.updatedAt.toISOString(),
   };
