@@ -101,6 +101,10 @@ describe("promisesPersonFollowUp", () => {
     "I have passed your request to the EAP Expert Support Team.",
     "Someone from the team will be in touch tomorrow.",
     "I'll hand this over to the support team now.",
+    "Thanks for reporting this. Since the whole office is affected and it's urgent, I'm escalating it as a system problem now.",
+    "I'm raising this with the support team now.",
+    "I will escalate this to a teammate.",
+    "I'm bringing in a teammate who can help.",
   ])("recognises %s", (text) => expect(promisesPersonFollowUp(text)).toBe(true));
 
   it.each([
@@ -110,6 +114,8 @@ describe("promisesPersonFollowUp", () => {
     "That's outside what I can help with here.",
     "If you'd like, I can raise a ticket for the rest.",
     "A teammate can help with both requests. Please share your work email.",
+    "I can escalate this if you'd like.",
+    "Do you want me to raise a ticket for this?",
     "",
   ])("leaves %s alone", (text) => expect(promisesPersonFollowUp(text)).toBe(false));
 });
