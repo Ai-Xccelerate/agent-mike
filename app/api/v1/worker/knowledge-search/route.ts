@@ -4,7 +4,9 @@ import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { isOrgAdmin } from "@/lib/org-roles";
 import { retrieveKnowledge } from "@/lib/retrieval";
-import { ConfluenceKnowledgeError, confluenceInventory } from "@/lib/tools-integrations/atlassian";
+import { sql } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { ConfluenceKnowledgeError, confluenceInventory, confluenceListingProbe } from "@/lib/tools-integrations/atlassian";
 
 // Reads connected sources per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -14,6 +16,8 @@ export const dynamic = "force-dynamic";
  *   ?q=<question>   the pages she would be given for that question, best first, with where each came from
  *   ?q=...&full=1   the same, with the full text she was given for each page (to check an answer against it)
  *   ?inventory=1    every page she can search in the connected Confluence spaces
+ *   ?probe=1        what this deployment can do for a search index: database features, and what Confluence's page
+ *                   listing returns (field names and sizes only, never page text)
  * Read-only: nothing here changes a setting or writes to Confluence.
  */
 export async function GET(req: NextRequest) {
@@ -22,6 +26,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
   }
   const params = req.nextUrl.searchParams;
+
+  if (params.get("probe")) {
+    const version = (await db.execute<{ version: string }>(sql`select version() as version`)).rows[0];
+    const extensions = (
+      await db.execute<{ name: string; default_version: string | null; installed_version: string | null }>(
+        sql`select name, default_version, installed_version from pg_available_extensions where name in ('vector', 'pg_trgm') order by name`,
+      )
+    ).rows;
+    const privileges = (
+      await db.execute<{ is_superuser: boolean; can_create: boolean }>(
+        sql`select (select rolsuper from pg_roles where rolname = current_user) as is_superuser, has_database_privilege(current_user, current_database(), 'CREATE') as can_create`,
+      )
+    ).rows[0];
+    let listing: unknown = null;
+    try {
+      listing = await confluenceListingProbe(tenant.orgId);
+    } catch (error) {
+      listing = { error: error instanceof Error ? error.message : "probe failed" };
+    }
+    return NextResponse.json({ database: { version: version?.version ?? null, extensions, ...privileges }, confluence: listing });
+  }
 
   if (params.get("inventory")) {
     try {
