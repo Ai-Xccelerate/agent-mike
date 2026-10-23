@@ -34,6 +34,7 @@ import {
   SEARCH_ACTIONS_TOOL_NAME,
 } from "@/lib/tools-integrations/composio-actions";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
+import { customerTickets } from "@/lib/customer-tickets";
 import {
   CONFLUENCE_READ_TOOL_NAME,
   CONFLUENCE_SEARCH_TOOL_NAME,
@@ -78,6 +79,8 @@ export interface WorkerProfileLike {
   enabledSkills?: string[];
   /** Read for the skill repository toggle; see lib/integrations.ts. */
   integrationsConfig?: unknown;
+  /** The prefix of the reference a customer is given for a request, e.g. "EAP" for EAP-1042. */
+  ticketPrefix?: string | null;
   /**
    * Fail-closed default (true): a tool that creates/sends/modifies something
    * in an external system queues for a human instead of running immediately.
@@ -767,7 +770,7 @@ export const CUSTOMER_EXCLUDED_TOOLKITS = ["jira", "confluence"];
 export async function buildAgentTools(
   profile: Pick<
     WorkerProfileLike,
-    "toolsConfig" | "enabledSkills" | "integrationsConfig" | "requireWriteApproval"
+    "toolsConfig" | "enabledSkills" | "integrationsConfig" | "requireWriteApproval" | "ticketPrefix"
   >,
   organizationId: string,
   conversationId?: string | null,
@@ -775,6 +778,8 @@ export async function buildAgentTools(
   onReferenceMaterial?: () => void,
   /** The conversation's channel. On email the channel itself sends the reply. */
   channel: string = "chat",
+  /** Called when the worker looked up the customer's own requests this turn. */
+  onTicketsChecked?: () => void,
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
@@ -977,22 +982,52 @@ export async function buildAgentTools(
   }
 
   const helpdeskConnection = await getConnectionForOrg(organizationId, "helpdesk");
-  if (
+  const jiraAccountId =
     helpdeskConnection?.status === "active" &&
     helpdeskConnection.composioConnectedAccountId &&
     helpdeskConnection.system === "jira"
-  ) {
-    const connectedAccountId = helpdeskConnection.composioConnectedAccountId;
-    // Only this customer's own tickets: a free-text search of the project
-    // would let anyone in the chat read other customers' tickets.
+      ? helpdeskConnection.composioConnectedAccountId
+      : null;
+  // Only this customer's own requests: a free-text search of the project would let anyone in the chat read
+  // other customers' tickets. Available with or without a helpdesk, because every request has a reference.
+  if (conversationId || jiraAccountId) {
     tools.push(
       tool({
         name: CUSTOMER_TICKETS_TOOL_NAME,
         description:
-          "Check the status of this customer's own support tickets (the ones raised for this conversation or " +
-          "this customer's email). Read-only. Use it when they ask about a ticket or an earlier request.",
+          "Check the status of this customer's own support requests (the ones raised for this conversation or " +
+          "this customer's email). Read-only. Use it when they ask about a ticket, a reference number or an earlier " +
+          "request. Quote each request by its `number` only and give its status in plain words. Checking on a request is " +
+          "not a new handoff: answer the status and do not end that reply with [[ESCALATE]], which would add a " +
+          "comment to the ticket each time the customer asks.",
         parameters: z.object({}),
-        execute: async () => lookupCustomerTickets(organizationId, conversationId, connectedAccountId),
+        execute: async () => {
+          onTicketsChecked?.();
+          const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix) : [];
+          const desk = jiraAccountId && conversationId ? await lookupCustomerTickets(organizationId, conversationId, jiraAccountId) : null;
+          const deskByKey = new Map<string, unknown>();
+          try {
+            for (const ticket of (JSON.parse(desk ?? "{}") as { tickets?: { key?: string }[] }).tickets ?? []) {
+              if (ticket.key) deskByKey.set(ticket.key, ticket);
+            }
+          } catch {
+            // A helpdesk answer that cannot be read leaves the worker's own status in place.
+          }
+          if (own.length === 0) {
+            return JSON.stringify({
+              tickets: [],
+              note: "This customer has no requests on record. If they quote a number you can't find here, tell them a teammate will check it.",
+            });
+          }
+          return JSON.stringify({
+            // `number` is the one the customer was told: the helpdesk key when there is one, else the reference.
+            tickets: own.map((ticket) => ({
+              number: ticket.serviceDeskKey ?? ticket.reference,
+              ...ticket,
+              serviceDesk: ticket.serviceDeskKey ? deskByKey.get(ticket.serviceDeskKey) ?? null : null,
+            })),
+          });
+        },
       }),
     );
   }
@@ -1303,6 +1338,8 @@ export interface RunAgentResult {
   choices?: string[];
   /** The worker needs the customer's name and email: the chat shows the identity card ([[NEED_IDENTITY]]). */
   needIdentity?: boolean;
+  /** The worker looked up this customer's requests this turn (a status check). */
+  checkedTickets?: boolean;
 }
 
 const CHOICES_TAG = /\[\[CHOICES:([^\]]*)\]\]/gi;
@@ -1345,7 +1382,9 @@ export function promisesPersonFollowUp(answer: string): boolean {
   return (
     /\b(teammate|someone|a person|the (support )?team|our team)\b[^.!?\n]{0,40}\b(will|['’]ll|is going to) (follow up|be in touch|get back to you|reach out|contact you)/i.test(answer) ||
     /\bI(?:['’]ve| have|['’]ll| will)? (?:passed|pass|forwarded|forward|handed|hand|escalated|escalate)\b[^.!?\n]{0,40}\b(?:to|over to) (?:the |our )?(?:support )?(?:team|teammate|[A-Z][\w ]+ Team)\b/i.test(answer) ||
-    /\bHere['’]s what I(?:['’]ve| have) passed to\b/i.test(answer)
+    /\bHere['’]s what I(?:['’]ve| have) passed to\b/i.test(answer) ||
+    // "I'm escalating it as a system problem now": said as if done, with no handoff behind it.
+    /\bI(?:['’]m| am|['’]ll| will)\s+(?:now\s+)?(?:escalat(?:e|ing)|rais(?:e|ing)|logg?(?:ing)?|pass(?:ing)?|forward(?:ing)?|bring(?:ing)?\s+in)\b[^.!?\n]{0,60}\b(?:this|it|your (?:request|issue|case|problem)|a teammate|the team|someone)\b/i.test(answer)
   );
 }
 
@@ -1463,6 +1502,7 @@ export async function runAgent(
   );
   // A Confluence page read mid-turn is approved reference material too, so the
   // reply check mustn't treat an answer grounded in it as general knowledge.
+  let ticketsChecked = false;
   const tools = await timed("agent.tools", () =>
     buildAgentTools(
       profile,
@@ -1472,6 +1512,9 @@ export async function runAgent(
         guardrailContext.referenceMaterialFound = true;
       },
       channel,
+      () => {
+        ticketsChecked = true;
+      },
     ),
   );
   const maxTurns = Math.max(1, profile.maxAgentTurns || 3);
@@ -1589,9 +1632,9 @@ export async function runAgent(
     if (!parsed.escalate && !parsed.needIdentity && promisesPersonFollowUp(parsed.answer)) {
       // The reply says a teammate will follow up but carries no handoff tag.
       console.warn("[agent] reply promised a person but did not hand over; handing over", { conversationId });
-      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined };
+      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined, ...(ticketsChecked ? { checkedTickets: true } : {}) };
     }
-    return parsed;
+    return ticketsChecked ? { ...parsed, checkedTickets: true } : parsed;
   } catch (error) {
     // Input tripwire: out-of-scope → polite decline (not Charan); other trips → handoff.
     // Output no longer trips the SDK wire — block is a soft reject + repair above.

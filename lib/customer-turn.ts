@@ -12,6 +12,7 @@ import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
 import { timed } from "@/lib/timing";
 import { citedTitles } from "@/lib/citations";
+import { referenceCard, referenceNotice, ticketReference } from "@/lib/ticket-reference";
 import { isPlaceholderCustomerName } from "@/lib/customer-name";
 import { normalizeIdentityMode, trustedCustomerEmail } from "@/lib/customer-identity";
 
@@ -239,8 +240,16 @@ export async function runCustomerTurn(input: {
       return null;
     });
 
+  // Asking how a request is going is not a new handoff. On a conversation already with the team, a turn that only
+  // looked up the customer's requests must not add a comment to the ticket each time the customer asks.
+  if (result.escalate && result.checkedTickets && conversation.status === "needs_human") {
+    result = { ...result, escalate: false };
+  }
+
   // The ticket is raised after the reply is stored when the caller asked for that.
   const deferTicket = Boolean(input.deferTicket) && result.escalate && showsCards;
+  // The first time this conversation is handed over; later turns add to the same request.
+  const firstHandoff = result.escalate && conversation.status !== "needs_human";
 
   if (result.escalate && !deferTicket) {
     progress("ticket", "Raising your ticket…");
@@ -256,6 +265,12 @@ export async function runCustomerTurn(input: {
           data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created },
         });
       }
+    } else if (firstHandoff) {
+      // No helpdesk ticket (none connected, switched off, or refused): the request still has its own
+      // reference, so the customer always leaves with a number to quote and ask about.
+      const reference = ticketReference(profile.ticketPrefix, conversation.ticketNumber);
+      result = { ...result, answer: `${result.answer}\n\n${referenceNotice(reference)}` };
+      if (showsCards) cards.push(referenceCard(reference));
     }
   }
 
@@ -297,7 +312,21 @@ export async function runCustomerTurn(input: {
       }
       const ticket = await raiseTicket({ ...current, ticketSummary: ticketSummary ?? current.ticketSummary });
       console.info("[timing]", JSON.stringify({ turn: "handoff-ticket", channel: conversation.channel, ms: Date.now() - started }));
-      if (!isHandoffTicket(ticket)) return null;
+      if (!isHandoffTicket(ticket)) {
+        if (!firstHandoff) return null;
+        const reference = ticketReference(profile.ticketPrefix, conversation.ticketNumber);
+        const [note] = await db
+          .insert(messages)
+          .values({
+            conversationId: conversation.id,
+            senderType: "agent",
+            senderName: profile.displayName,
+            body: referenceNotice(reference),
+            cards: [referenceCard(reference)] satisfies CustomerCard[],
+          })
+          .returning();
+        return { message: note };
+      }
       const [message] = await db
         .insert(messages)
         .values({

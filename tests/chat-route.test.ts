@@ -95,9 +95,10 @@ describe("POST /api/v1/chat", () => {
     expect(body.confidence).toBe(0.4);
     const reply = body.message as { body: string; senderType: string };
     expect(reply.senderType).toBe("agent");
-    expect(reply.body).toBe(
+    expect(reply.body).toContain(
       "I want to make sure this is handled correctly, so I'm bringing in Manager. They'll review the conversation and follow up here.",
     );
+    expect(reply.body).toMatch(/logged this for the team as [A-Z]+-\d+/);
 
     const conversationId = body.conversation_id as string;
     const [conversation] = await db
@@ -226,7 +227,7 @@ describe("POST /api/v1/chat", () => {
     expect(body.escalated).toBe(true);
     expect(body.confidence).toBe(0.4);
     const reply = body.message as { body: string; citations: string[] };
-    expect(reply.body).toBe(handoffToManager({ managerName: "Manager", confidenceThreshold: 0.72 }).answer);
+    expect(reply.body).toContain(handoffToManager({ managerName: "Manager", confidenceThreshold: 0.72 }).answer);
     expect(reply.citations).toEqual([]);
   });
 
