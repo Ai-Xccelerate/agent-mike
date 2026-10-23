@@ -298,6 +298,7 @@ describe("classifyCustomerIntent", () => {
     const classifier = runMock.mock.calls[0][0] as { instructions: string };
     expect(classifier.instructions).toContain("who or what it is");
     expect(classifier.instructions).toContain("NOT out of scope");
+    expect(classifier.instructions).toContain("short or vague (one word, no detail) is not a reason for low confidence");
   });
 
   it("fails closed when the model returns garbage", async () => {

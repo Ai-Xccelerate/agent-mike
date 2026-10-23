@@ -234,6 +234,7 @@ export async function classifyCustomerIntent(args: {
       "When escalate is true the support agent will collect intake then hand off — still set escalate=true. " +
       "Do not set outOfScope for escalation themes — those stay in the support workflow.\n" +
       "confidence is your certainty that the message is safe and in-scope to handle without a human (0–1). " +
+      "A message being short or vague (one word, no detail) is not a reason for low confidence: the worker asks what they need. " +
       "Low confidence means hand off.",
     model: guardrailModel(),
     outputType: IntentClassificationSchema,
