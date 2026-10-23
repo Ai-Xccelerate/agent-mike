@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/worker-api";
-import { GROUNDING_LABELS, ROUTE_LABELS, type GroundingVerdict, type ReplyRoute } from "@/lib/reply-trace";
+import { GROUNDING_LABELS, ROUTE_LABELS, SHOW_REPLY_TRACE, type GroundingVerdict, type ReplyRoute } from "@/lib/reply-trace";
 
 type ReviewKind = "bad_rating" | "no_article" | "team_answer";
 type ReviewItem = {
