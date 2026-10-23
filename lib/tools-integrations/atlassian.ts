@@ -1216,6 +1216,53 @@ export async function confluenceInventory(
   };
 }
 
+/** What the page listing returns, for deciding how an index can keep up with edits. Reads two pages, returns no text. */
+export type ConfluenceListingProbe = {
+  withBody: ListingShape | { error: string };
+  withoutBody: ListingShape | { error: string };
+};
+type ListingShape = {
+  pagesReturned: number;
+  fields: string[];
+  hasVersionNumber: boolean;
+  versionSample: unknown;
+  hasBody: boolean;
+  approxBytes: number;
+  hasNextCursor: boolean;
+};
+
+function shapeOf(result: unknown): ListingShape | { error: string } {
+  if (result === null) return { error: "the call failed twice" };
+  if (wasRefused(result)) return { error: "refused" };
+  const data = (result as { data?: { results?: unknown; _links?: { next?: string } } }).data;
+  const pages = Array.isArray(data?.results) ? (data.results as Record<string, unknown>[]) : [];
+  const first = pages[0] ?? {};
+  const version = first.version as { number?: unknown } | undefined;
+  const body = first.body as { storage?: { value?: unknown } } | undefined;
+  return {
+    pagesReturned: pages.length,
+    fields: Object.keys(first),
+    hasVersionNumber: typeof version?.number === "number",
+    versionSample: version && typeof version === "object" ? { ...version } : version ?? null,
+    hasBody: typeof body?.storage?.value === "string",
+    approxBytes: JSON.stringify(result).length,
+    hasNextCursor: typeof data?._links?.next === "string",
+  };
+}
+
+export async function confluenceListingProbe(organizationId: string): Promise<ConfluenceListingProbe | null> {
+  const connection = await getConnectionForOrg(organizationId, "knowledge_base");
+  const connectedAccountId = activeAccount(connection, "confluence");
+  if (!connection || !connectedAccountId) return null;
+  const run = (args: Record<string, unknown>) =>
+    runReadTool(CONFLUENCE_KNOWLEDGE_TOOL_ID, CONFLUENCE_GET_PAGES_SLUG, args, organizationId, connectedAccountId, CONFLUENCE_TOOLKIT_VERSION);
+  const [withBody, withoutBody] = await Promise.all([
+    run({ limit: 2, status: "current", body_format: "storage" }),
+    run({ limit: 25, status: "current" }),
+  ]);
+  return { withBody: shapeOf(withBody), withoutBody: shapeOf(withoutBody) };
+}
+
 /**
  * A search hit often carries only a short excerpt, so the steps a customer asked for can be missing from it.
  * The best few pages are read in full instead; if a read fails the hit's own text is kept.
