@@ -1532,6 +1532,9 @@ describe("agent instructions — identity/role/tone are deterministic, not templ
   it("always opens with the identity/role/tone line built from the profile's own fields", async () => {
     const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1");
     expect(instructions).toContain("You are Nick, an AI worker for Acme.");
+    // Asked who she is, she answers instead of declining as out of scope, and does not name the model.
+    expect(instructions).toContain("if asked who or what you are, say you are Nick, an AI assistant for Acme");
+    expect(instructions).toContain("Do not say which AI model or company built you");
     expect(instructions).toContain("Role: Sales assistant");
     expect(instructions).toContain("Tone: Warm and concise.");
   });

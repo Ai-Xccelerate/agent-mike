@@ -80,6 +80,9 @@ function knownCustomerOf(
   };
 }
 
+/** The reply to a message that has no words in it. */
+const NO_WORDS_REPLY = "I didn't catch that. What can I help you with? You can ask how to do something, or tell me what's going wrong.";
+
 /** The ticket's number, as its own message after the reply (see `deferTicket`). */
 export interface TicketFollowUp {
   message: MessageRow;
@@ -147,9 +150,15 @@ export async function runCustomerTurn(input: {
     requireUserVerification: profile.requireUserVerification,
   });
 
+  // A message with no words in it ("???", an emoji, "...") has nothing to search for or answer. Asking what they need is
+  // quicker and better than running the model, which sent these to a person.
+  const noWords = !/[\p{L}\p{N}]/u.test(message);
+
   // Local knowledge plus any enabled knowledge integration (e.g. Parchment).
-  progress("retrieval", "Checking our help articles…");
-  const { matches: knowledgeMatches, sources: knowledgeSources } = await timed("retrieval", () => retrieveKnowledge(profile, message));
+  if (!noWords) progress("retrieval", "Checking our help articles…");
+  const { matches: knowledgeMatches, sources: knowledgeSources } = noWords
+    ? { matches: [], sources: [] }
+    : await timed("retrieval", () => retrieveKnowledge(profile, message));
 
   const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
 
@@ -159,6 +168,8 @@ export async function runCustomerTurn(input: {
   // run as SDK input/output guardrails inside runAgent.
   if (guardrail.escalate) {
     result = handoffToManager(profile);
+  } else if (noWords) {
+    result = { answer: NO_WORDS_REPLY, confidence: 1, escalate: false, citations: [] };
   } else {
     try {
       progress("reply", "Putting together a reply…");

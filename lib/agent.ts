@@ -1267,6 +1267,12 @@ export async function buildInstructions(
     "assistant — briefly decline, say what you can help with, and end with [[FOLLOWUP]] or " +
     "[[RESOLVE]]. Do not fulfill the out-of-scope request.";
 
+  // Asked who she is, the worker used to decline as out of scope. Fixed per worker, so it stays in the cached part.
+  const aboutYou =
+    `\n\nAbout yourself: if asked who or what you are, say you are ${profile.displayName}, an AI assistant for ` +
+    `${organizationName}, and say what you can help with. Do not say which AI model or company built you. ` +
+    "This is not out of scope.";
+
   // Fixed rules first, what changes every turn last. The model provider reuses the
   // start of a prompt it has seen before (prompt caching), up to the first thing
   // that differs: with the reference material and the customer in the middle, nothing
@@ -1279,6 +1285,7 @@ export async function buildInstructions(
     groundingRule +
     audienceBoundary +
     scopeBoundary +
+    aboutYou +
     // The desk's kinds of request and what each needs, read from Jira, so the
     // worker collects that before it hands over. Empty unless it chooses them.
     (await requestTypeGuidance(organizationId)) +
