@@ -72,6 +72,17 @@ describe("emailing a person when the worker hands over", () => {
     expect(sendMock).toHaveBeenCalledTimes(1);
   });
 
+  it("quotes what the customer actually wrote, not the widget's line after the identity card", async () => {
+    await setManager("support@eapexpert.example");
+    runAgentMock.mockResolvedValue(handoff);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", subject: "Printing is broken" });
+    await db.insert(messages).values({ conversationId: conversation.id, senderType: "customer", senderName: "Website visitor", body: "Printing from case notes has stopped for the whole team" });
+    await turn(conversation.id, "I've verified my email.");
+    const body = sendMock.mock.calls[0][0].body;
+    expect(body).toContain("What the customer wrote:\nPrinting from case notes has stopped for the whole team");
+    expect(body).not.toContain("What the customer wrote:\nI've verified my email.");
+  });
+
   it("sends nothing without a manager email, and leaves the email channel to send its own", async () => {
     await setManager(null);
     runAgentMock.mockResolvedValue(handoff);

@@ -564,6 +564,14 @@ async function recordTicketOutcome(
  * customer without a person. Not retried: a create that timed out may still
  * have created the issue.
  */
+/** Whether a handover would raise a Jira ticket right now (connected, switched on, a project chosen). */
+export async function helpdeskRaisesTickets(organizationId: string): Promise<boolean> {
+  const connection = await getConnectionForOrg(organizationId, "helpdesk");
+  if (!connection || !activeAccount(connection, "jira")) return false;
+  const settings = readJiraSettings(connection.metadata);
+  return settings.createTicketOnHandoff && Boolean(settings.projectKey);
+}
+
 export async function recordHandoffInJira(
   input: HandoffTicketInput,
 ): Promise<HandoffTicketResult | HandoffTicketFailure | null> {

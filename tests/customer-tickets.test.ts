@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { conversations, messages } from "@/db/schema";
+import { conversations, messages, workerProfiles } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 import { customerTickets } from "@/lib/customer-tickets";
 import { customerStatusWord, referenceNotice, ticketReference } from "@/lib/ticket-reference";
-import { recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { helpdeskRaisesTickets, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 
@@ -18,6 +18,7 @@ vi.mock("@/lib/retrieval", () => ({ retrieveKnowledge: vi.fn(async () => ({ matc
 vi.mock("@/lib/tools-integrations/atlassian", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tools-integrations/atlassian")>()),
   recordHandoffInJira: vi.fn(async () => null),
+  helpdeskRaisesTickets: vi.fn(async () => false),
 }));
 vi.mock("@/lib/conversation-memory", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/conversation-memory")>()),
@@ -162,5 +163,167 @@ describe("a customer chasing an earlier request by its number", () => {
     expect(await refs("EAP-999999")).toEqual([`EAP-${fresh.ticketNumber}`]);
     const cross = await customerTickets(orgId, fresh.id, "EAP", `EAP-${theirs.ticketNumber + 5000}`);
     expect(cross.every((t) => t.about !== "Other client")).toBe(true);
+  });
+});
+
+describe("a verified customer quoting their own number", () => {
+  it("sees what it was about, but not on someone else's request or with an unchecked address", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com", ticketSummary: "Login fails after update" });
+    const checked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com", customerEmailVerifiedAt: new Date() });
+    const unchecked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com" });
+    const stranger = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "other@example.com", customerEmailVerifiedAt: new Date() });
+    const about = async (from: string) =>
+      (await customerTickets(orgId, from, "EAP", `EAP-${earlier.ticketNumber}`)).find((t) => t.reference === `EAP-${earlier.ticketNumber}`)?.about;
+    expect(await about(checked.id)).toBe("Login fails after update");
+    expect(await about(unchecked.id)).toBeNull();
+    expect(await about(stranger.id)).toBeNull();
+  });
+});
+
+describe("a handover whose helpdesk ticket never came to be", () => {
+  const answer = { answer: "Thanks, I'm passing that on.", confidence: 0.9, escalate: false, citations: [] };
+
+  it("is raised on the customer's next message, and the number is given only then", async () => {
+    runAgentMock.mockResolvedValue(answer);
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-90", created: true, title: "Reports blank" });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human" });
+    const result = await turn(conversation.id, "hello? did you raise this?", true);
+    const followUp = await result.pendingTicket;
+    expect(recordHandoffInJira).toHaveBeenCalledTimes(1);
+    expect(followUp?.message.body).toContain("SUP-90");
+  });
+
+  it("says nothing when the retry makes no ticket", async () => {
+    runAgentMock.mockResolvedValue(answer);
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue(null);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human" });
+    const result = await turn(conversation.id, "any news?", true);
+    expect(await result.pendingTicket).toBeNull();
+    expect(result.reply.body).not.toContain("logged this");
+  });
+
+  it("is not tried when a ticket exists, the helpdesk refused one, or tickets are switched off", async () => {
+    runAgentMock.mockResolvedValue(answer);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-91", created: true });
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    const hasKey = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human", externalTicketKey: "SUP-1" });
+    const refused = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human", externalTicketError: "Refused" });
+    await turn(hasKey.id, "any news?", true);
+    await turn(refused.id, "any news?", true);
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(false);
+    const off = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human" });
+    await turn(off.id, "any news?", true);
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
+  });
+});
+
+describe("a verified customer chasing an earlier request", () => {
+  const chase = { answer: "I'm sorry nobody called. SUP-5 is still open; I'm passing on that you are chasing it.", confidence: 0.9, escalate: true, citations: [], checkedTickets: true, chasedTicketKey: "SUP-5" };
+
+  it("adds the chase to that request and links the new conversation to it, instead of raising a second ticket", async () => {
+    runAgentMock.mockResolvedValue(chase);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-5", created: false });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const result = await turn(conversation.id, "third time I'm writing about SUP-5, nobody called");
+    const sent = vi.mocked(recordHandoffInJira).mock.calls[0][0];
+    expect(sent.conversation.externalTicketKey).toBe("SUP-5");
+    expect(result.reply.body).toContain("added this to your ticket SUP-5");
+    const [row] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
+    expect(row.externalTicketKey).toBe("SUP-5");
+  });
+
+  it("changes nothing when the conversation already has its own ticket", async () => {
+    runAgentMock.mockResolvedValue(chase);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-2", created: false });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", externalTicketKey: "SUP-2" });
+    await turn(conversation.id, "still nothing on SUP-5");
+    expect(vi.mocked(recordHandoffInJira).mock.calls[0][0].conversation.externalTicketKey).toBe("SUP-2");
+  });
+});
+
+describe("no ticket for an unknown person", () => {
+  const handover = { answer: "I'm passing this to the team.", confidence: 0.3, escalate: true, citations: [] };
+  const quiet = { answer: "Thanks, I have your details.", confidence: 0.9, escalate: false, citations: [] };
+  const setMode = async (mode: string) => {
+    await getOrCreateProfile(orgId);
+    await db.update(workerProfiles).set({ identityMode: mode }).where(eq(workerProfiles.organizationId, orgId));
+  };
+
+  it("holds the helpdesk ticket and asks for details, but still hands the chat to the team", async () => {
+    await setMode("email_code");
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    runAgentMock.mockResolvedValue(handover);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const result = await turn(conversation.id, "The whole office is down", true);
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
+    expect(result.pendingTicket).toBeUndefined();
+    expect(result.reply.body).toContain("I need your name and email first");
+    expect(JSON.stringify(result.reply.cards)).toContain("identity_request");
+    expect(result.status).toBe("needs_human");
+  });
+
+  it("raises it on the customer's behalf on their next message, once the email is verified", async () => {
+    await setMode("email_code");
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-70", created: true });
+    runAgentMock.mockResolvedValue(quiet);
+    const conversation = await insertConversationWithTicket({
+      organizationId: orgId, channel: "widget", status: "needs_human", customerName: "Dana Reyes", customerEmail: "dana@example.com", customerEmailVerifiedAt: new Date(),
+    });
+    const result = await turn(conversation.id, "I've verified my email.", true);
+    const followUp = await result.pendingTicket;
+    expect(followUp?.message.body).toContain("SUP-70");
+    expect(vi.mocked(recordHandoffInJira).mock.calls[0][0].verifiedCustomer).toEqual({ email: "dana@example.com", name: "Dana Reyes" });
+  });
+
+  it("does not raise it from the retry while the customer is still unknown", async () => {
+    await setMode("email_code");
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    runAgentMock.mockResolvedValue(quiet);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human" });
+    await turn(conversation.id, "any news?", true);
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
+  });
+
+  it("raises at once for a verified customer, and where identity is not asked at all", async () => {
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-71", created: true });
+    runAgentMock.mockResolvedValue(handover);
+    await setMode("email_code");
+    const known = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerName: "Dana Reyes", customerEmail: "dana@example.com", customerEmailVerifiedAt: new Date() });
+    await (await turn(known.id, "System down", true)).pendingTicket;
+    expect(recordHandoffInJira).toHaveBeenCalledTimes(1);
+    await setMode("off");
+    const anyone = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    await (await turn(anyone.id, "System down", true)).pendingTicket;
+    expect(recordHandoffInJira).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("chasing a request that is already in the verified customer's own list", () => {
+  it("marks the quoted earlier request as one a chase can go on, but not the current chat or an unchecked address", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com", customerEmailVerifiedAt: new Date(), externalTicketKey: "SUP-30", ticketSummary: "Booking page down" });
+    const checked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com", customerEmailVerifiedAt: new Date() });
+    const unchecked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com" });
+    const chaseable = async (from: string, quoted: string) =>
+      (await customerTickets(orgId, from, "EAP", quoted)).filter((t) => t.chaseable).map((t) => t.serviceDeskKey);
+    expect(await chaseable(checked.id, "SUP-30")).toEqual(["SUP-30"]);
+    expect(await chaseable(checked.id, "sup-30")).toEqual(["SUP-30"]);
+    expect(await chaseable(checked.id, `EAP-${earlier.ticketNumber}`)).toEqual(["SUP-30"]);
+    expect(await chaseable(checked.id, "SUP-99")).toEqual([]);
+    expect(await chaseable(unchecked.id, "SUP-30")).toEqual([]);
+    expect(await chaseable(earlier.id, "SUP-30")).toEqual([]);
   });
 });

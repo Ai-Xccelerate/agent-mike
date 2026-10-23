@@ -6,7 +6,7 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
-import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { handoffTicketNotice, helpdeskRaisesTickets, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
@@ -266,14 +266,56 @@ export async function runCustomerTurn(input: {
     result = { ...result, escalate: false };
   }
 
+  // No ticket is ever raised for an unknown person. In the chat widget, a handover that would raise a helpdesk
+  // ticket waits for the customer's details: the card asks for them (and the code), the team is still told, and the
+  // ticket is raised on their behalf, creating them in the helpdesk if need be, as soon as they are known.
+  const needsIdentity = identityMode !== "off" && !(identityKnown && (identityMode === "email_match" || verified));
+  const widgetNeedsIdentity = conversation.channel === "widget" && needsIdentity;
+  const holdForIdentity = result.escalate && showsCards && widgetNeedsIdentity && (await helpdeskRaisesTickets(organizationId));
+  if (holdForIdentity) {
+    if (!cards.some((card) => card.kind === "identity_request")) {
+      cards.push({
+        id: crypto.randomUUID(),
+        kind: "identity_request",
+        data: {
+          mode: identityMode,
+          ...(isPlaceholderCustomerName(conversation.customerName) ? {} : { name: conversation.customerName }),
+          ...(conversation.customerEmail ? { email: conversation.customerEmail } : {}),
+        },
+      });
+    }
+    result = { ...result, answer: `${result.answer}\n\nTo raise this with the team I need your name and email first.` };
+  }
+
+  // A customer chasing an earlier request of theirs (a verified customer who quoted its number): the chase goes
+  // on that request as a comment, and the conversation is linked to it, instead of opening a second ticket.
+  const chasedKey = result.escalate && !conversation.externalTicketKey ? result.chasedTicketKey : undefined;
+  if (chasedKey) {
+    await db.update(conversations).set({ externalTicketKey: chasedKey }).where(eq(conversations.id, conversation.id));
+  }
+  const withChased = <T extends ConversationRow>(row: T): T => (chasedKey && !row.externalTicketKey ? { ...row, externalTicketKey: chasedKey } : row);
+
+  // A handover whose helpdesk ticket never came to be (the server restarted mid-way, the helpdesk was briefly
+  // unreachable) is tried again on the customer's next message. A ticket the helpdesk refused is not: that is
+  // recorded on the conversation for the manager. Nothing is said to the customer unless a ticket results.
+  const missingTicket =
+    !result.escalate &&
+    conversation.status === "needs_human" &&
+    !conversation.externalTicketKey &&
+    !conversation.externalTicketError &&
+    !ticketsInFlight.has(conversation.id) &&
+    !widgetNeedsIdentity &&
+    (await helpdeskRaisesTickets(organizationId));
+  const raisesTicket = (result.escalate && !holdForIdentity) || missingTicket;
+
   // The ticket is raised after the reply is stored when the caller asked for that.
-  const deferTicket = Boolean(input.deferTicket) && result.escalate && showsCards;
+  const deferTicket = Boolean(input.deferTicket) && raisesTicket && showsCards;
   // The first time this conversation is handed over; later turns add to the same request.
   const firstHandoff = result.escalate && conversation.status !== "needs_human";
 
-  if (result.escalate && !deferTicket) {
+  if (raisesTicket && !deferTicket) {
     progress("ticket", "Logging this for the team…");
-    const ticket = await timed("handoff.jira", () => raiseTicket(conversation));
+    const ticket = await timed("handoff.jira", () => raiseTicket(withChased(conversation)));
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
     if (isHandoffTicket(ticket)) {
@@ -285,7 +327,7 @@ export async function runCustomerTurn(input: {
           data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created },
         });
       }
-    } else if (firstHandoff) {
+    } else if (firstHandoff && !holdForIdentity) {
       // No helpdesk ticket (none connected, switched off, or refused): the request still has its own
       // reference, so the customer always leaves with a number to quote and ask about.
       const reference = ticketReference(profile.ticketPrefix, conversation.ticketNumber);
@@ -349,7 +391,7 @@ export async function runCustomerTurn(input: {
       // The ticket gets a short summary of what it is about, not only the transcript.
       // Written here, after the reply is stored, so the customer never waits for it.
       const ticketSummary =
-        conversation.status === "needs_human"
+        conversation.status === "needs_human" && current.ticketSummary
           ? current.ticketSummary
           : await summarizeForHandoff([
               ...toHistoryTurns([...priorMessages, userMessage]),
@@ -358,7 +400,7 @@ export async function runCustomerTurn(input: {
       if (ticketSummary && ticketSummary !== current.ticketSummary) {
         await db.update(conversations).set({ ticketSummary }).where(eq(conversations.id, conversation.id));
       }
-      const ticket = await raiseTicket({ ...current, ticketSummary: ticketSummary ?? current.ticketSummary });
+      const ticket = await raiseTicket({ ...withChased(current), ticketSummary: ticketSummary ?? current.ticketSummary });
       console.info("[timing]", JSON.stringify({ turn: "handoff-ticket", channel: conversation.channel, ms: Date.now() - started }));
       if (!isHandoffTicket(ticket)) {
         if (!firstHandoff) return null;

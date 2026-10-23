@@ -44,7 +44,10 @@ export async function buildHandoffBrief(input: {
     .where(eq(messages.conversationId, conversation.id))
     .orderBy(asc(messages.createdAt));
 
-  const lastCustomer = [...rows].reverse().find((row) => row.senderType === "customer");
+  // The widget's own lines after the identity card ("I've verified my email.") are not what the customer needs.
+  const fromCard = (row: { body: string }) => /^I've (verified my email|shared my details)\.?$/i.test(row.body.trim());
+  const customerRows = [...rows].reverse().filter((row) => row.senderType === "customer");
+  const lastCustomer = customerRows.find((row) => !fromCard(row)) ?? customerRows[0];
   const lastAgent = [...rows].reverse().find((row) => row.senderType === "agent");
   const earlier = rows.filter((row) => row !== lastCustomer && row !== lastAgent).slice(-BRIEF_TURNS);
   const who = (row: { senderType: string; senderName: string }) =>
