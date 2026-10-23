@@ -54,19 +54,21 @@ export async function customerTickets(
     status: customerStatusWord(row.status),
     updated: row.updatedAt.toISOString(),
   }));
-  const quoted = quotedReference ? await quotedTicket(organizationId, ticketPrefix, quotedReference) : null;
+  const quoted = quotedReference ? await quotedTicket(organizationId, ticketPrefix, quotedReference, email ?? null) : null;
   if (quoted && !own.some((ticket) => ticket.reference === quoted.reference)) own.push(quoted);
   return own;
 }
 
 /**
  * A request the customer quotes by its number, from an earlier chat. Anyone could type a number, so only its
- * status in plain words is given: what it was about stays with the customer to say, and the summary is not shown.
+ * status in plain words is given, and the summary stays hidden, unless the customer's address is a checked one
+ * and is the address on that request.
  */
 async function quotedTicket(
   organizationId: string,
   ticketPrefix: string | null | undefined,
   quoted: string,
+  verifiedEmail: string | null,
 ): Promise<CustomerTicket | null> {
   const text = quoted.trim();
   const own = new RegExp(`^(?:${(ticketPrefix || "TCK").replace(/[^A-Za-z0-9]/g, "")}-)?(\\d{1,9})$`, "i").exec(text);
@@ -82,10 +84,12 @@ async function quotedTicket(
     .where(and(eq(conversations.organizationId, organizationId), ne(conversations.channel, "assistant"), or(...conditions)))
     .limit(1);
   if (!row) return null;
+  // The same address, checked by a code (or the sender of an email): it is their own request, so say what it is about.
+  const theirs = Boolean(verifiedEmail) && row.customerEmail?.trim().toLowerCase() === verifiedEmail;
   return {
     reference: ticketReference(ticketPrefix, row.ticketNumber),
     serviceDeskKey: row.externalTicketKey ?? null,
-    about: null,
+    about: theirs ? row.ticketSummary ?? row.subject ?? null : null,
     status: customerStatusWord(row.status),
     updated: row.updatedAt.toISOString(),
   };
