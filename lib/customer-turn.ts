@@ -266,6 +266,27 @@ export async function runCustomerTurn(input: {
     result = { ...result, escalate: false };
   }
 
+  // No ticket is ever raised for an unknown person. In the chat widget, a handover that would raise a helpdesk
+  // ticket waits for the customer's details: the card asks for them (and the code), the team is still told, and the
+  // ticket is raised on their behalf, creating them in the helpdesk if need be, as soon as they are known.
+  const needsIdentity = identityMode !== "off" && !(identityKnown && (identityMode === "email_match" || verified));
+  const widgetNeedsIdentity = conversation.channel === "widget" && needsIdentity;
+  const holdForIdentity = result.escalate && showsCards && widgetNeedsIdentity && (await helpdeskRaisesTickets(organizationId));
+  if (holdForIdentity) {
+    if (!cards.some((card) => card.kind === "identity_request")) {
+      cards.push({
+        id: crypto.randomUUID(),
+        kind: "identity_request",
+        data: {
+          mode: identityMode,
+          ...(isPlaceholderCustomerName(conversation.customerName) ? {} : { name: conversation.customerName }),
+          ...(conversation.customerEmail ? { email: conversation.customerEmail } : {}),
+        },
+      });
+    }
+    result = { ...result, answer: `${result.answer}\n\nTo raise this with the team I need your name and email first.` };
+  }
+
   // A customer chasing an earlier request of theirs (a verified customer who quoted its number): the chase goes
   // on that request as a comment, and the conversation is linked to it, instead of opening a second ticket.
   const chasedKey = result.escalate && !conversation.externalTicketKey ? result.chasedTicketKey : undefined;
@@ -283,8 +304,9 @@ export async function runCustomerTurn(input: {
     !conversation.externalTicketKey &&
     !conversation.externalTicketError &&
     !ticketsInFlight.has(conversation.id) &&
+    !widgetNeedsIdentity &&
     (await helpdeskRaisesTickets(organizationId));
-  const raisesTicket = result.escalate || missingTicket;
+  const raisesTicket = (result.escalate && !holdForIdentity) || missingTicket;
 
   // The ticket is raised after the reply is stored when the caller asked for that.
   const deferTicket = Boolean(input.deferTicket) && raisesTicket && showsCards;
@@ -305,7 +327,7 @@ export async function runCustomerTurn(input: {
           data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created },
         });
       }
-    } else if (firstHandoff) {
+    } else if (firstHandoff && !holdForIdentity) {
       // No helpdesk ticket (none connected, switched off, or refused): the request still has its own
       // reference, so the customer always leaves with a number to quote and ask about.
       const reference = ticketReference(profile.ticketPrefix, conversation.ticketNumber);

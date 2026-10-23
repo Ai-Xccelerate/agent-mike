@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { conversations, messages } from "@/db/schema";
+import { conversations, messages, workerProfiles } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 import { customerTickets } from "@/lib/customer-tickets";
@@ -246,5 +246,68 @@ describe("a verified customer chasing an earlier request", () => {
     const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", externalTicketKey: "SUP-2" });
     await turn(conversation.id, "still nothing on SUP-5");
     expect(vi.mocked(recordHandoffInJira).mock.calls[0][0].conversation.externalTicketKey).toBe("SUP-2");
+  });
+});
+
+describe("no ticket for an unknown person", () => {
+  const handover = { answer: "I'm passing this to the team.", confidence: 0.3, escalate: true, citations: [] };
+  const quiet = { answer: "Thanks, I have your details.", confidence: 0.9, escalate: false, citations: [] };
+  const setMode = async (mode: string) => {
+    await getOrCreateProfile(orgId);
+    await db.update(workerProfiles).set({ identityMode: mode }).where(eq(workerProfiles.organizationId, orgId));
+  };
+
+  it("holds the helpdesk ticket and asks for details, but still hands the chat to the team", async () => {
+    await setMode("email_code");
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    runAgentMock.mockResolvedValue(handover);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const result = await turn(conversation.id, "The whole office is down", true);
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
+    expect(result.pendingTicket).toBeUndefined();
+    expect(result.reply.body).toContain("I need your name and email first");
+    expect(JSON.stringify(result.reply.cards)).toContain("identity_request");
+    expect(result.status).toBe("needs_human");
+  });
+
+  it("raises it on the customer's behalf on their next message, once the email is verified", async () => {
+    await setMode("email_code");
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-70", created: true });
+    runAgentMock.mockResolvedValue(quiet);
+    const conversation = await insertConversationWithTicket({
+      organizationId: orgId, channel: "widget", status: "needs_human", customerName: "Dana Reyes", customerEmail: "dana@example.com", customerEmailVerifiedAt: new Date(),
+    });
+    const result = await turn(conversation.id, "I've verified my email.", true);
+    const followUp = await result.pendingTicket;
+    expect(followUp?.message.body).toContain("SUP-70");
+    expect(vi.mocked(recordHandoffInJira).mock.calls[0][0].verifiedCustomer).toEqual({ email: "dana@example.com", name: "Dana Reyes" });
+  });
+
+  it("does not raise it from the retry while the customer is still unknown", async () => {
+    await setMode("email_code");
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    runAgentMock.mockResolvedValue(quiet);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human" });
+    await turn(conversation.id, "any news?", true);
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
+  });
+
+  it("raises at once for a verified customer, and where identity is not asked at all", async () => {
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-71", created: true });
+    runAgentMock.mockResolvedValue(handover);
+    await setMode("email_code");
+    const known = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerName: "Dana Reyes", customerEmail: "dana@example.com", customerEmailVerifiedAt: new Date() });
+    await (await turn(known.id, "System down", true)).pendingTicket;
+    expect(recordHandoffInJira).toHaveBeenCalledTimes(1);
+    await setMode("off");
+    const anyone = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    await (await turn(anyone.id, "System down", true)).pendingTicket;
+    expect(recordHandoffInJira).toHaveBeenCalledTimes(2);
   });
 });
