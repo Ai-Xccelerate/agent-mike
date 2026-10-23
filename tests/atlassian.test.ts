@@ -1048,6 +1048,9 @@ describe("Confluence searched before answering", () => {
     const focus = focusOnQuestion(message);
     expect(focus).toContain("utilization report");
     expect(focus.length).toBeLessThan(message.length / 2);
+    // The "I wanted to ask, and sorry for the long preamble, is" lead-in is dropped, so its words are not searched.
+    expect(focus.startsWith("how I can run a utilization report")).toBe(true);
+    expect(focus).not.toContain("preamble");
     const words = searchKeywords(focus, 12);
     expect(words).toEqual(expect.arrayContaining(["utilization", "report", "employer"]));
     expect(words).not.toContain("hope");
@@ -1102,6 +1105,31 @@ describe("Confluence searched before answering", () => {
     const titles = matches?.map((m) => m.title) ?? [];
     expect(titles.indexOf("Generating a Utilization Report")).toBeGreaterThanOrEqual(0);
     expect(titles.indexOf("Generating a Utilization Report")).toBeLessThan(titles.indexOf("EAP Expert V3 Release Notes") === -1 ? 99 : titles.indexOf("EAP Expert V3 Release Notes"));
+  });
+
+  it("gives the top three pages in full, so steps near the end of a 6,000-character page are not cut", async () => {
+    connectionsFor({
+      knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+    });
+    const page = (id: string, title: string, html: string) => ({ id, title, body: { storage: { value: html } }, _links: { webui: `/spaces/SK/pages/${id}/x` } });
+    const steps = "<p>Set Report Type to Single Organization, then choose the Organization.</p>";
+    const pages = [
+      // Their titles also carry "run", so the long page below ranks third.
+      page("1", "Run a Utilization Report", "<p>utilization report run.</p>"),
+      page("2", "Run Utilization Report for Groups", "<p>utilization report run.</p>"),
+      // Third by relevance, 6,000+ characters, with the steps at the very end.
+      page("3", "Generating a Utilization Report", `<p>${"Background on the utilization report. ".repeat(160)}</p>${steps}`),
+    ];
+    executeToolMock.mockImplementation(async (slug) =>
+      slug === CONFLUENCE_CQL_SEARCH_SLUG
+        ? { successful: true, error: null, data: { results: [] } }
+        : { successful: true, error: null, data: { results: pages } },
+    );
+    const matches = await searchConfluenceKnowledge(orgId, "How do I run a utilization report?", 5);
+    expect(matches?.map((m) => m.title).indexOf("Generating a Utilization Report")).toBe(2);
+    const generating = matches?.find((m) => m.title === "Generating a Utilization Report");
+    expect(generating?.content.length).toBeGreaterThan(5500);
+    expect(generating?.content).toContain("Single Organization");
   });
 
   it("adds the page's words for how customers ask about change history and sign-up", () => {

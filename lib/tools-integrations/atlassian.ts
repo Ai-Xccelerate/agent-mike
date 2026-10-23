@@ -775,10 +775,10 @@ export async function lookupCustomerTickets(
 
 export const CONFLUENCE_CQL_SEARCH_SLUG = "CONFLUENCE_CQL_SEARCH";
 export const CONFLUENCE_KNOWLEDGE_TOOL_ID = "confluence_knowledge_search";
-const CONFLUENCE_MATCH_CHARS = 5000;
+const CONFLUENCE_MATCH_CHARS = 3500;
 /** How many of the best-ranked pages are read in full, because a search hit can carry only a short excerpt. */
-const CONFLUENCE_FULL_READS = 2;
-const CONFLUENCE_FULL_PAGE_CHARS = 7000;
+const CONFLUENCE_FULL_READS = 3;
+const CONFLUENCE_FULL_PAGE_CHARS = 12000;
 /** Candidates fetched per search; re-ranked by title before the best few are kept. */
 const CONFLUENCE_CANDIDATES = 15;
 const MAX_KEYWORDS = 6;
@@ -797,6 +797,14 @@ const STOP_WORDS = new Set(
 
 export class ConfluenceKnowledgeError extends Error {}
 
+/** "Anyway, the actual thing I wanted to ask, and sorry for the long preamble, is how I can run a report" -> "how I can run a report". */
+function withoutPreface(sentence: string): string {
+  const preface = /(?:wanted to ask|my question|i was wondering|the actual (?:thing|question)|the real (?:thing|question))/i;
+  if (!preface.test(sentence)) return sentence;
+  const cut = sentence.search(/\b(?:is|was)\s+(?=(?:how|whether|if|what|where|why|can|could)\b)/i);
+  return cut === -1 ? sentence : sentence.slice(cut).replace(/^(?:is|was)\s+/i, "");
+}
+
 /**
  * The part of a long message that holds the question. A customer who writes a paragraph of background asks the real
  * question near the end ("the actual thing I wanted to ask is how I can run a report for one employer"); searching on the
@@ -811,7 +819,8 @@ export function focusOnQuestion(message: string): string {
       /^(?:how|can|could|where|what|why|which|is there|do you|is it possible|i need|i want|i would like|please)\b/i.test(sentence) ||
       /\b(?:wanted to ask|my question|i was wondering|the actual (?:thing|question)|can you tell me|how (?:can|do|would) i)\b/i.test(sentence),
   );
-  const focus = (asks.length > 0 ? asks.slice(-2) : sentences.slice(-2)).join(" ");
+  const chosen = (asks.length > 0 ? asks.slice(-2) : sentences.slice(-2)).map(withoutPreface);
+  const focus = chosen.join(" ");
   return focus.length > 0 ? focus.slice(-LONG_MESSAGE_CHARS) : message.slice(-LONG_MESSAGE_CHARS);
 }
 
