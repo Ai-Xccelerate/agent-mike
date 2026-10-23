@@ -3,7 +3,7 @@ import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { modelUnavailabilityReason } from "@/lib/env";
-import { timed } from "@/lib/timing";
+import { timed, traceAdd, traceSet } from "@/lib/timing";
 import { cleanChoices } from "@/lib/customer-cards";
 import { CUSTOMER_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
 import { buildInputWithHistory, type HistoryTurn } from "@/lib/conversation-memory";
