@@ -11,7 +11,7 @@ import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
 import { timed } from "@/lib/timing";
-import { citedTitles, groundedTitles, looksUngrounded } from "@/lib/citations";
+import { citedTitles, groundedTitles, looksUngrounded, withoutSourceLine } from "@/lib/citations";
 import { referenceCard, referenceNotice, ticketReference } from "@/lib/ticket-reference";
 import { isPlaceholderCustomerName } from "@/lib/customer-name";
 import { normalizeIdentityMode, trustedCustomerEmail } from "@/lib/customer-identity";
@@ -208,6 +208,8 @@ export async function runCustomerTurn(input: {
   if (result.citations.length === 0) result = { ...result, citations: citedTitles(result.answer, knowledgeMatches) };
   // The reply did not name its source ("From: ..."): credit the page whose button and menu names it follows, if one clearly does.
   if (result.citations.length === 0 && !result.escalate) result = { ...result, citations: groundedTitles(result.answer, knowledgeMatches) };
+  // The source is recorded (the pill under the reply); the customer does not also need it spelled out in the text.
+  result = { ...result, answer: withoutSourceLine(result.answer, [...knowledgeMatches.map((match) => match.title), ...result.citations]) };
   // Steps that match no page she was given: logged so it can be looked at (she may have read a page by tool).
   if (!result.escalate && looksUngrounded(result.answer, knowledgeMatches)) {
     console.warn("[agent] answer names buttons or fields found in none of the retrieved pages", { conversationId: conversation.id });
