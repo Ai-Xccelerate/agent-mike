@@ -20,6 +20,7 @@ import {
   stemWeights,
   expandKeywords,
   confluenceListingProbe,
+  confluenceIndexSource,
   focusOnQuestion,
   rankByTitleMatch,
   CONFLUENCE_CQL_SEARCH_SLUG,
@@ -1157,6 +1158,82 @@ describe("Confluence searched before answering", () => {
     expect(probe?.withoutBody).toMatchObject({ hasVersionNumber: true, hasBody: false });
     // Field names and sizes only: the page text is never in the report.
     expect(JSON.stringify(probe)).not.toContain("secret text");
+  });
+
+  describe("the knowledge index source", () => {
+    const listed = (id: string, title: string, version: number | undefined, space = "SK") => ({
+      id,
+      title,
+      ...(version === undefined ? {} : { version: { number: version } }),
+      _links: { webui: `/spaces/${space}/pages/${id}/x` },
+    });
+
+    it("lists pages without text, with versions, only in the configured spaces, following the paging cursor", async () => {
+      connectionsFor({
+        knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+      });
+      executeToolMock.mockImplementation(async (_slug, args) => {
+        const cursor = (args as { cursor?: string }).cursor;
+        return cursor
+          ? { successful: true, error: null, data: { results: [listed("3", "Third", 2), listed("9", "Other space", 1, "OTHER")] } }
+          : { successful: true, error: null, data: { results: [listed("1", "First", 5), listed("2", "No version", undefined)], _links: { next: "/wiki/api/v2/pages?cursor=abc123" } } };
+      });
+      const source = await confluenceIndexSource(orgId);
+      const pages = await source!.listMetadata();
+      expect(pages).toEqual([
+        { id: "1", title: "First", version: 5, link: "/spaces/SK/pages/1/x" },
+        { id: "2", title: "No version", version: null, link: "/spaces/SK/pages/2/x" },
+        { id: "3", title: "Third", version: 2, link: "/spaces/SK/pages/3/x" },
+      ]);
+      // Asked without bodies, so the listing stays small.
+      expect(executeToolMock.mock.calls.every((call) => !("body_format" in (call[1] as object)))).toBe(true);
+      expect((executeToolMock.mock.calls[1][1] as { cursor?: string }).cursor).toBe("abc123");
+    });
+
+    it("is not available when Confluence is not connected, and says so when the first listing fails", async () => {
+      expect(await confluenceIndexSource(orgId)).toBeNull();
+      connectionsFor({
+        knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+      });
+      executeToolMock.mockResolvedValue({ successful: false, error: "Unauthorized", data: {} });
+      const source = await confluenceIndexSource(orgId);
+      await expect(source!.listMetadata()).rejects.toThrow("listing failed");
+    });
+
+    it("reads a few changed pages one by one, and many in one full listing", async () => {
+      connectionsFor({
+        knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+      });
+      executeToolMock.mockImplementation(async (slug, args) => {
+        if (slug === CONFLUENCE_GET_PAGES_SLUG) {
+          const results = Array.from({ length: 30 }, (_, i) => ({
+            ...listed(String(i + 1), `Page ${i + 1}`, 1),
+            body: { storage: { value: `<p>text ${i + 1}</p>` } },
+          }));
+          return { successful: true, error: null, data: { results } };
+        }
+        const id = (args as { id: string }).id;
+        return { successful: true, error: null, data: { id, title: `Page ${id}`, body: { storage: { value: `<p>one by one ${id}</p>` } }, _links: { webui: `/spaces/SK/pages/${id}/x` } } };
+      });
+      const source = await confluenceIndexSource(orgId);
+      const few = await source!.fetchPages(["4", "7"]);
+      expect(few.map((p) => p.text).sort()).toEqual(["one by one 4", "one by one 7"]);
+      expect(executeToolMock.mock.calls.map((call) => call[0])).not.toContain(CONFLUENCE_GET_PAGES_SLUG);
+      executeToolMock.mockClear();
+      const many = await source!.fetchPages(Array.from({ length: 28 }, (_, i) => String(i + 1)));
+      expect(many).toHaveLength(28);
+      expect(executeToolMock.mock.calls.map((call) => call[0])).toEqual([CONFLUENCE_GET_PAGES_SLUG]);
+      expect(await source!.fetchPages([])).toEqual([]);
+    });
+
+    it("fails the sync when one changed page cannot be read, instead of indexing half of it", async () => {
+      connectionsFor({
+        knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+      });
+      executeToolMock.mockResolvedValue({ successful: false, error: "Not found", data: {} });
+      const source = await confluenceIndexSource(orgId);
+      await expect(source!.fetchPages(["5"])).rejects.toThrow("could not be read");
+    });
   });
 
   it("adds the page's words for how customers ask about change history and sign-up", () => {

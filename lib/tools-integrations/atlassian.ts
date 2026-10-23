@@ -1216,6 +1216,103 @@ export async function confluenceInventory(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Source for the knowledge index (lib/knowledge-index.ts): list pages cheaply, fetch only the ones that changed.
+// ---------------------------------------------------------------------------
+
+export type IndexPageMeta = { id: string; title: string; version: number | null; link: string | null };
+export type IndexPage = { id: string; title: string; text: string; link: string | null };
+export type IndexSource = {
+  source: "confluence";
+  /** Every current page in the configured spaces, without text: id, title, version. */
+  listMetadata(): Promise<IndexPageMeta[]>;
+  /** The text of these pages. */
+  fetchPages(ids: string[]): Promise<IndexPage[]>;
+};
+
+/** Up to this many changed pages are read one by one; more than that is cheaper as one full listing. */
+const INDEX_ONE_BY_ONE_MAX = 25;
+const INDEX_FETCH_PARALLEL = 4;
+
+export async function confluenceIndexSource(organizationId: string): Promise<IndexSource | null> {
+  const connection = await getConnectionForOrg(organizationId, "knowledge_base");
+  const connectedAccountId = activeAccount(connection, "confluence");
+  if (!connection || !connectedAccountId) return null;
+  const settings = readConfluenceSettings(connection.metadata);
+  const inSpaces = settings.spaceKeys.map((key) => `/spaces/${key}/`.toLowerCase());
+
+  const listMetadata = async (): Promise<IndexPageMeta[]> => {
+    const pages: IndexPageMeta[] = [];
+    const seen = new Set<string>();
+    let cursor: string | null = null;
+    for (let round = 0; round < CATALOG_PAGE_CAP * 4; round += 1) {
+      const result = await runReadTool(
+        CONFLUENCE_KNOWLEDGE_TOOL_ID,
+        CONFLUENCE_GET_PAGES_SLUG,
+        { limit: PAGE_LIST_LIMIT, status: "current", ...(cursor ? { cursor } : {}) },
+        organizationId,
+        connectedAccountId,
+        CONFLUENCE_TOOLKIT_VERSION,
+      );
+      if (result === null || wasRefused(result)) {
+        if (round === 0) throw new ConfluenceKnowledgeError("Confluence page listing failed");
+        break;
+      }
+      const data = (result as { data?: { results?: unknown } }).data;
+      const listed = Array.isArray(data?.results) ? (data.results as (ListedPage & { version?: { number?: number } })[]) : [];
+      for (const page of listed) {
+        const link = page._links?.webui ?? null;
+        const lower = (link ?? "").toLowerCase();
+        if (inSpaces.length > 0 && !inSpaces.some((space) => lower.includes(space))) continue;
+        const id = page.id ?? "";
+        if (!id || !page.title || seen.has(id)) continue;
+        seen.add(id);
+        pages.push({ id, title: page.title, version: typeof page.version?.number === "number" ? page.version.number : null, link });
+      }
+      cursor = nextCursor(data);
+      if (!cursor || listed.length === 0) break;
+    }
+    return pages;
+  };
+
+  const fetchPages = async (ids: string[]): Promise<IndexPage[]> => {
+    if (ids.length === 0) return [];
+    if (ids.length > INDEX_ONE_BY_ONE_MAX) {
+      const all = await listSpacePages(CONFLUENCE_KNOWLEDGE_TOOL_ID, settings.spaceKeys, organizationId, connectedAccountId);
+      if (all === null) throw new ConfluenceKnowledgeError("Confluence page listing failed");
+      const wanted = new Set(ids);
+      return all.filter((page) => wanted.has(page.id)).map((page) => ({ id: page.id, title: page.title, text: page.text, link: page.link }));
+    }
+    const out: IndexPage[] = [];
+    const queue = [...ids];
+    const worker = async () => {
+      while (queue.length > 0) {
+        const id = queue.shift() as string;
+        const result = (await runReadTool(
+          CONFLUENCE_READ_TOOL_NAME,
+          CONFLUENCE_GET_PAGE_SLUG,
+          { id },
+          organizationId,
+          connectedAccountId,
+          CONFLUENCE_TOOLKIT_VERSION,
+        )) as { data?: { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } } } | null;
+        if (result === null || wasRefused(result)) throw new ConfluenceKnowledgeError(`Confluence page ${id} could not be read`);
+        const page = result.data ?? {};
+        out.push({
+          id: page.id ?? id,
+          title: page.title ?? "",
+          text: confluenceStorageToText(page.body?.storage?.value ?? ""),
+          link: page._links?.webui ?? null,
+        });
+      }
+    };
+    await Promise.all(Array.from({ length: INDEX_FETCH_PARALLEL }, worker));
+    return out;
+  };
+
+  return { source: "confluence", listMetadata, fetchPages };
+}
+
 /** What the page listing returns, for deciding how an index can keep up with edits. Reads two pages, returns no text. */
 export type ConfluenceListingProbe = {
   withBody: ListingShape | { error: string };
