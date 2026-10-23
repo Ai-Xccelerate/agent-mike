@@ -19,6 +19,7 @@ import {
   scoreCatalogPage,
   stemWeights,
   expandKeywords,
+  focusOnQuestion,
   rankByTitleMatch,
   CONFLUENCE_CQL_SEARCH_SLUG,
   ConfluenceKnowledgeError,
@@ -1038,6 +1039,41 @@ describe("Confluence searched before answering", () => {
     expect(weights[wordStem("parallels")]).toBeGreaterThan(weights[wordStem("expert")] * 2);
     const ranked = [...pages].sort((a, b) => scoreCatalogPage(b, keywords, weights) - scoreCatalogPage(a, keywords, weights));
     expect(ranked[0].title).toBe("Parallels Support Guide");
+  });
+
+  it("finds the question in a long message instead of searching on its opening", () => {
+    const preamble =
+      "Hi team, hope you are well. I wanted to give you some background because our director asked me to write this up properly. Last quarter we migrated three offices to a new network and since then a few of the case managers have mentioned that things feel slower than before, although honestly it varies by day. Our IT contractor, who only works Tuesdays, thinks it might be the VPN. Meanwhile we hired two new intake staff who need accounts. ";
+    const message = `${preamble}Anyway, the actual thing I wanted to ask, and sorry for the long preamble, is how I can run a utilization report for just one employer for just the last quarter. I tried it yesterday and got a report for everybody. Thanks so much, and have a lovely weekend. Regards, Sam.`;
+    const focus = focusOnQuestion(message);
+    expect(focus).toContain("utilization report");
+    expect(focus.length).toBeLessThan(message.length / 2);
+    const words = searchKeywords(focus, 12);
+    expect(words).toEqual(expect.arrayContaining(["utilization", "report", "employer"]));
+    expect(words).not.toContain("hope");
+    // The old way took the first six words of the message, none of them the question.
+    expect(searchKeywords(message)).not.toContain("utilization");
+    // Short messages are searched whole.
+    expect(focusOnQuestion("How do I reset my password?")).toBe("How do I reset my password?");
+  });
+
+  it("finds the page for a question buried in a long message", async () => {
+    connectionsFor({
+      knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+    });
+    const page = (id: string, title: string, html: string) => ({ id, title, body: { storage: { value: html } }, _links: { webui: `/spaces/SK/pages/${id}/x` } });
+    const filler = Array.from({ length: 12 }, (_, i) => page(String(i + 1), `Network and VPN setup ${i}`, "<p>Case managers, offices, network, accounts, staff.</p>"));
+    const wanted = page("99", "Generating a Utilization Report", "<p>Choose the employer and the quarter, then Preview.</p>");
+    executeToolMock.mockImplementation(async (slug) =>
+      slug === CONFLUENCE_CQL_SEARCH_SLUG
+        ? { successful: true, error: null, data: { results: [] } }
+        : { successful: true, error: null, data: { results: [...filler, wanted] } },
+    );
+    const message =
+      "Hi team, hope you are well. Last quarter we migrated three offices to a new network and since then case managers say things feel slower, and our staff accounts need review. ".repeat(3) +
+      "Anyway, the actual thing I wanted to ask is how I can run a utilization report for just one employer. Thanks so much, Sam.";
+    const matches = await searchConfluenceKnowledge(orgId, message, 3);
+    expect(matches?.[0].title).toBe("Generating a Utilization Report");
   });
 
   it("adds the page's words for how customers ask about change history and sign-up", () => {
