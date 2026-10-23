@@ -782,26 +782,47 @@ const CONFLUENCE_FULL_PAGE_CHARS = 7000;
 /** Candidates fetched per search; re-ranked by title before the best few are kept. */
 const CONFLUENCE_CANDIDATES = 15;
 const MAX_KEYWORDS = 6;
+/** A long message names its question somewhere in the middle, so more of its words are kept and ranked by how rare they are. */
+const MAX_LONG_KEYWORDS = 12;
+const LONG_MESSAGE_CHARS = 400;
 
 const STOP_WORDS = new Set(
   (
     "a an and are as at be but by can could do does did for from get got had has have hello hey hi how i if " +
     "in into is it its me my no not of on or our please so some than that the their them then there these " +
     "they this to too up us was we were what when where which who why will with would you your yours thanks " +
-    "thank need want help just still also any again use using see way where there let know tell"
+    "thank need want help just still also any again use using see way where there let know tell actual thing things wanted anyway regards hope well really much very quite sorry preamble"
   ).split(" "),
 );
 
 export class ConfluenceKnowledgeError extends Error {}
 
+/**
+ * The part of a long message that holds the question. A customer who writes a paragraph of background asks the real
+ * question near the end ("the actual thing I wanted to ask is how I can run a report for one employer"); searching on the
+ * opening would find nothing. Short messages are returned whole.
+ */
+export function focusOnQuestion(message: string): string {
+  if (message.length <= LONG_MESSAGE_CHARS) return message;
+  const sentences = message.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean);
+  const asks = sentences.filter(
+    (sentence) =>
+      sentence.includes("?") ||
+      /^(?:how|can|could|where|what|why|which|is there|do you|is it possible|i need|i want|i would like|please)\b/i.test(sentence) ||
+      /\b(?:wanted to ask|my question|i was wondering|the actual (?:thing|question)|can you tell me|how (?:can|do|would) i)\b/i.test(sentence),
+  );
+  const focus = (asks.length > 0 ? asks.slice(-2) : sentences.slice(-2)).join(" ");
+  return focus.length > 0 ? focus.slice(-LONG_MESSAGE_CHARS) : message.slice(-LONG_MESSAGE_CHARS);
+}
+
 /** The words worth searching for in a customer's message. */
-export function searchKeywords(message: string): string[] {
+export function searchKeywords(message: string, max: number = MAX_KEYWORDS): string[] {
   const words = message
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .split(/\s+/)
     .filter((word) => word.length >= 3 && !STOP_WORDS.has(word));
-  return [...new Set(words)].slice(0, MAX_KEYWORDS);
+  return [...new Set(words)].slice(0, max);
 }
 
 /**
@@ -1090,9 +1111,13 @@ export async function searchConfluenceKnowledge(
   const settings = readConfluenceSettings(connection.metadata);
   if (!settings.searchBeforeAnswering) return null;
 
-  const asked = searchKeywords(query);
+  const focus = focusOnQuestion(query);
+  const isLong = focus !== query;
+  const asked = searchKeywords(focus, isLong ? MAX_LONG_KEYWORDS : MAX_KEYWORDS);
   if (asked.length === 0) return [];
-  const keywords = expandKeywords(query, asked);
+  const keywords = expandKeywords(focus, asked);
+  // The text search takes the longest (usually most specific) words; the page ranking below uses all of them, by rarity.
+  const searchWords = isLong ? [...keywords].sort((a, b) => b.length - a.length).slice(0, MAX_KEYWORDS) : keywords;
 
   // Two searches at once, merged: Confluence's own text search, and every page of the configured spaces ranked
   // here. Either can miss on its own (Confluence's order, or words in another form); together they rarely do.
@@ -1100,7 +1125,7 @@ export async function searchConfluenceKnowledge(
     runReadTool(
       CONFLUENCE_KNOWLEDGE_TOOL_ID,
       CONFLUENCE_CQL_SEARCH_SLUG,
-      { cql: buildKnowledgeCql(keywords, settings.spaceKeys), limit: Math.max(limit, CONFLUENCE_CANDIDATES), expand: "content.body.storage" },
+      { cql: buildKnowledgeCql(searchWords, settings.spaceKeys), limit: Math.max(limit, CONFLUENCE_CANDIDATES), expand: "content.body.storage" },
       organizationId,
       connectedAccountId,
       CONFLUENCE_TOOLKIT_VERSION,
