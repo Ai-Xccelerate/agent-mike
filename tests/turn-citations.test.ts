@@ -61,6 +61,16 @@ describe("citations on a stored reply", () => {
     expect((await turn("What does Critical mean?")).citations).toEqual(["Priority levels and what each means"]);
   });
 
+  it("are recorded from the From line, and the line is then left out of what the customer reads", async () => {
+    retrieveMock.mockResolvedValue(knowledge);
+    runAgentMock.mockResolvedValue({ answer: "Critical means the system is down.\n\nDid that help?\n\nFrom: Priority levels and what each means", confidence: 0.9, escalate: false, citations: [] });
+
+    const stored = await turn("What does Critical mean?");
+    expect(stored.citations).toEqual(["Priority levels and what each means"]);
+    expect(stored.body).toBe("Critical means the system is down.\n\nDid that help?");
+    expect(stored.body).not.toContain("From:");
+  });
+
   it("stay empty when the reply names no article", async () => {
     retrieveMock.mockResolvedValue(knowledge);
     runAgentMock.mockResolvedValue({ answer: "Which product is this about?", confidence: 0.8, escalate: false, citations: [] });

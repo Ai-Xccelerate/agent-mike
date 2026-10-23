@@ -8,7 +8,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
  * turn, timed() just runs the function.
  */
 
-type Turn = { stages: { stage: string; ms: number }[]; notes: Record<string, number> };
+type Turn = {
+  stages: { stage: string; ms: number }[];
+  notes: Record<string, number>;
+  /** What the turn did and why, for the manager's "Why this reply?" (lib/reply-trace.ts). Never shown to customers. */
+  facts: Record<string, unknown>;
+  startedAt: number;
+};
 
 const store = new AsyncLocalStorage<Turn>();
 
@@ -30,7 +36,7 @@ export async function timed<T>(stage: string, fn: () => Promise<T>): Promise<T> 
 }
 
 export async function withTurnTimer<T>(label: Record<string, unknown>, fn: () => Promise<T>): Promise<T> {
-  const turn: Turn = { stages: [], notes: {} };
+  const turn: Turn = { stages: [], notes: {}, facts: {}, startedAt: Date.now() };
   const start = Date.now();
   try {
     return await store.run(turn, fn);
@@ -38,4 +44,26 @@ export async function withTurnTimer<T>(label: Record<string, unknown>, fn: () =>
     // Stages can overlap (guardrails run beside the main call), so they don't sum to total.
     console.info("[timing]", JSON.stringify({ ...label, totalMs: Date.now() - start, stages: turn.stages, ...turn.notes }));
   }
+}
+
+/** Sets one fact about this turn (route, instructions, checks...). No-op outside a turn. */
+export function traceSet(key: string, value: unknown): void {
+  const turn = store.getStore();
+  if (turn) turn.facts[key] = value;
+}
+
+/** Adds an item to a list of facts about this turn (events, skills loaded, tools called). No-op outside a turn. */
+export function traceAdd(key: string, item: unknown): void {
+  const turn = store.getStore();
+  if (!turn) return;
+  const list = turn.facts[key];
+  if (Array.isArray(list)) list.push(item);
+  else turn.facts[key] = [item];
+}
+
+/** A copy of what this turn has recorded so far, with its timing. Null outside a turn. */
+export function traceSnapshot(): { facts: Record<string, unknown>; stages: { stage: string; ms: number }[]; notes: Record<string, number>; elapsedMs: number } | null {
+  const turn = store.getStore();
+  if (!turn) return null;
+  return { facts: { ...turn.facts }, stages: [...turn.stages], notes: { ...turn.notes }, elapsedMs: Date.now() - turn.startedAt };
 }

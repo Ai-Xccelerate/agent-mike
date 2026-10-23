@@ -1113,3 +1113,8 @@ export function rateReply(messageId: string, input: { rating: "good" | "bad"; re
 export function unrateReply(messageId: string) {
   return apiFetch<{ ok: true }>(`/messages/${encodeURIComponent(messageId)}/feedback`, { method: "DELETE" });
 }
+
+/** Why the worker replied the way it did: what was in play, the pages she was given, the checks, and how closely she followed her pages. */
+export function getReplyTrace(messageId: string): Promise<{ trace: import("@/lib/reply-trace").ReplyTrace; text: string }> {
+  return apiFetch<{ trace: import("@/lib/reply-trace").ReplyTrace; text: string }>(`/messages/${encodeURIComponent(messageId)}/trace`);
+}

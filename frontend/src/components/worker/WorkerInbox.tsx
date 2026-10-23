@@ -1,5 +1,6 @@
 "use client";
 
+import WhyThisReply from "@/components/worker/WhyThisReply";
 import AnswerFeedbackControls from "@/components/worker/AnswerFeedbackControls";
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
@@ -756,6 +757,7 @@ export default function WorkerInbox() {
                             }
                           />
                         )}
+                        {isAgent && !message.cards?.some((card) => card.kind === "helpdesk_ticket") && <WhyThisReply messageId={message.id} body={message.body} />}
                       </div>
                       <span className="mt-6 shrink-0">
                         {isAgent ? (
