@@ -164,3 +164,17 @@ describe("a customer chasing an earlier request by its number", () => {
     expect(cross.every((t) => t.about !== "Other client")).toBe(true);
   });
 });
+
+describe("a verified customer quoting their own number", () => {
+  it("sees what it was about, but not on someone else's request or with an unchecked address", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com", ticketSummary: "Login fails after update" });
+    const checked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com", customerEmailVerifiedAt: new Date() });
+    const unchecked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com" });
+    const stranger = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "other@example.com", customerEmailVerifiedAt: new Date() });
+    const about = async (from: string) =>
+      (await customerTickets(orgId, from, "EAP", `EAP-${earlier.ticketNumber}`)).find((t) => t.reference === `EAP-${earlier.ticketNumber}`)?.about;
+    expect(await about(checked.id)).toBe("Login fails after update");
+    expect(await about(unchecked.id)).toBeNull();
+    expect(await about(stranger.id)).toBeNull();
+  });
+});
