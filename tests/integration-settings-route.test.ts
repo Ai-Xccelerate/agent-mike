@@ -209,7 +209,10 @@ describe("PATCH /api/v1/integrations/:type settings", () => {
     await connect("knowledge_base", "confluence");
     await patch("knowledge_base", { settings: { spaceKeys: ["SK", "PGFP"] } });
     const res = await patch("knowledge_base", { settings: { searchBeforeAnswering: false } });
-    expect(((await res.json()) as { settings: unknown }).settings).toEqual({ spaceKeys: ["SK", "PGFP"], searchBeforeAnswering: false });
+    expect(((await res.json()) as { settings: unknown }).settings).toEqual({ spaceKeys: ["SK", "PGFP"], searchBeforeAnswering: false, searchIndex: false });
+    // The saved-copy switch saves like any other setting, and leaves the rest alone.
+    const on = await patch("knowledge_base", { settings: { searchIndex: true } });
+    expect(((await on.json()) as { settings: unknown }).settings).toEqual({ spaceKeys: ["SK", "PGFP"], searchBeforeAnswering: false, searchIndex: true });
   });
 
   it("rejects an invalid or unknown field, and a connection with no settings", async () => {

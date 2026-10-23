@@ -7,7 +7,10 @@ import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import { fieldClass, hintClass, labelClass } from "@/components/worker/settings/ui";
 import {
   getJiraProjects,
+  getKnowledgeIndexStatus,
   saveIntegrationSettings,
+  startKnowledgeIndexSync,
+  type KnowledgeIndexStatus,
   type JiraProject,
   type ConfluenceConnectionSettings,
   type IntegrationConnection,
@@ -298,13 +301,14 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
 function ConfluenceForm({ integrationType, settings, onClose, onSaved }: FormProps<ConfluenceConnectionSettings>) {
   const [spaceKeys, setSpaceKeys] = useState(settings.spaceKeys.length > 0 ? settings.spaceKeys : [""]);
   const [searchBeforeAnswering, setSearchBeforeAnswering] = useState(settings.searchBeforeAnswering);
+  const [searchIndex, setSearchIndex] = useState(Boolean(settings.searchIndex));
   const { saving, error, save } = useSave(integrationType, onSaved, onClose);
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        void save({ spaceKeys: spaceKeys.map((key) => key.trim()).filter(Boolean), searchBeforeAnswering });
+        void save({ spaceKeys: spaceKeys.map((key) => key.trim()).filter(Boolean), searchBeforeAnswering, searchIndex });
       }}
     >
       <DialogHeader title="Confluence settings" description="Which pages the worker answers from." />
@@ -348,8 +352,88 @@ function ConfluenceForm({ integrationType, settings, onClose, onSaved }: FormPro
           disabled={saving}
           onChange={() => setSearchBeforeAnswering((value) => !value)}
         />
+        <SettingsToggleRow
+          title="Search a saved copy"
+          description="Answers come from a copy of these pages kept in sections and updated every few minutes. It finds more and answers faster. If the copy is empty or fails, the worker searches Confluence directly."
+          checked={searchIndex}
+          disabled={saving || !searchBeforeAnswering}
+          onChange={() => setSearchIndex((value) => !value)}
+        />
+        <KnowledgeIndexPanel />
       </div>
       <DialogFooter saving={saving} error={error} onCancel={onClose} />
     </form>
+  );
+}
+
+function minutesAgo(iso: string | null): string {
+  if (!iso) return "never";
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
+}
+
+/** What the saved copy holds and when it last synced, with a button to sync now. */
+function KnowledgeIndexPanel() {
+  const [status, setStatus] = useState<KnowledgeIndexStatus | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      getKnowledgeIndexStatus()
+        .then((next) => !cancelled && (setStatus(next), setFailed(false)))
+        .catch(() => !cancelled && setFailed(true));
+    void load();
+    // While a sync runs, follow it.
+    const timer = setInterval(() => void load(), 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  async function syncNow() {
+    setStarting(true);
+    try {
+      await startKnowledgeIndexSync();
+      setStatus((current) => (current ? { ...current, running: true } : current));
+    } catch {
+      setFailed(true);
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-gray-200 px-3 py-2.5 text-sm dark:border-gray-800">
+      {failed && !status ? (
+        <p className={hintClass}>The saved copy&rsquo;s status could not be loaded.</p>
+      ) : !status ? (
+        <p className={hintClass}>Loading…</p>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-gray-700 dark:text-gray-300">
+            {status.sections > 0
+              ? `${status.pages} pages in ${status.sections} sections. Last synced ${status.running ? "now, syncing…" : minutesAgo(status.lastFinishedAt)}.`
+              : status.running
+                ? "Making the first copy…"
+                : "No copy yet. Sync now to make one."}
+            {status.lastError ? <span className="mt-1 block text-error-600 dark:text-error-400">Last sync failed: {status.lastError}</span> : null}
+          </p>
+          <button
+            type="button"
+            className="rounded-md border border-gray-300 px-2.5 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/[0.05]"
+            disabled={starting || status.running || !status.connected}
+            onClick={() => void syncNow()}
+          >
+            {status.running ? "Syncing…" : "Sync now"}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

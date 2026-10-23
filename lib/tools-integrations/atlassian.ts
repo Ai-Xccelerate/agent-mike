@@ -278,6 +278,11 @@ export const confluenceSettingsSchema = z.object({
     .transform((keys) => [...new Set(keys)]),
   /** Search the space before every answer, not only when the model decides to look. */
   searchBeforeAnswering: z.boolean(),
+  /**
+   * Search the saved copy of these spaces (cut into sections, kept in step with Confluence) instead of asking Confluence
+   * on every question. Falls back to the live search when the copy is empty or fails. Off until switched on.
+   */
+  searchIndex: z.boolean(),
 });
 
 export type ConfluenceSettings = z.infer<typeof confluenceSettingsSchema>;
@@ -295,7 +300,7 @@ export function jiraSettingsDefaults(): JiraSettings {
 }
 
 export function confluenceSettingsDefaults(): ConfluenceSettings {
-  return { spaceKeys: [], searchBeforeAnswering: true };
+  return { spaceKeys: [], searchBeforeAnswering: true, searchIndex: false };
 }
 
 function readSettings<T>(metadata: unknown, schema: z.ZodType<T>, defaults: T): T {
@@ -1198,6 +1203,14 @@ export async function searchConfluenceKnowledge(
     );
   const read = await readBestPagesInFull(best, keywords, organizationId, connectedAccountId);
   return read.map(({ full: _full, ...match }) => match);
+}
+
+/** Whether questions for this organization are answered from the saved copy: connected, searched before answering, and switched on. */
+export async function confluenceSearchesIndex(organizationId: string): Promise<boolean> {
+  const connection = await getConnectionForOrg(organizationId, "knowledge_base");
+  if (!connection || !activeAccount(connection, "confluence")) return false;
+  const settings = readConfluenceSettings(connection.metadata);
+  return settings.searchBeforeAnswering && settings.searchIndex;
 }
 
 /** Every page the worker can search in the configured spaces, for the manager's check of what Eva can find. */

@@ -656,7 +656,30 @@ export type JiraConnectionSettings = {
 export type ConfluenceConnectionSettings = {
   spaceKeys: string[];
   searchBeforeAnswering: boolean;
+  /** Answer from the saved copy (cut into sections, kept in step with Confluence) instead of asking Confluence each time. */
+  searchIndex: boolean;
 };
+
+/** The saved copy of the connected Confluence: its size, when it last synced, and any error. */
+export type KnowledgeIndexStatus = {
+  connected: boolean;
+  pages: number;
+  sections: number;
+  withMeaning: number;
+  running: boolean;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastError: string | null;
+};
+
+export function getKnowledgeIndexStatus(): Promise<KnowledgeIndexStatus> {
+  return apiFetch<KnowledgeIndexStatus>("/worker/knowledge-index");
+}
+
+/** Starts a sync now; it runs in the background, so read the status to follow it. */
+export function startKnowledgeIndexSync(): Promise<{ started: boolean }> {
+  return apiFetch<{ started: boolean }>("/worker/knowledge-index", { method: "POST" });
+}
 
 /** A Jira project and the issue types a handoff ticket can be raised as. */
 export type JiraProject = {

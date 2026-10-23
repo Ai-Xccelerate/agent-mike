@@ -187,7 +187,7 @@ describe("connection settings", () => {
       createCustomers: false,
     });
     expect(readJiraSettings({ settings: { projectKey: "not a key!" } }).projectKey).toBeNull();
-    expect(readConfluenceSettings(null)).toEqual({ spaceKeys: [], searchBeforeAnswering: true });
+    expect(readConfluenceSettings(null)).toEqual({ spaceKeys: [], searchBeforeAnswering: true, searchIndex: false });
   });
 
   it("upper-cases a Jira project key", () => {
