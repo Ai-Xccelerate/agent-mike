@@ -781,3 +781,28 @@ export const knowledgeIndexState = pgTable(
     pk: primaryKey({ columns: [table.organizationId, table.source] }),
   }),
 );
+
+/**
+ * Why the worker replied the way it did (lib/reply-trace.ts). Its own table, not a column on messages, so it can never
+ * be sent to a customer with the message. Managers read it through GET /api/v1/messages/:id/trace.
+ */
+export const replyTraces = pgTable(
+  "reply_traces",
+  {
+    messageId: uuid("message_id")
+      .primaryKey()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    trace: jsonb("trace").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("reply_traces_org_idx").on(table.organizationId, table.createdAt),
+    conversationIdx: index("reply_traces_conversation_idx").on(table.conversationId),
+  }),
+);

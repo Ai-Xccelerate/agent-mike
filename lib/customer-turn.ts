@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { conversations, messages } from "@/db/schema";
+import { conversations, messages, replyTraces } from "@/db/schema";
 import { getOrganizationName } from "@/lib/bootstrap";
 import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
@@ -10,9 +10,10 @@ import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
-import { timed } from "@/lib/timing";
+import { timed, traceSnapshot } from "@/lib/timing";
 import { citedTitles, groundedTitles, looksUngrounded, withoutSourceLine } from "@/lib/citations";
 import { referenceCard, referenceNotice, ticketReference } from "@/lib/ticket-reference";
+import { buildReplyTrace } from "@/lib/reply-trace";
 import { isPlaceholderCustomerName } from "@/lib/customer-name";
 import { normalizeIdentityMode, trustedCustomerEmail } from "@/lib/customer-identity";
 
@@ -304,6 +305,34 @@ export async function runCustomerTurn(input: {
       cards,
     })
     .returning();
+
+  // Why she replied this way, for the manager's "Why this reply?". Its own table, so it is never sent to a customer, and
+  // never allowed to hold up or break the reply.
+  try {
+    const snapshot = traceSnapshot();
+    if (snapshot) {
+      const trace = buildReplyTrace({
+        facts: snapshot.facts,
+        stages: snapshot.stages,
+        notes: snapshot.notes,
+        elapsedMs: snapshot.elapsedMs,
+        answer: result.answer,
+        citations: result.citations,
+        escalated: result.escalate,
+        needIdentity: Boolean(result.needIdentity),
+        checkedTickets: Boolean(result.checkedTickets),
+        matches: knowledgeMatches,
+        sources: knowledgeSources as { source: string; count: number; error: string | null; via?: "saved copy" | "live" }[],
+        readPages: result.readPages ?? [],
+        noWords,
+        guardrailReason: guardrail.escalate ? guardrail.reason : null,
+        cached: snapshot.facts.knowledgeCached === true,
+      });
+      await db.insert(replyTraces).values({ messageId: reply.id, organizationId, conversationId: conversation.id, trace: trace as unknown as Record<string, unknown> }).onConflictDoNothing();
+    }
+  } catch (error) {
+    console.warn("[reply-trace] could not save why this reply:", error instanceof Error ? error.message : error);
+  }
 
   // Started as soon as the reply is stored, so the Jira call overlaps with the
   // rest of this turn's bookkeeping instead of following it.

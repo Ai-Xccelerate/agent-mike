@@ -1,7 +1,8 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { answerFeedback, conversations, messages } from "@/db/schema";
+import { answerFeedback, conversations, messages, replyTraces } from "@/db/schema";
+import { summarizeTrace, type ReplyTrace } from "@/lib/reply-trace";
 import { outputGuardrailMode } from "@/lib/guardrails";
 
 /**
@@ -90,6 +91,10 @@ export async function saveFeedback(input: {
     return { ok: false, status: 404, error: "That reply can't be rated" };
   }
 
+  // The reply's own record goes with the rating, so whoever acts on a correction can see why she answered that way.
+  const [recorded] = await db.select({ trace: replyTraces.trace }).from(replyTraces).where(eq(replyTraces.messageId, message.id)).limit(1);
+  const why = recorded ? summarizeTrace(recorded.trace as unknown as ReplyTrace) : null;
+
   const values = {
     organizationId: input.organizationId,
     conversationId: message.conversationId,
@@ -98,7 +103,7 @@ export async function saveFeedback(input: {
     rating: input.feedback.rating,
     reasons: input.feedback.reasons,
     correction: input.feedback.correction,
-    context: input.context,
+    context: { ...input.context, ...(why ? { why } : {}) },
   };
   const [row] = await db
     .insert(answerFeedback)

@@ -31,6 +31,7 @@ import {
 import { ConfluenceKnowledgeError, confluenceSearchesIndex, searchConfluenceKnowledge } from "@/lib/tools-integrations/atlassian";
 import { refreshKnowledgeIndexIfStale } from "@/lib/knowledge-index";
 import { DEFAULT_TUNING, searchKnowledgeIndex } from "@/lib/knowledge-search";
+import { traceSet } from "@/lib/timing";
 
 const CONFLUENCE_SOURCE = "confluence";
 
@@ -49,6 +50,8 @@ export interface RetrievalSource {
   source: "local" | "parchment" | "scribe" | "agent_wiki" | "confluence";
   count: number;
   error: string | null;
+  /** For Confluence: answered from the saved copy or from the live search. */
+  via?: "saved copy" | "live";
 }
 
 export interface RetrievalResult {
@@ -91,7 +94,10 @@ export async function retrieveKnowledge(
 ): Promise<RetrievalResult> {
   const key = retrievalCacheKey(profile.organizationId, profile.integrationsConfig, limit, query);
   const remembered = readRetrievalCache<RetrievalResult>(key);
-  if (remembered) return remembered;
+  if (remembered) {
+    traceSet("knowledgeCached", true);
+    return remembered;
+  }
 
   const result = await retrieveKnowledgeUncached(profile, query, limit);
   // A source that failed is not remembered: the next customer should get it back as soon as it is up.
@@ -177,7 +183,12 @@ async function retrieveKnowledgeUncached(
   ] as const) {
     if (!result) continue;
     if (result.error) console.warn(`[retrieval] ${key} lookup failed:`, result.error);
-    sources.push({ source: key, count: result.matches.length, error: result.error });
+    sources.push({
+      source: key,
+      count: result.matches.length,
+      error: result.error,
+      ...(key === CONFLUENCE_SOURCE && "fromIndex" in result ? { via: result.fromIndex ? ("saved copy" as const) : ("live" as const) } : {}),
+    });
     if (result.matches.length > 0) lists.push(result.matches);
   }
 

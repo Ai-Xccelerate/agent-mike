@@ -211,8 +211,9 @@ function buildLoadSkillTool(
     parameters: z.object({
       skillId: z.string().describe("The skill id, exactly as listed in your available skills"),
     }),
-    execute: async ({ skillId }) =>
-      logAndRunTool(
+    execute: async ({ skillId }) => {
+      traceAdd("skillsLoaded", skillId);
+      return logAndRunTool(
         {
           organizationId,
           toolId: LOAD_SKILL_TOOL_NAME,
@@ -258,7 +259,8 @@ function buildLoadSkillTool(
           errorIf: (text) =>
             text.startsWith("Could not load that skill") ? text : null,
         },
-      ),
+      );
+    },
   });
 }
 
@@ -1347,6 +1349,8 @@ export interface RunAgentResult {
   needIdentity?: boolean;
   /** The worker looked up this customer's requests this turn (a status check). */
   checkedTickets?: boolean;
+  /** Pages she read with a tool this turn, so the faithfulness line can check her answer against them too. */
+  readPages?: { title: string; text: string }[];
 }
 
 const CHOICES_TAG = /\[\[CHOICES:([^\]]*)\]\]/gi;
@@ -1377,6 +1381,8 @@ export function handoffToManager(
  */
 function handoffBecause(profile: Parameters<typeof handoffToManager>[0], reason: string, detail?: Record<string, unknown>): RunAgentResult {
   console.warn(`[agent] handing over without an answer: ${reason}`, detail ?? {});
+  traceSet("route", "fallback_handoff");
+  traceSet("routeReason", reason);
   return handoffToManager(profile);
 }
 
@@ -1444,6 +1450,37 @@ function parseAnswer(raw: string, threshold: number, classifiedConfidence?: numb
         ? 0.9
         : 0.75;
   return { answer, confidence, escalate: false, citations: [], ...(choices.length ? { choices } : {}), ...(needIdentity ? { needIdentity: true } : {}) };
+}
+
+export function intentSummary(info: IntentClassification) {
+  return { outOfScope: info.outOfScope, escalate: info.escalate, injection: info.injectionSuspected, confidence: info.confidence, reason: info.reason ?? "", themes: info.matchedThemes ?? [] };
+}
+
+/**
+ * Notes what one run did for the manager's "Why this reply?": the tools she called, the scope check's verdict, the reply check's
+ * verdict, and any page she read with a tool (kept so her answer can be checked against it too).
+ */
+export function recordRun(run: unknown, readPages: { title: string; text: string }[]): void {
+  const result = run as {
+    newItems?: { type?: string; rawItem?: { name?: string }; output?: unknown }[];
+    inputGuardrailResults?: { guardrail: { name: string }; output: { outputInfo: unknown } }[];
+    outputGuardrailResults?: { guardrail: { name: string }; output: { outputInfo: unknown } }[];
+  };
+  for (const item of result.newItems ?? []) {
+    if (item.type === "tool_call_item" && item.rawItem?.name) traceAdd("toolsCalled", item.rawItem.name);
+    if (item.type === "tool_call_output_item" && item.rawItem?.name === CONFLUENCE_READ_TOOL_NAME && typeof item.output === "string") {
+      try {
+        const page = JSON.parse(item.output) as { title?: string | null; text?: string };
+        if (page.text) readPages.push({ title: page.title ?? "A page she read", text: page.text });
+      } catch {
+        // A tool answer that is not a page (an error message) holds nothing to check against.
+      }
+    }
+  }
+  const intent = result.inputGuardrailResults?.find((g) => g.guardrail.name === CUSTOMER_INPUT_GUARDRAIL_NAME)?.output.outputInfo as IntentClassification | undefined;
+  if (intent) traceSet("intent", intentSummary(intent));
+  const policy = replyPolicyFromRun(result);
+  if (policy) traceSet("replyCheck", { action: policy.action, reason: policy.reason });
 }
 
 function intentConfidenceFromRun(result: {
@@ -1525,6 +1562,16 @@ export async function runAgent(
     ),
   );
   const maxTurns = Math.max(1, profile.maxAgentTurns || 3);
+  const readPages: { title: string; text: string }[] = [];
+  traceSet("instructions", {
+    model: profile.model,
+    tone: profile.tone,
+    roleChars: profile.role.length,
+    jobDescriptionChars: (profile.jobDescription ?? "").length,
+    additionalInstructions: Boolean(profile.systemPromptTemplate?.trim()),
+  });
+  traceSet("skillsOn", profile.enabledSkills ?? []);
+  traceSet("toolsOffered", tools.map((tool) => (tool as { name?: string }).name).filter((name): name is string => Boolean(name)));
 
   const agent = new Agent({
     name: profile.displayName,
@@ -1558,6 +1605,7 @@ export async function runAgent(
       { maxTurns, context: guardrailContext },
     ));
 
+    recordRun(first, readPages);
     let text = typeof first.finalOutput === "string" ? first.finalOutput : String(first.finalOutput ?? "");
     let policy = replyPolicyFromRun(first);
 
@@ -1576,6 +1624,8 @@ export async function runAgent(
         repairInput,
         { maxTurns, context: guardrailContext },
       ));
+      traceAdd("events", `The reply check blocked the first draft (${policy.reason}); she wrote it again`);
+      recordRun(repaired, readPages);
       text =
         typeof repaired.finalOutput === "string"
           ? repaired.finalOutput
@@ -1613,6 +1663,8 @@ export async function runAgent(
         `${baseInput}\n\n${EMPTY_REPLY_RETRY_MESSAGE}`,
         { maxTurns, context: guardrailContext },
       ));
+      traceAdd("events", "The first reply had no words; she was asked to write it again");
+      recordRun(retried, readPages);
       const retriedText = typeof retried.finalOutput === "string" ? retried.finalOutput : String(retried.finalOutput ?? "");
       const retriedPolicy = replyPolicyFromRun(retried);
       if (retriedPolicy?.action === "block") return handoffBecause(profile, "the retried reply was blocked by the reply check", { reason: retriedPolicy.reason });
@@ -1628,6 +1680,8 @@ export async function runAgent(
         `${baseInput}\n\n${STUB_REPLY_RETRY_MESSAGE}`,
         { maxTurns, context: guardrailContext },
       ));
+      traceAdd("events", "The reply only said she would look something up; she was asked to do it and answer");
+      recordRun(retried, readPages);
       const retriedText = typeof retried.finalOutput === "string" ? retried.finalOutput : String(retried.finalOutput ?? "");
       const retriedPolicy = replyPolicyFromRun(retried);
       if (retriedPolicy?.action === "block") return handoffBecause(profile, "the retried reply was blocked by the reply check", { reason: retriedPolicy.reason });
@@ -1639,15 +1693,19 @@ export async function runAgent(
     if (!parsed.escalate && !parsed.needIdentity && promisesPersonFollowUp(parsed.answer)) {
       // The reply says a teammate will follow up but carries no handoff tag.
       console.warn("[agent] reply promised a person but did not hand over; handing over", { conversationId });
-      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined, ...(ticketsChecked ? { checkedTickets: true } : {}) };
+      traceAdd("events", "The reply promised a person would follow up without handing over, so she handed over");
+      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined, ...(ticketsChecked ? { checkedTickets: true } : {}), ...(readPages.length ? { readPages } : {}) };
     }
-    return ticketsChecked ? { ...parsed, checkedTickets: true } : parsed;
+    return { ...parsed, ...(ticketsChecked ? { checkedTickets: true } : {}), ...(readPages.length ? { readPages } : {}) };
   } catch (error) {
     // Input tripwire: out-of-scope → polite decline (not Charan); other trips → handoff.
     // Output no longer trips the SDK wire — block is a soft reject + repair above.
     if (error instanceof InputGuardrailTripwireTriggered) {
       const intent = intentClassificationFromTripwire(error);
+      if (intent) traceSet("intent", intentSummary(intent));
       if (intent?.outOfScope) {
+        traceSet("route", "scope_decline");
+        traceSet("routeReason", intent.reason || "the scope check judged it outside the role");
         return declineOutOfScopeReply(profile);
       }
       return handoffBecause(profile, "the input check tripped", { intent: intent ? { outOfScope: intent.outOfScope } : null });

@@ -281,6 +281,13 @@
       "when": 1790660000020,
       "tag": "0039_knowledge_index",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790660000021,
+      "tag": "0040_reply_traces",
+      "breakpoints": true
     }
   ]
 }

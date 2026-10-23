@@ -25,6 +25,8 @@ export type ReviewItem = {
   reasons: string[];
   /** What the manager said it should have been. */
   correction: string | null;
+  /** Why she answered that way, kept with the rating: how it was produced, the pages used, and how closely it follows them. */
+  why: { route: string; routeReason: string | null; pagesUsed: string[]; skillsLoaded: string[]; events: string[]; grounding: { verdict: string; coverage: number | null; missing: string[] } } | null;
   at: string;
 };
 
@@ -130,6 +132,7 @@ export async function loadReviewItems(organizationId: string, now = new Date()):
       citations: row.answer.citations ?? [],
       reasons: (row.feedback.reasons ?? []).map((reason) => FEEDBACK_REASON_LABELS[reason as FeedbackReason] ?? reason),
       correction: row.feedback.correction,
+      why: (row.feedback.context as { why?: ReviewItem["why"] } | null)?.why ?? null,
       at: row.feedback.updatedAt.toISOString(),
     });
   }
@@ -152,6 +155,7 @@ export async function loadReviewItems(organizationId: string, now = new Date()):
           citations: [],
           reasons: [],
           correction: null,
+          why: null,
           at: firstAgent.createdAt.toISOString(),
         });
       }
@@ -170,6 +174,7 @@ export async function loadReviewItems(organizationId: string, now = new Date()):
         citations: [],
         reasons: [],
         correction: null,
+        why: null,
         at: message.createdAt.toISOString(),
       });
     }
