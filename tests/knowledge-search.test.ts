@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { knowledgeIndexState } from "@/db/schema";
 import { ensureOrganization } from "@/lib/bootstrap";
 import { INDEX_SOURCE, clearRefreshMemory, refreshKnowledgeIndexIfStale, syncKnowledgeIndex } from "@/lib/knowledge-index";
-import { MIN_MEANING_SCORE, clearKnowledgeSearchCache, searchKnowledgeIndex } from "@/lib/knowledge-search";
+import { DEFAULT_TUNING, MIN_MEANING_SCORE, clearKnowledgeSearchCache, searchKnowledgeIndex } from "@/lib/knowledge-search";
 import type { IndexPage, IndexSource } from "@/lib/tools-integrations/atlassian";
 
 // A stand-in for meaning: texts about the same idea land on the same axis, whatever words they use.
@@ -157,6 +157,20 @@ Boil water.${FILL}` },
     expect(embed).not.toHaveBeenCalled();
     await searchKnowledgeIndex(orgId, "a brand new question about registration", { embed });
     expect(embed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the chosen settings", () => {
+  it("are the ones the experiment on EAP's pages picked: title counts triple, shorter sections favoured, sharper merge, eight sections", () => {
+    expect(DEFAULT_TUNING).toMatchObject({ limit: 8, perPage: 3, rrfK: 20, keywordNorm: 1, weights: { keyword: 1, meaning: 1, title: 3 } });
+  });
+
+  it("return up to eight sections, grouped by page", async () => {
+    const pages = Array.from({ length: 6 }, (_, i) => ({ id: String(i + 1), title: `Registration topic ${i + 1}`, text: `## Register\nAsk the member to register, topic ${i + 1}.${FILL}\n\n## Help\nRegister help ${i + 1}.${FILL}` }));
+    await indexed(pages);
+    const { matches } = await searchKnowledgeIndex(orgId, "how do members register", { embed });
+    expect(matches.length).toBeGreaterThan(6);
+    expect(matches.length).toBeLessThanOrEqual(8);
   });
 });
 

@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
     const t0 = Date.now();
     const found =
       engine === "index"
-        ? await searchKnowledgeIndex(tenant.orgId, question, { limit: 6 })
+        ? await searchKnowledgeIndex(tenant.orgId, question)
         : { matches: (await searchConfluenceKnowledge(tenant.orgId, question, 5)) ?? [], timings: null, details: [] };
     return NextResponse.json({
       question,
