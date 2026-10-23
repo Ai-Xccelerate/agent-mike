@@ -240,6 +240,12 @@ export async function runCustomerTurn(input: {
       return null;
     });
 
+  // Asking how a request is going is not a new handoff. On a conversation already with the team, a turn that only
+  // looked up the customer's requests must not add a comment to the ticket each time the customer asks.
+  if (result.escalate && result.checkedTickets && conversation.status === "needs_human") {
+    result = { ...result, escalate: false };
+  }
+
   // The ticket is raised after the reply is stored when the caller asked for that.
   const deferTicket = Boolean(input.deferTicket) && result.escalate && showsCards;
   // The first time this conversation is handed over; later turns add to the same request.

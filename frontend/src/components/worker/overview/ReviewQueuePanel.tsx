@@ -32,7 +32,7 @@ const KIND_STYLES: Record<ReviewKind, string> = {
 const SHOWN_GROUPS = 6;
 
 function clip(text: string, max: number) {
-  const value = text.replace(/\s+/g, " ").trim();
+  const value = text.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
   return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 
