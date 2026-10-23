@@ -69,7 +69,7 @@ export interface RetrievalProfile {
 async function confluenceMatches(organizationId: string, query: string, limit: number): Promise<KnowledgeMatch[] | null> {
   if (await confluenceSearchesIndex(organizationId).catch(() => false)) {
     try {
-      const { matches } = await searchKnowledgeIndex(organizationId, query, { limit: Math.max(limit, 6) });
+      const { matches } = await searchKnowledgeIndex(organizationId, query);
       void refreshKnowledgeIndexIfStale(organizationId).catch(() => undefined);
       if (matches.length > 0) return matches;
     } catch (error) {

@@ -44,16 +44,21 @@ export type SearchTuning = {
   keywordNorm: 0 | 1 | 2 | 32;
 };
 
+/**
+ * Chosen from scores on EAP's 495 pages and 30 real questions (24 Oct, 32 settings tried; see the experiment runner).
+ * Against the first version: real pages not found 10 -> 0, right page first 405 -> 470 of 495, in the top three 459 -> 492.
+ * The page-title signal counts triple, keyword scores favour shorter sections, the merge is sharper, eight sections come back.
+ */
 export const DEFAULT_TUNING: SearchTuning = {
-  limit: 6,
+  limit: 8,
   perPage: 3,
   minMeaning: MIN_MEANING_SCORE,
-  weights: { keyword: 1, meaning: 1, title: 1 },
+  weights: { keyword: 1, meaning: 1, title: 3 },
   titlePages: 8,
   titleSections: 2,
   pool: 40,
-  rrfK: 60,
-  keywordNorm: 0,
+  rrfK: 20,
+  keywordNorm: 1,
 };
 
 type Loaded = {
