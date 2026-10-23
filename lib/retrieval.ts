@@ -30,7 +30,7 @@ import {
 } from "@/lib/agent-wiki";
 import { ConfluenceKnowledgeError, confluenceSearchesIndex, searchConfluenceKnowledge } from "@/lib/tools-integrations/atlassian";
 import { refreshKnowledgeIndexIfStale } from "@/lib/knowledge-index";
-import { searchKnowledgeIndex } from "@/lib/knowledge-search";
+import { DEFAULT_TUNING, searchKnowledgeIndex } from "@/lib/knowledge-search";
 
 const CONFLUENCE_SOURCE = "confluence";
 
@@ -66,17 +66,22 @@ export interface RetrievalProfile {
  * Confluence for one question: the saved copy when the organization has switched it on and it has something, otherwise
  * the live search. Any trouble with the copy (empty, error) falls back to live, so a customer never gets less than before.
  */
-async function confluenceMatches(organizationId: string, query: string, limit: number): Promise<KnowledgeMatch[] | null> {
+async function confluenceMatches(
+  organizationId: string,
+  query: string,
+  limit: number,
+): Promise<{ matches: KnowledgeMatch[]; fromIndex: boolean } | null> {
   if (await confluenceSearchesIndex(organizationId).catch(() => false)) {
     try {
       const { matches } = await searchKnowledgeIndex(organizationId, query);
       void refreshKnowledgeIndexIfStale(organizationId).catch(() => undefined);
-      if (matches.length > 0) return matches;
+      if (matches.length > 0) return { matches, fromIndex: true };
     } catch (error) {
       console.warn("[retrieval] saved copy failed, using live Confluence:", error instanceof Error ? error.message : error);
     }
   }
-  return searchConfluenceKnowledge(organizationId, query, limit);
+  const live = await searchConfluenceKnowledge(organizationId, query, limit);
+  return live ? { matches: live, fromIndex: false } : null;
 }
 
 export async function retrieveKnowledge(
@@ -154,9 +159,10 @@ async function retrieveKnowledgeUncached(
     // searched full-text before every answer, so grounding never depends on
     // the model deciding to look. Null = not connected or switched off.
     confluenceMatches(profile.organizationId, query, limit)
-      .then((matches) => (matches ? { matches, error: null as string | null } : null))
+      .then((found) => (found ? { matches: found.matches, fromIndex: found.fromIndex, error: null as string | null } : null))
       .catch((error: unknown) => ({
         matches: [] as KnowledgeMatch[],
+        fromIndex: false,
         error: error instanceof ConfluenceKnowledgeError ? error.message : "Confluence lookup failed",
       })),
   ]);
@@ -179,7 +185,9 @@ async function retrieveKnowledgeUncached(
   // Scribe's citation ordering — so they are not comparable. Round-robin
   // instead of sorting by `rank`, which would let whichever scale runs largest
   // crowd the others out entirely.
-  return { matches: interleaveAll(lists, limit), sources };
+  // The saved copy was tuned to hand over this many sections; the combined cap of five would cut it short.
+  const cap = confluenceResult && "fromIndex" in confluenceResult && confluenceResult.fromIndex ? Math.max(limit, DEFAULT_TUNING.limit) : limit;
+  return { matches: interleaveAll(lists, cap), sources };
 }
 
 /** Round-robins any number of ranked lists, preserving each list's ordering. */
