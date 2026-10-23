@@ -999,13 +999,16 @@ export async function buildAgentTools(
         description:
           "Check the status of this customer's own support requests (the ones raised for this conversation or " +
           "this customer's email). Read-only. Use it when they ask about a ticket, a reference number or an earlier " +
-          "request. Quote each request by its `number` only and give its status in plain words. Checking on a request is " +
+          "request. When they quote a number, pass it as `reference`: a request found that way shows its status only, " +
+          "so ask them to say what it was about. Quote each request by its `number` only and give its status in plain words. Checking on a request is " +
           "not a new handoff: answer the status and do not end that reply with [[ESCALATE]], which would add a " +
           "comment to the ticket each time the customer asks.",
-        parameters: z.object({}),
-        execute: async () => {
+        parameters: z.object({
+          reference: z.string().optional().describe("A reference or ticket number the customer quoted, such as TCK-1332"),
+        }),
+        execute: async ({ reference }) => {
           onTicketsChecked?.();
-          const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix) : [];
+          const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix, reference) : [];
           const desk = jiraAccountId && conversationId ? await lookupCustomerTickets(organizationId, conversationId, jiraAccountId) : null;
           const deskByKey = new Map<string, unknown>();
           try {
@@ -1305,7 +1308,16 @@ export async function buildInstructions(
         "[[CHOICES: Everyone | Just me]]). When you ask for something the service desk lists options for, use " +
         "those options. Don't add choices to an open question, an answer, or a handoff. Still write the question " +
         "itself in your reply: the customer can always type instead.") +
-    "\n\nWhen you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
+    "\n\nCustomers chasing an earlier request: when someone says they have written before, nobody called or replied, " +
+    "or a problem is still not fixed, they already have a request. Do not open a new one first. If they have not given a " +
+    "reference number, ask for it once, in a sentence with their words (\"I'm sorry nobody got back to you. What's the " +
+    "reference number you were given?\"), and say you can look for it if they don't have it. Then use the status tool " +
+    `(pass the number they quote), tell them where it stands in plain words, and say back what you understand it is about ` +
+    "so they know you have the picture; if you can't see what it was about, ask them to say in a line. If it is still " +
+    "open, apologise once, say you are passing on that they are chasing it, and hand over with [[ESCALATE]] naming that " +
+    "reference. If you cannot find it, say a teammate will check it and ask for their name and email. Never say a " +
+    "reference is closed, fixed or waiting on them unless the status says Resolved.\n\n" +
+    "When you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]." +
     // ---- Per turn from here: never put fixed text below this line. ----

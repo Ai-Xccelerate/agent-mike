@@ -123,3 +123,13 @@ describe("withoutSourceLine", () => {
     expect(withoutSourceLine("Done.\n\nFrom: priority levels (and what each means)", ["Priority levels (and what each means)"])).toBe("Done.");
   });
 });
+
+describe("withoutSourceLine when she names an extra heading after the article", () => {
+  it("removes the whole line, not just the article name", () => {
+    const answer = "Click New.\n\nFrom: Add a New Client Organization, Steps to adding a new customer group\n\nDid that solve it?";
+    expect(withoutSourceLine(answer, ["Add a New Client Organization"])).toBe("Click New.\n\nDid that solve it?");
+  });
+  it("removes it at the end of a line of steps too", () => {
+    expect(withoutSourceLine("Click New. From: Add a New Client Organization, Steps to adding", ["Add a New Client Organization"])).toBe("Click New.");
+  });
+});

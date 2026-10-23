@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/worker-api";
-import { GROUNDING_LABELS, ROUTE_LABELS, type GroundingVerdict, type ReplyRoute } from "@/lib/reply-trace";
+import { GROUNDING_LABELS, ROUTE_LABELS, SHOW_REPLY_TRACE, type GroundingVerdict, type ReplyRoute } from "@/lib/reply-trace";
 
 type ReviewKind = "bad_rating" | "no_article" | "team_answer";
 type ReviewItem = {
@@ -116,7 +116,7 @@ export default function ReviewQueuePanel() {
                     </p>
                     {entry.reasons.length > 0 && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">What was wrong: {entry.reasons.join(", ")}</p>}
                     {entry.correction && <p className="mt-1 text-xs italic text-gray-500 dark:text-gray-400">Should have said: {clip(entry.correction, 240)}</p>}
-                    {entry.why && (
+                    {SHOW_REPLY_TRACE && entry.why && (
                       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                         Why she answered this way: {ROUTE_LABELS[entry.why.route as ReplyRoute] ?? entry.why.route}
                         {entry.why.routeReason ? ` (${entry.why.routeReason})` : ""}. {GROUNDING_LABELS[entry.why.grounding.verdict as GroundingVerdict] ?? ""}
