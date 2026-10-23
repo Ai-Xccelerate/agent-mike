@@ -311,3 +311,19 @@ describe("no ticket for an unknown person", () => {
     expect(recordHandoffInJira).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("chasing a request that is already in the verified customer's own list", () => {
+  it("marks the quoted earlier request as one a chase can go on, but not the current chat or an unchecked address", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com", customerEmailVerifiedAt: new Date(), externalTicketKey: "SUP-30", ticketSummary: "Booking page down" });
+    const checked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com", customerEmailVerifiedAt: new Date() });
+    const unchecked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com" });
+    const chaseable = async (from: string, quoted: string) =>
+      (await customerTickets(orgId, from, "EAP", quoted)).filter((t) => t.chaseable).map((t) => t.serviceDeskKey);
+    expect(await chaseable(checked.id, "SUP-30")).toEqual(["SUP-30"]);
+    expect(await chaseable(checked.id, "sup-30")).toEqual(["SUP-30"]);
+    expect(await chaseable(checked.id, `EAP-${earlier.ticketNumber}`)).toEqual(["SUP-30"]);
+    expect(await chaseable(checked.id, "SUP-99")).toEqual([]);
+    expect(await chaseable(unchecked.id, "SUP-30")).toEqual([]);
+    expect(await chaseable(earlier.id, "SUP-30")).toEqual([]);
+  });
+});

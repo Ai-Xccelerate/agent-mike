@@ -49,16 +49,31 @@ export async function customerTickets(
     )
     .orderBy(desc(conversations.updatedAt))
     .limit(LIMIT);
-  const own = rows.map((row) => ({
+  const asked = quotedReference ? quotedMatcher(ticketPrefix, quotedReference) : null;
+  const own: CustomerTicket[] = rows.map((row) => ({
     reference: ticketReference(ticketPrefix, row.ticketNumber),
     serviceDeskKey: row.externalTicketKey ?? null,
     about: row.ticketSummary ?? row.subject ?? null,
     status: customerStatusWord(row.status),
     updated: row.updatedAt.toISOString(),
+    // An earlier request of this checked customer, quoted by its number: a chase can go on it.
+    ...(email && asked && row.id !== conversationId && row.externalTicketKey && asked(row) ? { chaseable: true } : {}),
   }));
   const quoted = quotedReference ? await quotedTicket(organizationId, ticketPrefix, quotedReference, email ?? null) : null;
   if (quoted && !own.some((ticket) => ticket.reference === quoted.reference)) own.push(quoted);
   return own;
+}
+
+/** Whether a quoted number or helpdesk key names this conversation's request. */
+function quotedMatcher(
+  ticketPrefix: string | null | undefined,
+  quoted: string,
+): ((row: { ticketNumber: number; externalTicketKey: string | null }) => boolean) | null {
+  const text = quoted.trim();
+  const own = new RegExp(`^(?:${(ticketPrefix || "TCK").replace(/[^A-Za-z0-9]/g, "")}-)?(\\d{1,9})$`, "i").exec(text);
+  const key = /^[A-Za-z][A-Za-z0-9]+-\d+$/.test(text) ? text.toUpperCase() : null;
+  if (!own && !key) return null;
+  return (row) => (own ? row.ticketNumber === Number(own[1]) : false) || (key ? row.externalTicketKey?.toUpperCase() === key : false);
 }
 
 /**
