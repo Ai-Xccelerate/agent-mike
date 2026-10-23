@@ -24,6 +24,7 @@ export async function customerTickets(
   organizationId: string,
   conversationId: string,
   ticketPrefix: string | null | undefined,
+  quotedReference?: string,
 ): Promise<CustomerTicket[]> {
   const [current] = await db
     .select()
@@ -46,11 +47,46 @@ export async function customerTickets(
     )
     .orderBy(desc(conversations.updatedAt))
     .limit(LIMIT);
-  return rows.map((row) => ({
+  const own = rows.map((row) => ({
     reference: ticketReference(ticketPrefix, row.ticketNumber),
     serviceDeskKey: row.externalTicketKey ?? null,
     about: row.ticketSummary ?? row.subject ?? null,
     status: customerStatusWord(row.status),
     updated: row.updatedAt.toISOString(),
   }));
+  const quoted = quotedReference ? await quotedTicket(organizationId, ticketPrefix, quotedReference) : null;
+  if (quoted && !own.some((ticket) => ticket.reference === quoted.reference)) own.push(quoted);
+  return own;
+}
+
+/**
+ * A request the customer quotes by its number, from an earlier chat. Anyone could type a number, so only its
+ * status in plain words is given: what it was about stays with the customer to say, and the summary is not shown.
+ */
+async function quotedTicket(
+  organizationId: string,
+  ticketPrefix: string | null | undefined,
+  quoted: string,
+): Promise<CustomerTicket | null> {
+  const text = quoted.trim();
+  const own = new RegExp(`^(?:${(ticketPrefix || "TCK").replace(/[^A-Za-z0-9]/g, "")}-)?(\\d{1,9})$`, "i").exec(text);
+  const number = own;
+  const byKey = /^[A-Za-z][A-Za-z0-9]+-\d+$/.test(text) ? text.toUpperCase() : null;
+  const conditions = [byKey ? sql`upper(${conversations.externalTicketKey}) = ${byKey}` : null, number ? eq(conversations.ticketNumber, Number(number[1])) : null].filter(
+    (condition): condition is NonNullable<typeof condition> => condition !== null,
+  );
+  if (conditions.length === 0) return null;
+  const [row] = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.organizationId, organizationId), ne(conversations.channel, "assistant"), or(...conditions)))
+    .limit(1);
+  if (!row) return null;
+  return {
+    reference: ticketReference(ticketPrefix, row.ticketNumber),
+    serviceDeskKey: row.externalTicketKey ?? null,
+    about: null,
+    status: customerStatusWord(row.status),
+    updated: row.updatedAt.toISOString(),
+  };
 }
