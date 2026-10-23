@@ -1,6 +1,7 @@
 "use client";
 
 import WhyThisReply from "@/components/worker/WhyThisReply";
+import { SHOW_REPLY_TRACE } from "@/lib/reply-trace";
 import AnswerFeedbackControls from "@/components/worker/AnswerFeedbackControls";
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
@@ -742,7 +743,7 @@ export default function WorkerInbox() {
                             </div>
                           )}
                         </div>
-                        {isAgent && !message.cards?.some((card) => card.kind === "helpdesk_ticket") && (
+                        {SHOW_REPLY_TRACE && isAgent && !message.cards?.some((card) => card.kind === "helpdesk_ticket") && (
                           <AnswerFeedbackControls
                             messageId={message.id}
                             ratings={(selected.feedback ?? []).filter((entry) => entry.messageId === message.id)}
