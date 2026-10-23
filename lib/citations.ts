@@ -48,3 +48,47 @@ export function citedTitles(answer: string, matches: { title: string }[]): strin
   }
   return titles;
 }
+
+/** The button, menu and field names an answer bolds, for checking them against the pages it was given. */
+export function boldTerms(answer: string): string[] {
+  const terms = new Set<string>();
+  for (const match of answer.matchAll(/\*\*([^*\n]{2,80})\*\*/g)) {
+    const term = normalizeForMatch(match[1]);
+    if (term) terms.add(term);
+  }
+  return [...terms];
+}
+
+function normalizeForMatch(text: string): string {
+  return text.toLowerCase().replace(/[`'’"“”]/g, "").replace(/\s+/g, " ").trim();
+}
+
+const GROUNDED_AT = 0.6;
+const UNGROUNDED_BELOW = 0.5;
+const MIN_TERMS = 2;
+
+/** For each page the reply was given, the share of the reply's bolded names that appear in it. Empty when it bolds too little to tell. */
+export function answerSupport(answer: string, matches: { title: string; content: string }[]): { title: string; coverage: number }[] {
+  const terms = boldTerms(answer);
+  if (terms.length < MIN_TERMS) return [];
+  return matches
+    .map((match) => {
+      const text = normalizeForMatch(match.content);
+      return { title: match.title.trim(), coverage: terms.filter((term) => text.includes(term)).length / terms.length };
+    })
+    .sort((a, b) => b.coverage - a.coverage);
+}
+
+/** Pages the reply clearly follows, best first, at most two: used when the reply did not name its source. */
+export function groundedTitles(answer: string, matches: { title: string; content: string }[]): string[] {
+  return answerSupport(answer, matches)
+    .filter((entry) => entry.coverage >= GROUNDED_AT)
+    .slice(0, 2)
+    .map((entry) => entry.title);
+}
+
+/** True when the reply bolds several names and no page it was given carries most of them. */
+export function looksUngrounded(answer: string, matches: { title: string; content: string }[]): boolean {
+  const support = answerSupport(answer, matches);
+  return support.length > 0 && support[0].coverage < UNGROUNDED_BELOW;
+}

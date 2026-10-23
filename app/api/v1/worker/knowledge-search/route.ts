@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 /**
  * What Eva's search finds, for a manager checking it.
  *   ?q=<question>   the pages she would be given for that question, best first, with where each came from
+ *   ?q=...&full=1   the same, with the full text she was given for each page (to check an answer against it)
  *   ?inventory=1    every page she can search in the connected Confluence spaces
  * Read-only: nothing here changes a setting or writes to Confluence.
  */
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest) {
       title: match.title,
       chars: match.content.length,
       preview: match.content.slice(0, 160),
+      ...(params.get("full") ? { content: match.content } : {}),
     })),
   });
 }

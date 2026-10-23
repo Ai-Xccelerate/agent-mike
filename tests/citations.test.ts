@@ -64,3 +64,36 @@ describe("citedTitles", () => {
     expect(citedTitles("From: A guide", [{ title: "A guide" }, { title: "a guide" }, { title: "  " }])).toEqual(["A guide"]);
   });
 });
+
+import { answerSupport, boldTerms, groundedTitles, looksUngrounded } from "@/lib/citations";
+
+describe("what an answer follows", () => {
+  const pages = [
+    { title: "Authorization Monitoring", content: "Open Integrations, then Providerfiles. It opens to Authorizations under Portal Activity. Use Authorizations for active cases." },
+    { title: "EAP Expert V3 Release Notes", content: "New this release: faster grids." },
+  ];
+  const answer = "1. Go to **Integrations** in the left navigation.\n2. Select **Providerfiles**. It opens to **Authorizations** under **Portal Activity**.";
+
+  it("reads the names an answer bolds", () => {
+    expect(boldTerms(answer)).toEqual(["integrations", "providerfiles", "authorizations", "portal activity"]);
+    expect(boldTerms("No bold here.")).toEqual([]);
+  });
+
+  it("scores each page by the share of those names it carries", () => {
+    const support = answerSupport(answer, pages);
+    expect(support[0]).toEqual({ title: "Authorization Monitoring", coverage: 1 });
+    expect(support[1].coverage).toBe(0);
+  });
+
+  it("credits the page an answer clearly follows, and none when it follows nothing", () => {
+    expect(groundedTitles(answer, pages)).toEqual(["Authorization Monitoring"]);
+    expect(groundedTitles("Click **Foo** then **Bar**.", pages)).toEqual([]);
+    expect(looksUngrounded("Click **Foo** then **Bar**.", pages)).toBe(true);
+    expect(looksUngrounded(answer, pages)).toBe(false);
+  });
+
+  it("says nothing when the answer bolds too little to tell", () => {
+    expect(answerSupport("Press **Save**.", pages)).toEqual([]);
+    expect(looksUngrounded("Press **Save**.", pages)).toBe(false);
+  });
+});

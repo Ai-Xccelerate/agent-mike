@@ -788,7 +788,7 @@ const STOP_WORDS = new Set(
     "a an and are as at be but by can could do does did for from get got had has have hello hey hi how i if " +
     "in into is it its me my no not of on or our please so some than that the their them then there these " +
     "they this to too up us was we were what when where which who why will with would you your yours thanks " +
-    "thank need want help just still also any again"
+    "thank need want help just still also any again use using see way where there let know tell"
   ).split(" "),
 );
 
@@ -966,22 +966,50 @@ export function wordStem(word: string): string {
  * How well a page matches the customer's words. A title hit weighs most, a heading hit next, body hits count up to a cap
  * per word. Words are matched by stem, so "scheduling" finds "Self-Scheduler".
  */
-export function scoreCatalogPage(page: { title: string; text: string }, keywords: string[]): number {
+export function scoreCatalogPage(page: { title: string; text: string }, keywords: string[], weights?: Record<string, number>): number {
   const title = page.title.toLowerCase();
   const text = page.text.toLowerCase();
   const headings = (text.match(/^## .*$/gm) ?? []).join("\n");
   let score = 0;
-  let inTitle = 0;
+  let rareInTitle = 0;
   for (const word of keywords) {
     const stem = wordStem(word);
+    const weight = weights?.[stem] ?? 1;
     if (title.includes(stem)) {
-      score += 6;
-      inTitle += 1;
+      score += 6 * weight;
+      if (weight >= 0.5) rareInTitle += 1;
     }
-    if (headings.includes(stem)) score += 2;
-    score += Math.min(4, text.split(stem).length - 1);
+    if (headings.includes(stem)) score += 2 * weight;
+    score += Math.min(4, text.split(stem).length - 1) * weight;
   }
-  return inTitle >= 2 ? score + 4 : score;
+  return rareInTitle >= 2 ? score + 4 : score;
+}
+
+/**
+ * How much each word of the question says. A word in nearly every title ("EAP", "Expert") says little; one in a
+ * single title ("Parallels") says a lot. Between about 0.25 and 1.
+ */
+export function stemWeights(pages: { title: string }[], keywords: string[]): Record<string, number> {
+  const total = pages.length;
+  const weights: Record<string, number> = {};
+  if (total === 0) return weights;
+  for (const word of keywords) {
+    const stem = wordStem(word);
+    const inTitles = pages.filter((page) => page.title.toLowerCase().includes(stem)).length;
+    weights[stem] = Math.max(0.25, Math.log((total + 1) / (inTitles + 1)) / Math.log(total + 1));
+  }
+  return weights;
+}
+
+/** Plain words a customer uses for things the pages call something else. */
+const SYNONYM_RULES: { when: RegExp; add: string[] }[] = [
+  { when: /\bwho (?:changed|edited|modified|updated|deleted)\b|\b(?:change|edit|audit) history\b|\bhistory of changes\b/i, add: ["activity", "audit", "trail"] },
+  { when: /\bsign[ -]?up\b/i, add: ["register", "registration"] },
+];
+
+export function expandKeywords(question: string, keywords: string[]): string[] {
+  const extra = SYNONYM_RULES.filter((rule) => rule.when.test(question)).flatMap((rule) => rule.add);
+  return [...new Set([...keywords, ...extra])];
 }
 
 /**
@@ -1038,8 +1066,9 @@ export async function rankPagesByKeywords(
 ): Promise<RankedPage[] | null> {
   const pages = await loadConfluenceCatalog(toolId, spaceKeys, organizationId, connectedAccountId);
   if (pages === null) return null;
+  const weights = stemWeights(pages, keywords);
   return pages
-    .map((page) => ({ id: page.id, title: page.title, text: page.text, score: scoreCatalogPage(page, keywords) }))
+    .map((page) => ({ id: page.id, title: page.title, text: page.text, score: scoreCatalogPage(page, keywords, weights) }))
     .filter((page) => page.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
@@ -1061,8 +1090,9 @@ export async function searchConfluenceKnowledge(
   const settings = readConfluenceSettings(connection.metadata);
   if (!settings.searchBeforeAnswering) return null;
 
-  const keywords = searchKeywords(query);
-  if (keywords.length === 0) return [];
+  const asked = searchKeywords(query);
+  if (asked.length === 0) return [];
+  const keywords = expandKeywords(query, asked);
 
   // Two searches at once, merged: Confluence's own text search, and every page of the configured spaces ranked
   // here. Either can miss on its own (Confluence's order, or words in another form); together they rarely do.
@@ -1086,8 +1116,9 @@ export async function searchConfluenceKnowledge(
 
   type Candidate = { id: string; title: string; text: string; full: boolean; score: number };
   const candidates = new Map<string, Candidate>();
+  const weights = stemWeights(catalog ?? [], keywords);
   for (const page of catalog ?? []) {
-    candidates.set(page.id, { id: page.id, title: page.title, text: page.text, full: true, score: scoreCatalogPage(page, keywords) });
+    candidates.set(page.id, { id: page.id, title: page.title, text: page.text, full: true, score: scoreCatalogPage(page, keywords, weights) });
   }
   if (searched) {
     cqlResultsFrom(result).forEach((hit, index) => {
@@ -1100,7 +1131,7 @@ export async function searchConfluenceKnowledge(
       const bonus = index < 3 ? 4 : 1;
       const known = candidates.get(id);
       if (known) known.score += bonus;
-      else candidates.set(id, { id, title, text, full: body !== undefined, score: scoreCatalogPage({ title, text }, keywords) + bonus });
+      else candidates.set(id, { id, title, text, full: body !== undefined, score: scoreCatalogPage({ title, text }, keywords, weights) + bonus });
     });
   }
 
