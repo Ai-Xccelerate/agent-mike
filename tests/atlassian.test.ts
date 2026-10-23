@@ -19,6 +19,7 @@ import {
   scoreCatalogPage,
   stemWeights,
   expandKeywords,
+  confluenceListingProbe,
   focusOnQuestion,
   rankByTitleMatch,
   CONFLUENCE_CQL_SEARCH_SLUG,
@@ -1130,6 +1131,32 @@ describe("Confluence searched before answering", () => {
     const generating = matches?.find((m) => m.title === "Generating a Utilization Report");
     expect(generating?.content.length).toBeGreaterThan(5500);
     expect(generating?.content).toContain("Single Organization");
+  });
+
+  it("reports what the page listing returns (version numbers, fields, sizes) without page text", async () => {
+    connectionsFor({
+      knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+    });
+    executeToolMock.mockImplementation(async (_slug, args) => ({
+      successful: true,
+      error: null,
+      data: {
+        results: [
+          {
+            id: "1",
+            title: "A page",
+            version: { number: 7, createdAt: "2026-10-01T00:00:00Z" },
+            ...((args as { body_format?: string }).body_format ? { body: { storage: { value: "<p>secret text</p>" } } } : {}),
+          },
+        ],
+        _links: { next: "/wiki/api/v2/pages?cursor=abc" },
+      },
+    }));
+    const probe = await confluenceListingProbe(orgId);
+    expect(probe?.withBody).toMatchObject({ hasVersionNumber: true, hasBody: true, hasNextCursor: true, versionSample: { number: 7 } });
+    expect(probe?.withoutBody).toMatchObject({ hasVersionNumber: true, hasBody: false });
+    // Field names and sizes only: the page text is never in the report.
+    expect(JSON.stringify(probe)).not.toContain("secret text");
   });
 
   it("adds the page's words for how customers ask about change history and sign-up", () => {
