@@ -138,3 +138,29 @@ describe("checking a request's status", () => {
     expect(await customerTickets(orgId, theirs.id, "EAP")).toEqual([]);
   });
 });
+
+describe("a customer chasing an earlier request by its number", () => {
+  it("finds it in a new chat and shows only its status, never what it was about", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human", ticketSummary: "Someone's private login problem" });
+    const fresh = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const found = await customerTickets(orgId, fresh.id, "EAP", `EAP-${earlier.ticketNumber}`);
+    const quoted = found.find((ticket) => ticket.reference === `EAP-${earlier.ticketNumber}`);
+    expect(quoted).toMatchObject({ status: "With the support team", about: null });
+    // Also by the bare number, in any letter case.
+    expect((await customerTickets(orgId, fresh.id, "EAP", `eap-${earlier.ticketNumber}`)).some((t) => t.reference === `EAP-${earlier.ticketNumber}`)).toBe(true);
+    expect((await customerTickets(orgId, fresh.id, "EAP", String(earlier.ticketNumber))).some((t) => t.reference === `EAP-${earlier.ticketNumber}`)).toBe(true);
+  });
+
+  it("does not match another prefix, another organization, or a number that is not there", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const otherOrg = `org-tickets-${crypto.randomUUID()}`;
+    await ensureOrganization(otherOrg);
+    const theirs = await insertConversationWithTicket({ organizationId: otherOrg, channel: "widget", ticketSummary: "Other client" });
+    const fresh = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const refs = async (quoted: string) => (await customerTickets(orgId, fresh.id, "EAP", quoted)).map((t) => t.reference);
+    expect(await refs(`ZZZ-${earlier.ticketNumber}`)).toEqual([`EAP-${fresh.ticketNumber}`]);
+    expect(await refs("EAP-999999")).toEqual([`EAP-${fresh.ticketNumber}`]);
+    const cross = await customerTickets(orgId, fresh.id, "EAP", `EAP-${theirs.ticketNumber + 5000}`);
+    expect(cross.every((t) => t.about !== "Other client")).toBe(true);
+  });
+});

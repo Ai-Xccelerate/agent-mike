@@ -40,3 +40,9 @@ export type ReplyTrace = {
   outcome: { handedOver: boolean; askedForDetails: boolean; checkedTickets: boolean; citations: string[] };
   timing: { elapsedMs: number; stages: { stage: string; ms: number }[]; inputTokens: number | null; cachedTokens: number | null };
 };
+
+/**
+ * Managers do not see the "Why this reply?" record for now. It is still saved with every reply and carried
+ * with a correction, for the team's own review. Set NEXT_PUBLIC_SHOW_REPLY_TRACE=true to show it again.
+ */
+export const SHOW_REPLY_TRACE = process.env.NEXT_PUBLIC_SHOW_REPLY_TRACE === "true";

@@ -105,7 +105,7 @@ export function withoutSourceLine(answer: string, titles: string[]): string {
   const known = [...new Set(titles.map((title) => title.trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
   if (known.length === 0) return answer;
   const one = known.map(escapeForPattern).join("|");
-  const sources = new RegExp(`[ \\t]*\\bFrom:[ \\t]*(?:${one})(?:[ \\t]*[;,][ \\t]*(?:${one}))*[ \\t]*\\.?`, "gi");
+  const sources = new RegExp(`[ \\t]*\\bFrom:[ \\t]*(?:${one})(?:[ \\t]*[;,][ \\t]*(?:${one}))*(?:[ \\t]*[;,][^\\n]*(?=\\n|$))?[ \\t]*\\.?`, "gi");
   // Mid-line, the words on either side keep one space between them; at a line's start or end nothing is left behind.
   const stripped = answer.replace(sources, (match, offset: number, whole: string) => {
     const before = whole[offset - 1];
