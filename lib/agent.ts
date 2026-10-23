@@ -995,7 +995,9 @@ export async function buildAgentTools(
         description:
           "Check the status of this customer's own support requests (the ones raised for this conversation or " +
           "this customer's email). Read-only. Use it when they ask about a ticket, a reference number or an earlier " +
-          "request. Quote each request by its `number` only and give its status in plain words.",
+          "request. Quote each request by its `number` only and give its status in plain words. Checking on a request is " +
+          "not a new handoff: answer the status and do not end that reply with [[ESCALATE]], which would add a " +
+          "comment to the ticket each time the customer asks.",
         parameters: z.object({}),
         execute: async () => {
           const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix) : [];
