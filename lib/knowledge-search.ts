@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { knowledgeIndexState } from "@/db/schema";
 import { cosine, embedTexts, type Embedder } from "@/lib/embeddings";
 import { INDEX_SOURCE } from "@/lib/knowledge-index";
-import { expandKeywords, focusOnQuestion, searchKeywords } from "@/lib/tools-integrations/atlassian";
+import { expandKeywords, focusOnQuestion, searchKeywords, stemWeights, wordStem } from "@/lib/tools-integrations/atlassian";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 
 /**
@@ -15,26 +15,57 @@ import type { KnowledgeMatch } from "@/lib/knowledge";
  * page and in page order so steps stay in sequence.
  */
 
-const KEYWORD_POOL = 40;
-const MEANING_POOL = 40;
-const RRF_K = 60;
 /**
  * A section the meaning search likes less than this is not a match, however it ranks: that search always has a closest
  * section, even when nothing is relevant, and an unrelated section handed to the worker looks like reference material.
  * Tuned on real questions against EAP's pages (see the scores the admin check reports).
  */
 export const MIN_MEANING_SCORE = Number(process.env.KNOWLEDGE_MIN_MEANING_SCORE) > 0 ? Number(process.env.KNOWLEDGE_MIN_MEANING_SCORE) : 0.3;
-const DEFAULT_LIMIT = 6;
-const MAX_PER_PAGE = 3;
-const QUERY_VECTOR_CACHE = 200;
+const QUERY_VECTOR_CACHE = 2000;
+
+/** Every setting of the search, so the admin experiment runner can try them and the defaults can be chosen from scores. */
+export type SearchTuning = {
+  /** How many sections come back. */
+  limit: number;
+  /** At most this many sections from one page. */
+  perPage: number;
+  /** Sections the meaning search likes less than this are dropped. */
+  minMeaning: number;
+  /** How much each search counts in the merge (the page-title one can be switched off with 0). */
+  weights: { keyword: number; meaning: number; title: number };
+  /** The page-title signal: how many pages it puts forward, and how many sections of each. */
+  titlePages: number;
+  titleSections: number;
+  /** How far down each search's list counts. */
+  pool: number;
+  /** The merge's smoothing constant: lower makes the top places count for more. */
+  rrfK: number;
+  /** ts_rank_cd normalization flag: 0 none, 1 or 2 favour shorter sections, 32 squashes the score. */
+  keywordNorm: 0 | 1 | 2 | 32;
+};
+
+export const DEFAULT_TUNING: SearchTuning = {
+  limit: 6,
+  perPage: 3,
+  minMeaning: MIN_MEANING_SCORE,
+  weights: { keyword: 1, meaning: 1, title: 1 },
+  titlePages: 8,
+  titleSections: 2,
+  pool: 40,
+  rrfK: 60,
+  keywordNorm: 0,
+};
 
 type Loaded = {
   finishedAt: number;
+  /** One entry per page (stable objects, so word counts can be cached), with that page's sections in order. */
+  pages: { pageId: string; title: string; sectionIds: string[] }[];
   sections: { id: string; pageId: string; position: number; title: string; heading: string | null; content: string; vector: Float32Array | null }[];
 };
 
 const loaded = new Map<string, Loaded>();
 const queryVectors = new Map<string, number[]>();
+const normalizeQuestion = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
 
 /** Test hook: forget what was loaded for every organization. */
 export function clearKnowledgeSearchCache(): void {
@@ -61,6 +92,7 @@ async function sectionsFor(organizationId: string): Promise<Loaded> {
   );
   const fresh: Loaded = {
     finishedAt,
+    pages: [],
     sections: rows.rows.map((row) => ({
       id: row.id,
       pageId: row.page_id,
@@ -71,18 +103,62 @@ async function sectionsFor(organizationId: string): Promise<Loaded> {
       vector: row.embedding ? Float32Array.from(row.embedding.map(Number)) : null,
     })),
   };
+  const byPage = new Map<string, { pageId: string; title: string; sectionIds: string[] }>();
+  for (const section of [...fresh.sections].sort((a, b) => a.position - b.position)) {
+    const page = byPage.get(section.pageId) ?? { pageId: section.pageId, title: section.title, sectionIds: [] };
+    page.sectionIds.push(section.id);
+    byPage.set(section.pageId, page);
+  }
+  fresh.pages = [...byPage.values()];
   loaded.set(organizationId, fresh);
   return fresh;
 }
 
 async function queryVector(text: string, embed: Embedder): Promise<number[]> {
-  const key = text.toLowerCase().replace(/\s+/g, " ").trim();
+  const key = normalizeQuestion(text);
   const known = queryVectors.get(key);
   if (known) return known;
   const [vector] = await embed([text]);
   queryVectors.set(key, vector);
   if (queryVectors.size > QUERY_VECTOR_CACHE) queryVectors.delete(queryVectors.keys().next().value as string);
   return vector;
+}
+
+/** Works out many questions' numbers in a few requests, so a batch of searches does not wait on one request each. */
+export async function primeQueryVectors(questions: string[], embed: Embedder = embedTexts): Promise<void> {
+  const texts = [...new Set(questions.map((question) => focusOnQuestion(question)))].filter((text) => !queryVectors.has(normalizeQuestion(text)));
+  if (texts.length === 0) return;
+  const vectors = await embed(texts);
+  texts.forEach((text, index) => queryVectors.set(normalizeQuestion(text), vectors[index]));
+}
+
+/** The pages held for an organization, with their size, for the experiment runner. */
+export async function indexedPages(organizationId: string): Promise<{ pageId: string; title: string; chars: number }[]> {
+  const all = await sectionsFor(organizationId);
+  const sizes = new Map<string, number>();
+  for (const section of all.sections) sizes.set(section.pageId, (sizes.get(section.pageId) ?? 0) + section.content.length);
+  return all.pages.map((page) => ({ pageId: page.pageId, title: page.title, chars: sizes.get(page.pageId) ?? 0 }));
+}
+
+/**
+ * Pages whose title carries the question's words, best first. A word in few titles counts more than one in many
+ * ("Parallels" over "EAP"), and of two pages with the same hits the one with the shorter, more specific title comes first.
+ * This is what finds a page named for the question when other pages talk about the same words at greater length.
+ */
+function pagesByTitle(all: Loaded, words: string[], count: number): Loaded["pages"] {
+  if (words.length === 0) return [];
+  const weights = stemWeights(all.pages, words);
+  const stems = [...new Set(words.map(wordStem))];
+  return all.pages
+    .map((page) => {
+      const lower = page.title.toLowerCase();
+      const score = stems.reduce((sum, stem) => (lower.includes(stem) ? sum + Math.max(weights[stem] ?? 1, 0.35) : sum), 0);
+      return { page, score, length: lower.split(/\s+/).length };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.length - b.length)
+    .slice(0, count)
+    .map((entry) => entry.page);
 }
 
 export type IndexSearchTimings = { keywordMs: number; meaningMs: number; totalMs: number; meaning: "used" | "failed" | "none" };
@@ -92,10 +168,16 @@ export type IndexMatchDetail = { title: string; heading: string | null; meaning:
 export async function searchKnowledgeIndex(
   organizationId: string,
   question: string,
-  options: { limit?: number; embed?: Embedder } = {},
+  options: { limit?: number; embed?: Embedder; tuning?: Partial<SearchTuning> } = {},
 ): Promise<{ matches: KnowledgeMatch[]; timings: IndexSearchTimings; details: IndexMatchDetail[] }> {
   const started = Date.now();
-  const limit = options.limit ?? DEFAULT_LIMIT;
+  const tuning: SearchTuning = {
+    ...DEFAULT_TUNING,
+    ...options.tuning,
+    ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    weights: { ...DEFAULT_TUNING.weights, ...options.tuning?.weights },
+  };
+  const limit = tuning.limit;
   const embed = options.embed ?? embedTexts;
   const focus = focusOnQuestion(question);
   const words = expandKeywords(focus, searchKeywords(focus, 12));
@@ -107,7 +189,7 @@ export async function searchKnowledgeIndex(
     const rows = await db.execute<{ id: string }>(sql`
       select id from knowledge_sections, websearch_to_tsquery('english', ${words.join(" or ")}) q
       where organization_id = ${organizationId} and source = ${INDEX_SOURCE} and search @@ q
-      order by ts_rank_cd(search, q) desc limit ${KEYWORD_POOL}`);
+      order by ts_rank_cd(search, q, ${tuning.keywordNorm}) desc limit ${tuning.pool}`);
     timings.keywordMs = Date.now() - t0;
     return rows.rows.map((row) => row.id);
   };
@@ -121,10 +203,10 @@ export async function searchKnowledgeIndex(
         .filter((section) => section.vector)
         .map((section) => ({ id: section.id, score: cosine(vector, section.vector as Float32Array) }))
         .sort((a, b) => b.score - a.score)
-        .slice(0, MEANING_POOL);
+        .slice(0, tuning.pool);
       timings.meaning = "used";
       for (const entry of scored) meaningScores.set(entry.id, entry.score);
-      return scored.filter((entry) => entry.score >= MIN_MEANING_SCORE).map((entry) => entry.id);
+      return scored.filter((entry) => entry.score >= tuning.minMeaning).map((entry) => entry.id);
     } catch (error) {
       // Without the meaning half the keyword half still answers; say so in the log.
       console.warn("[knowledge-search] meaning search failed, using keywords only:", error instanceof Error ? error.message : error);
@@ -139,9 +221,14 @@ export async function searchKnowledgeIndex(
   if (all.sections.length === 0) return { matches: [], timings: { ...timings, totalMs: Date.now() - started }, details: [] };
   const [byKeyword, byMeaning] = await Promise.all([keywordSearch(), meaningSearch(all)]);
 
-  // Reciprocal rank fusion: a section near the top of either list scores, one near the top of both scores most.
+  // The page-title signal: the first sections of the pages named for the question.
+  const byTitle = tuning.weights.title > 0 ? pagesByTitle(all, words, tuning.titlePages).flatMap((page) => page.sectionIds.slice(0, tuning.titleSections)) : [];
+
+  // Reciprocal rank fusion: a section near the top of any list scores, one near the top of several scores most.
   const fused = new Map<string, number>();
-  for (const list of [byKeyword, byMeaning]) list.forEach((id, index) => fused.set(id, (fused.get(id) ?? 0) + 1 / (RRF_K + index + 1)));
+  for (const [list, weight] of [[byKeyword, tuning.weights.keyword], [byMeaning, tuning.weights.meaning], [byTitle, tuning.weights.title]] as const) {
+    list.forEach((id, index) => fused.set(id, (fused.get(id) ?? 0) + weight / (tuning.rrfK + index + 1)));
+  }
   const byId = new Map(all.sections.map((section) => [section.id, section]));
   const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]);
 
@@ -150,7 +237,7 @@ export async function searchKnowledgeIndex(
   for (const [id, score] of ranked) {
     const section = byId.get(id);
     if (!section) continue;
-    if ((perPage.get(section.pageId) ?? 0) >= MAX_PER_PAGE) continue;
+    if ((perPage.get(section.pageId) ?? 0) >= tuning.perPage) continue;
     perPage.set(section.pageId, (perPage.get(section.pageId) ?? 0) + 1);
     chosen.push({ section, score });
     if (chosen.length >= limit) break;
