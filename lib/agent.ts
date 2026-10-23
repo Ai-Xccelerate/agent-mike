@@ -1375,7 +1375,9 @@ export function promisesPersonFollowUp(answer: string): boolean {
   return (
     /\b(teammate|someone|a person|the (support )?team|our team)\b[^.!?\n]{0,40}\b(will|['’]ll|is going to) (follow up|be in touch|get back to you|reach out|contact you)/i.test(answer) ||
     /\bI(?:['’]ve| have|['’]ll| will)? (?:passed|pass|forwarded|forward|handed|hand|escalated|escalate)\b[^.!?\n]{0,40}\b(?:to|over to) (?:the |our )?(?:support )?(?:team|teammate|[A-Z][\w ]+ Team)\b/i.test(answer) ||
-    /\bHere['’]s what I(?:['’]ve| have) passed to\b/i.test(answer)
+    /\bHere['’]s what I(?:['’]ve| have) passed to\b/i.test(answer) ||
+    // "I'm escalating it as a system problem now": said as if done, with no handoff behind it.
+    /\bI(?:['’]m| am|['’]ll| will)\s+(?:now\s+)?(?:escalat(?:e|ing)|rais(?:e|ing)|logg?(?:ing)?|pass(?:ing)?|forward(?:ing)?|bring(?:ing)?\s+in)\b[^.!?\n]{0,60}\b(?:this|it|your (?:request|issue|case|problem)|a teammate|the team|someone)\b/i.test(answer)
   );
 }
 
