@@ -780,8 +780,8 @@ export async function buildAgentTools(
   onReferenceMaterial?: () => void,
   /** The conversation's channel. On email the channel itself sends the reply. */
   channel: string = "chat",
-  /** Called when the worker looked up the customer's own requests this turn. */
-  onTicketsChecked?: () => void,
+  /** Called when the worker looked up the customer's own requests this turn; with the helpdesk key of an earlier request of theirs they quoted. */
+  onTicketsChecked?: (chasedTicketKey?: string) => void,
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
@@ -1007,8 +1007,8 @@ export async function buildAgentTools(
           reference: z.string().optional().describe("A reference or ticket number the customer quoted, such as TCK-1332"),
         }),
         execute: async ({ reference }) => {
-          onTicketsChecked?.();
           const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix, reference) : [];
+          onTicketsChecked?.(own.find((ticket) => ticket.chaseable)?.serviceDeskKey ?? undefined);
           const desk = jiraAccountId && conversationId ? await lookupCustomerTickets(organizationId, conversationId, jiraAccountId) : null;
           const deskByKey = new Map<string, unknown>();
           try {
@@ -1361,6 +1361,8 @@ export interface RunAgentResult {
   needIdentity?: boolean;
   /** The worker looked up this customer's requests this turn (a status check). */
   checkedTickets?: boolean;
+  /** The helpdesk key of an earlier request of the same verified customer that they are chasing. */
+  chasedTicketKey?: string;
   /** Pages she read with a tool this turn, so the faithfulness line can check her answer against them too. */
   readPages?: { title: string; text: string }[];
 }
@@ -1559,6 +1561,7 @@ export async function runAgent(
   // A Confluence page read mid-turn is approved reference material too, so the
   // reply check mustn't treat an answer grounded in it as general knowledge.
   let ticketsChecked = false;
+  let chasedTicketKey: string | undefined;
   const tools = await timed("agent.tools", () =>
     buildAgentTools(
       profile,
@@ -1568,8 +1571,9 @@ export async function runAgent(
         guardrailContext.referenceMaterialFound = true;
       },
       channel,
-      () => {
+      (chased) => {
         ticketsChecked = true;
+        if (chased) chasedTicketKey = chased;
       },
     ),
   );
@@ -1706,9 +1710,9 @@ export async function runAgent(
       // The reply says a teammate will follow up but carries no handoff tag.
       console.warn("[agent] reply promised a person but did not hand over; handing over", { conversationId });
       traceAdd("events", "The reply promised a person would follow up without handing over, so she handed over");
-      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined, ...(ticketsChecked ? { checkedTickets: true } : {}), ...(readPages.length ? { readPages } : {}) };
+      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined, ...(ticketsChecked ? { checkedTickets: true } : {}), ...(chasedTicketKey ? { chasedTicketKey } : {}), ...(readPages.length ? { readPages } : {}) };
     }
-    return { ...parsed, ...(ticketsChecked ? { checkedTickets: true } : {}), ...(readPages.length ? { readPages } : {}) };
+    return { ...parsed, ...(ticketsChecked ? { checkedTickets: true } : {}), ...(chasedTicketKey ? { chasedTicketKey } : {}), ...(readPages.length ? { readPages } : {}) };
   } catch (error) {
     // Input tripwire: out-of-scope → polite decline (not Charan); other trips → handoff.
     // Output no longer trips the SDK wire — block is a soft reject + repair above.
