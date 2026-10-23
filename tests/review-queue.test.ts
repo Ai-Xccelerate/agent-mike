@@ -16,6 +16,7 @@ const item = (id: string, question: string, kind: ReviewItem["kind"] = "no_artic
   citations: [],
   reasons: [],
   correction: null,
+  why: null,
   at,
 });
 

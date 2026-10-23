@@ -92,3 +92,25 @@ export function looksUngrounded(answer: string, matches: { title: string; conten
   const support = answerSupport(answer, matches);
   return support.length > 0 && support[0].coverage < UNGROUNDED_BELOW;
 }
+
+const escapeForPattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Takes the "From: <article>" line out of the words the customer reads. The worker writes it so the source can be
+ * recorded (see citedTitles); once recorded it only repeats the source pill and shows the customer an internal page
+ * title. Only a "From:" followed by the title of a page she was given is removed, so a sentence that happens to
+ * contain "from:" is never touched.
+ */
+export function withoutSourceLine(answer: string, titles: string[]): string {
+  const known = [...new Set(titles.map((title) => title.trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (known.length === 0) return answer;
+  const one = known.map(escapeForPattern).join("|");
+  const sources = new RegExp(`[ \\t]*\\bFrom:[ \\t]*(?:${one})(?:[ \\t]*[;,][ \\t]*(?:${one}))*[ \\t]*\\.?`, "gi");
+  // Mid-line, the words on either side keep one space between them; at a line's start or end nothing is left behind.
+  const stripped = answer.replace(sources, (match, offset: number, whole: string) => {
+    const before = whole[offset - 1];
+    const after = whole[offset + match.length];
+    return before && after && before !== "\n" && after !== "\n" ? " " : "";
+  });
+  return stripped === answer ? answer : stripped.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}

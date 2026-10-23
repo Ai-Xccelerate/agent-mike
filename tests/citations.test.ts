@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCitations, withNormalizedCitations } from "@/lib/citations";
+import { normalizeCitations, withNormalizedCitations, withoutSourceLine } from "@/lib/citations";
 
 describe("normalizeCitations", () => {
   it("keeps string titles", () => {
@@ -95,5 +95,31 @@ describe("what an answer follows", () => {
   it("says nothing when the answer bolds too little to tell", () => {
     expect(answerSupport("Press **Save**.", pages)).toEqual([]);
     expect(looksUngrounded("Press **Save**.", pages)).toBe(false);
+  });
+});
+
+describe("withoutSourceLine", () => {
+  const titles = ["Service Member Registration for the Self-Scheduler", "Add a New Provider", "Accounting Export Module"];
+
+  it("removes a From line at the end, on its own line or after a sentence", () => {
+    expect(withoutSourceLine("1. Open the link.\n2. Sign in.\n\nDid this solve it?\n\nFrom: Service Member Registration for the Self-Scheduler", titles)).toBe(
+      "1. Open the link.\n2. Sign in.\n\nDid this solve it?",
+    );
+    expect(withoutSourceLine("Tick Self-Scheduling. From: Add a New Provider", titles)).toBe("Tick Self-Scheduling.");
+  });
+
+  it("removes it in the middle, and joins two sources", () => {
+    expect(withoutSourceLine("Steps here.\n\nFrom: Add a New Provider; Accounting Export Module\n\nDid that solve it?", titles)).toBe("Steps here.\n\nDid that solve it?");
+    expect(withoutSourceLine("Steps. From: Add a New Provider Did that solve it?", titles)).toBe("Steps. Did that solve it?");
+  });
+
+  it("leaves a sentence that merely contains from, and a source that was never retrieved, alone", () => {
+    expect(withoutSourceLine("Mail from: noreply@example.com may land in spam.", titles)).toBe("Mail from: noreply@example.com may land in spam.");
+    expect(withoutSourceLine("Steps.\n\nFrom: Some page she was not given", titles)).toBe("Steps.\n\nFrom: Some page she was not given");
+    expect(withoutSourceLine("Nothing to remove.", [])).toBe("Nothing to remove.");
+  });
+
+  it("matches the title whatever its case, and titles with punctuation", () => {
+    expect(withoutSourceLine("Done.\n\nFrom: priority levels (and what each means)", ["Priority levels (and what each means)"])).toBe("Done.");
   });
 });
