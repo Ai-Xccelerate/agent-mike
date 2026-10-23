@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { conversations } from "@/db/schema";
 import { resolveChatTenant } from "@/lib/chat-turn";
 import { IDENTITY_LIMITS, verifyCode } from "@/lib/customer-identity";
+import { isPlaceholderCustomerName } from "@/lib/customer-name";
+import { issueRememberToken } from "@/lib/remembered-customer";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -29,8 +31,17 @@ export async function POST(req: NextRequest) {
 
   const result = await verifyCode({ organizationId: tenant.orgId, conversationId: conversation.id, code });
   switch (result.status) {
-    case "verified":
-      return NextResponse.json({ ok: true, verified: true });
+    case "verified": {
+      const [verified] = await db
+        .select({ name: conversations.customerName })
+        .from(conversations)
+        .where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, tenant.orgId)))
+        .limit(1);
+      const name = verified?.name && !isPlaceholderCustomerName(verified.name) ? verified.name : null;
+      // Kept by the widget on this device so the next visit does not ask for another code.
+      const remember = issueRememberToken(tenant.orgId, { email: result.email, name });
+      return NextResponse.json({ ok: true, verified: true, ...(remember ? { remember_token: remember, name } : {}) });
+    }
     case "wrong":
       return NextResponse.json({ error: "That code isn't right", attempts_left: result.attemptsLeft }, { status: 422 });
     case "expired":

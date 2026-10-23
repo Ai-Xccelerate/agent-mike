@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type FormEvent } from "react";
 import type { ChoicesCard, HelpdeskTicketCard, IdentityRequestCard } from "@/lib/customer-cards";
+import { saveRemembered } from "@/lib/remembered-customer";
 import { submitIdentity, verifyIdentityCode, WorkerApiError } from "@/lib/worker-api";
 
 /**
@@ -182,7 +183,8 @@ export function IdentityRequestView({ data }: { data: IdentityRequestCard }) {
     setErrors({});
     setWorking(true);
     try {
-      await verifyIdentityCode({ conversationId, code }, siteToken);
+      const verified = await verifyIdentityCode({ conversationId, code }, siteToken);
+      if (verified.remember_token) saveRemembered(siteToken, { token: verified.remember_token, name: verified.name ?? name.trim(), email: email.trim() });
       onIdentity?.({ name: name.trim(), email: email.trim(), verified: true });
       setStage("done");
       onReply("I've verified my email.");

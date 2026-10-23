@@ -18,6 +18,8 @@ import {
   verifyCode,
 } from "@/lib/customer-identity";
 import { identityRules } from "@/lib/agent";
+import { runChatRequest } from "@/lib/chat-turn";
+import { issueRememberToken } from "@/lib/remembered-customer";
 import { recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import { POST as postIdentity } from "@/app/api/v1/chat/identity/route";
 import { POST as postVerify } from "@/app/api/v1/chat/identity/verify/route";
@@ -434,7 +436,9 @@ describe("POST /api/v1/chat/identity/verify", () => {
 
     const good = await postVerify(post("/api/v1/chat/identity/verify", { conversation_id: conversation.id, code }));
     expect(good.status).toBe(200);
-    expect(await json(good)).toEqual({ ok: true, verified: true });
+    const body = await json(good);
+    expect(body).toMatchObject({ ok: true, verified: true, name: "Dana Reyes" });
+    expect(typeof body.remember_token).toBe("string");
     const [row] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
     expect(row.customerEmailVerifiedAt).toBeInstanceOf(Date);
   });
@@ -537,3 +541,35 @@ describe("a turn where the worker needs to know who this is", () => {
 });
 
 void sql;
+
+describe("a customer remembered on their device", () => {
+  const ask = async (token: string | null) => {
+    runAgentMock.mockResolvedValue({ answer: "Hello again.", confidence: 0.9, escalate: false, citations: [] });
+    const req = post("/api/v1/chat", {});
+    const outcome = await runChatRequest(req, { message: "hi, it's me again", ...(token ? { remember_token: token } : {}) });
+    const [row] = await db.select().from(conversations).where(eq(conversations.id, outcome.json.conversation_id as string));
+    return { outcome, row };
+  };
+
+  it("starts a new conversation already verified, with no second code", async () => {
+    await setMode("email_code");
+    const token = issueRememberToken(orgId, { email: "dana@example.com", name: "Dana Reyes" })!;
+    const { outcome, row } = await ask(token);
+    expect(row).toMatchObject({ customerEmail: "dana@example.com", customerName: "Dana Reyes", identitySource: "email_code" });
+    expect(row.customerEmailVerifiedAt).toBeInstanceOf(Date);
+    expect(outcome.json.remembered).toEqual({ name: "Dana Reyes", email: "dana@example.com" });
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("is ignored when forged, from another organization, or when the setting no longer asks for a code", async () => {
+    await setMode("email_code");
+    for (const token of ["nonsense", issueRememberToken("some-other-org", { email: "dana@example.com", name: null })!]) {
+      const { outcome, row } = await ask(token);
+      expect(row.customerEmailVerifiedAt).toBeNull();
+      expect(outcome.json.remembered).toBeUndefined();
+    }
+    await setMode("email_match");
+    const { row } = await ask(issueRememberToken(orgId, { email: "dana@example.com", name: null })!);
+    expect(row.customerEmailVerifiedAt).toBeNull();
+  });
+});
