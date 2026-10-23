@@ -996,28 +996,41 @@ export function scoreCatalogPage(page: { title: string; text: string }, keywords
   for (const word of keywords) {
     const stem = wordStem(word);
     const weight = weights?.[stem] ?? 1;
+    // A word in the title or a heading always counts for something, however common; body repetition counts by rarity.
+    const named = Math.max(weight, 0.35);
     if (title.includes(stem)) {
-      score += 6 * weight;
+      score += 6 * named;
       if (weight >= 0.5) rareInTitle += 1;
     }
-    if (headings.includes(stem)) score += 2 * weight;
+    if (headings.includes(stem)) score += 2 * named;
     score += Math.min(4, text.split(stem).length - 1) * weight;
   }
   return rareInTitle >= 2 ? score + 4 : score;
 }
 
+/** Lower-cased title and text of a page, made once: a search weighs a dozen words against every page. */
+const haystacks = new WeakMap<object, string>();
+function haystackOf(page: { title: string; text?: string }): string {
+  let value = haystacks.get(page);
+  if (value === undefined) {
+    value = `${page.title}\n${page.text ?? ""}`.toLowerCase();
+    haystacks.set(page, value);
+  }
+  return value;
+}
+
 /**
- * How much each word of the question says. A word in nearly every title ("EAP", "Expert") says little; one in a
- * single title ("Parallels") says a lot. Between about 0.25 and 1.
+ * How much each word of the question says: how few pages contain it, title or text. A word in nearly every page
+ * ("EAP", "Expert", "ask", "last") says little; one in a handful ("Parallels") says a lot. Between about 0.25 and 1.
  */
-export function stemWeights(pages: { title: string }[], keywords: string[]): Record<string, number> {
+export function stemWeights(pages: { title: string; text?: string }[], keywords: string[]): Record<string, number> {
   const total = pages.length;
   const weights: Record<string, number> = {};
   if (total === 0) return weights;
   for (const word of keywords) {
     const stem = wordStem(word);
-    const inTitles = pages.filter((page) => page.title.toLowerCase().includes(stem)).length;
-    weights[stem] = Math.max(0.25, Math.log((total + 1) / (inTitles + 1)) / Math.log(total + 1));
+    const containing = pages.filter((page) => haystackOf(page).includes(stem)).length;
+    weights[stem] = Math.max(0.25, Math.log((total + 1) / (containing + 1)) / Math.log(total + 1));
   }
   return weights;
 }

@@ -283,6 +283,23 @@ describe("classifyCustomerIntent", () => {
     expect(runMock).toHaveBeenCalledOnce();
   });
 
+  it("tells the classifier that questions about the worker, greetings and unclear messages are in scope", async () => {
+    runMock.mockResolvedValue({
+      finalOutput: { injectionSuspected: false, outOfScope: false, escalate: false, matchedThemes: [], confidence: 0.9, reason: "ok" },
+    });
+    await classifyCustomerIntent({
+      message: "Who are you?",
+      escalationTerms: [],
+      recentHistory: [],
+      summary: null,
+      role: "Technical support",
+      jobDescription: null,
+    });
+    const classifier = runMock.mock.calls[0][0] as { instructions: string };
+    expect(classifier.instructions).toContain("who or what it is");
+    expect(classifier.instructions).toContain("NOT out of scope");
+  });
+
   it("fails closed when the model returns garbage", async () => {
     runMock.mockResolvedValue({ finalOutput: { nope: true } });
     const result = await classifyCustomerIntent({

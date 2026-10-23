@@ -1076,6 +1076,34 @@ describe("Confluence searched before answering", () => {
     expect(matches?.[0].title).toBe("Generating a Utilization Report");
   });
 
+  it("does not let long release notes full of everyday words outrank the page named for the question", async () => {
+    connectionsFor({
+      knowledge_base: connection("knowledge_base", "confluence", { metadata: { settings: { spaceKey: "SK" } } }),
+    });
+    const page = (id: string, title: string, html: string) => ({ id, title, body: { storage: { value: html } }, _links: { webui: `/spaces/SK/pages/${id}/x` } });
+    const everyday = "<p>We ask that you review the long list. Last quarter the report was updated. Ask your employer about each utilization item. </p>".repeat(30);
+    const pages = [
+      page("1", "EAP Expert V3 Release Notes", everyday),
+      page("2", "Archived EAP Expert V3 Release Notes", everyday),
+      page("3", "Part 1: Customizing a Utilization Report", "<p>Choose columns and the employer.</p>"),
+      page("4", "Generating a Utilization Report", "<p>Set the Report Type, pick the Organization, enter the Start Date and End Date, then Preview.</p>"),
+      // Everyday words show up across a real knowledge base, so they say little about any one page.
+      ...Array.from({ length: 30 }, (_, i) => page(String(10 + i), `Other topic ${i}`, "<p>We ask that you read the long note. Last quarter this changed, ask your team.</p>")),
+    ];
+    executeToolMock.mockImplementation(async (slug) =>
+      slug === CONFLUENCE_CQL_SEARCH_SLUG
+        ? { successful: true, error: null, data: { results: [] } }
+        : { successful: true, error: null, data: { results: pages } },
+    );
+    const message =
+      "Hi team, hope you are well. We migrated offices to a new network and staff feel things are slower. ".repeat(4) +
+      "Anyway, the actual thing I wanted to ask, and sorry for the long preamble, is how I can run a utilization report for just one employer for just the last quarter. Thanks so much, Sam.";
+    const matches = await searchConfluenceKnowledge(orgId, message, 3);
+    const titles = matches?.map((m) => m.title) ?? [];
+    expect(titles.indexOf("Generating a Utilization Report")).toBeGreaterThanOrEqual(0);
+    expect(titles.indexOf("Generating a Utilization Report")).toBeLessThan(titles.indexOf("EAP Expert V3 Release Notes") === -1 ? 99 : titles.indexOf("EAP Expert V3 Release Notes"));
+  });
+
   it("adds the page's words for how customers ask about change history and sign-up", () => {
     expect(expandKeywords("Where can I see who changed a record?", ["changed", "record"])).toEqual(expect.arrayContaining(["activity", "audit", "trail"]));
     expect(expandKeywords("How do members sign up?", ["members", "sign"])).toEqual(expect.arrayContaining(["register", "registration"]));

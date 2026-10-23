@@ -226,7 +226,9 @@ export async function classifyCustomerIntent(args: {
       "Set outOfScope if the request is not a support question this worker should fulfill given its role " +
       "and job description — e.g. general programming homework, unrelated life advice, or using the " +
       "worker as a free general-purpose assistant. Product how-tos, account issues, and questions " +
-      "answerable from this company's support knowledge are in scope even without a knowledge hit yet.\n" +
+      "answerable from this company's support knowledge are in scope even without a knowledge hit yet. " +
+      "Questions about the worker itself (who or what it is, its name, what it can help with), greetings, thanks, " +
+      "and messages that are simply unclear or garbled are NOT out of scope: set outOfScope=false and let the worker answer or ask what they need.\n" +
       "Set escalate if the message matches an escalation theme in spirit (billing disputes, legal threats, " +
       "security incidents, account deletion, chargebacks, etc.) even without the exact keyword. " +
       "When escalate is true the support agent will collect intake then hand off — still set escalate=true. " +
