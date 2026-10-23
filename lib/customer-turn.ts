@@ -11,7 +11,7 @@ import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
 import { timed } from "@/lib/timing";
-import { citedTitles } from "@/lib/citations";
+import { citedTitles, groundedTitles, looksUngrounded } from "@/lib/citations";
 import { referenceCard, referenceNotice, ticketReference } from "@/lib/ticket-reference";
 import { isPlaceholderCustomerName } from "@/lib/customer-name";
 import { normalizeIdentityMode, trustedCustomerEmail } from "@/lib/customer-identity";
@@ -195,6 +195,12 @@ export async function runCustomerTurn(input: {
   result = { ...result, answer: withoutEmDashes(result.answer) };
   // The agent returns no citations of its own; record the retrieved articles the reply names.
   if (result.citations.length === 0) result = { ...result, citations: citedTitles(result.answer, knowledgeMatches) };
+  // The reply did not name its source ("From: ..."): credit the page whose button and menu names it follows, if one clearly does.
+  if (result.citations.length === 0 && !result.escalate) result = { ...result, citations: groundedTitles(result.answer, knowledgeMatches) };
+  // Steps that match no page she was given: logged so it can be looked at (she may have read a page by tool).
+  if (!result.escalate && looksUngrounded(result.answer, knowledgeMatches)) {
+    console.warn("[agent] answer names buttons or fields found in none of the retrieved pages", { conversationId: conversation.id });
+  }
 
   // A handoff raises (or updates) the helpdesk ticket here, in code, so it
   // can't be skipped or invented by the model. A Jira failure never blocks
@@ -252,7 +258,7 @@ export async function runCustomerTurn(input: {
   const firstHandoff = result.escalate && conversation.status !== "needs_human";
 
   if (result.escalate && !deferTicket) {
-    progress("ticket", "Raising your ticket…");
+    progress("ticket", "Logging this for the team…");
     const ticket = await timed("handoff.jira", () => raiseTicket(conversation));
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.

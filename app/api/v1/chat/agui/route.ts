@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
         send({ type: "CUSTOM", name: "chat.turn", value: outcome.json });
         // A handoff's ticket is raised after the reply is shown. Its number follows as a
         // second message, inside the same run, so the panel shows the reply right away.
-        if (outcome.pendingTicket) send({ type: "CUSTOM", name: "chat.status", value: { stage: "ticket", label: "Raising your ticket…" } });
+        if (outcome.pendingTicket) send({ type: "CUSTOM", name: "chat.status", value: { stage: "ticket", label: "Logging this for the team…" } });
         const ticket = outcome.pendingTicket ? await outcome.pendingTicket : null;
         if (ticket) {
           const note = ticket.message as { id: string; body: string; cards?: CustomerCard[] };
