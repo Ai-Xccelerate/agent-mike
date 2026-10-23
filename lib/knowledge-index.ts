@@ -211,3 +211,37 @@ export async function knowledgeIndexStatus(organizationId: string): Promise<Inde
     lastError: state?.lastError ?? null,
   };
 }
+
+/** A copy older than this is refreshed in the background the next time it is searched. */
+const STALE_MINUTES = 10;
+/** And a refresh is not tried again within this long, whether it worked or not, so a broken Confluence is not hammered. */
+const RETRY_MINUTES = 3;
+const lastTried = new Map<string, number>();
+
+/** Test hook. */
+export function clearRefreshMemory(): void {
+  lastTried.clear();
+}
+
+/**
+ * Called when the saved copy is searched: if it is old, start a sync in the background and carry on with what is saved.
+ * This is what keeps the copy in step with Confluence without a separate worker.
+ */
+export async function refreshKnowledgeIndexIfStale(organizationId: string, run: (organizationId: string) => Promise<SyncReport> = syncKnowledgeIndex): Promise<boolean> {
+  const tried = lastTried.get(organizationId) ?? 0;
+  if (Date.now() - tried < RETRY_MINUTES * 60_000) return false;
+  const [state] = await db
+    .select()
+    .from(knowledgeIndexState)
+    .where(and(eq(knowledgeIndexState.organizationId, organizationId), eq(knowledgeIndexState.source, INDEX_SOURCE)))
+    .limit(1);
+  const finished = state?.lastFinishedAt?.getTime() ?? 0;
+  const running = Boolean(state?.runningUntil && state.runningUntil.getTime() > Date.now());
+  if (running || Date.now() - finished < STALE_MINUTES * 60_000) return false;
+  lastTried.set(organizationId, Date.now());
+  void run(organizationId).then(
+    (report) => console.info("[knowledge-index] background sync", JSON.stringify({ organizationId, ...report })),
+    (error) => console.warn("[knowledge-index] background sync crashed", error instanceof Error ? error.message : error),
+  );
+  return true;
+}

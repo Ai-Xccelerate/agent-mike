@@ -28,7 +28,9 @@ import {
   searchWiki,
   toKnowledgeMatches as agentWikiToKnowledgeMatches,
 } from "@/lib/agent-wiki";
-import { ConfluenceKnowledgeError, searchConfluenceKnowledge } from "@/lib/tools-integrations/atlassian";
+import { ConfluenceKnowledgeError, confluenceSearchesIndex, searchConfluenceKnowledge } from "@/lib/tools-integrations/atlassian";
+import { refreshKnowledgeIndexIfStale } from "@/lib/knowledge-index";
+import { searchKnowledgeIndex } from "@/lib/knowledge-search";
 
 const CONFLUENCE_SOURCE = "confluence";
 
@@ -58,6 +60,23 @@ export interface RetrievalProfile {
   organizationId: string;
   slug: string;
   integrationsConfig: unknown;
+}
+
+/**
+ * Confluence for one question: the saved copy when the organization has switched it on and it has something, otherwise
+ * the live search. Any trouble with the copy (empty, error) falls back to live, so a customer never gets less than before.
+ */
+async function confluenceMatches(organizationId: string, query: string, limit: number): Promise<KnowledgeMatch[] | null> {
+  if (await confluenceSearchesIndex(organizationId).catch(() => false)) {
+    try {
+      const { matches } = await searchKnowledgeIndex(organizationId, query, { limit: Math.max(limit, 6) });
+      void refreshKnowledgeIndexIfStale(organizationId).catch(() => undefined);
+      if (matches.length > 0) return matches;
+    } catch (error) {
+      console.warn("[retrieval] saved copy failed, using live Confluence:", error instanceof Error ? error.message : error);
+    }
+  }
+  return searchConfluenceKnowledge(organizationId, query, limit);
 }
 
 export async function retrieveKnowledge(
@@ -134,7 +153,7 @@ async function retrieveKnowledgeUncached(
     // A connected Confluence (Settings > Integrations > Knowledge base) is
     // searched full-text before every answer, so grounding never depends on
     // the model deciding to look. Null = not connected or switched off.
-    searchConfluenceKnowledge(profile.organizationId, query, limit)
+    confluenceMatches(profile.organizationId, query, limit)
       .then((matches) => (matches ? { matches, error: null as string | null } : null))
       .catch((error: unknown) => ({
         matches: [] as KnowledgeMatch[],
