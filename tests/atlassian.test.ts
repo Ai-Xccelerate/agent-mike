@@ -15,7 +15,10 @@ import {
   buildKnowledgeCql,
   clearConfluenceCatalog,
   pickRelevantText,
+  wordStem,
   scoreCatalogPage,
+  stemWeights,
+  expandKeywords,
   rankByTitleMatch,
   CONFLUENCE_CQL_SEARCH_SLUG,
   ConfluenceKnowledgeError,
@@ -1022,6 +1025,25 @@ describe("Confluence searched before answering", () => {
     const named = { title: "Service Member Registration for the Self-Scheduler", text: "Share the link." };
     const noisy = { title: "EAP Expert V3 Release Notes", text: "members register self-scheduler ".repeat(10) };
     expect(scoreCatalogPage(named, keywords)).toBeGreaterThan(scoreCatalogPage(noisy, keywords));
+  });
+
+  it("lets a rare word beat words that are in nearly every title (Parallels vs EAP Expert)", () => {
+    const pages = [
+      { title: "Parallels Support Guide", text: "Parallels is how hosted customers reach EAP Expert. Open the Parallels client and sign in." },
+      ...Array.from({ length: 30 }, (_, i) => ({ title: `EAP Expert V3 Guide ${i}`, text: "EAP Expert eap expert eap expert eap expert." })),
+    ];
+    const keywords = searchKeywords("How do I use Parallels to get to EAP Expert?");
+    expect(keywords).not.toContain("use");
+    const weights = stemWeights(pages, keywords);
+    expect(weights[wordStem("parallels")]).toBeGreaterThan(weights[wordStem("expert")] * 2);
+    const ranked = [...pages].sort((a, b) => scoreCatalogPage(b, keywords, weights) - scoreCatalogPage(a, keywords, weights));
+    expect(ranked[0].title).toBe("Parallels Support Guide");
+  });
+
+  it("adds the page's words for how customers ask about change history and sign-up", () => {
+    expect(expandKeywords("Where can I see who changed a record?", ["changed", "record"])).toEqual(expect.arrayContaining(["activity", "audit", "trail"]));
+    expect(expandKeywords("How do members sign up?", ["members", "sign"])).toEqual(expect.arrayContaining(["register", "registration"]));
+    expect(expandKeywords("How do I add a user?", ["add", "user"])).toEqual(["add", "user"]);
   });
 
   it("keeps the section with the steps when a long page has to be cut", () => {
