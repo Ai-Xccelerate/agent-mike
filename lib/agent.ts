@@ -778,6 +778,8 @@ export async function buildAgentTools(
   onReferenceMaterial?: () => void,
   /** The conversation's channel. On email the channel itself sends the reply. */
   channel: string = "chat",
+  /** Called when the worker looked up the customer's own requests this turn. */
+  onTicketsChecked?: () => void,
 ): Promise<Tool[]> {
   const tools: Tool[] = [];
   if (profile.toolsConfig?.internet_search) {
@@ -1000,6 +1002,7 @@ export async function buildAgentTools(
           "comment to the ticket each time the customer asks.",
         parameters: z.object({}),
         execute: async () => {
+          onTicketsChecked?.();
           const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix) : [];
           const desk = jiraAccountId && conversationId ? await lookupCustomerTickets(organizationId, conversationId, jiraAccountId) : null;
           const deskByKey = new Map<string, unknown>();
@@ -1335,6 +1338,8 @@ export interface RunAgentResult {
   choices?: string[];
   /** The worker needs the customer's name and email: the chat shows the identity card ([[NEED_IDENTITY]]). */
   needIdentity?: boolean;
+  /** The worker looked up this customer's requests this turn (a status check). */
+  checkedTickets?: boolean;
 }
 
 const CHOICES_TAG = /\[\[CHOICES:([^\]]*)\]\]/gi;
@@ -1497,6 +1502,7 @@ export async function runAgent(
   );
   // A Confluence page read mid-turn is approved reference material too, so the
   // reply check mustn't treat an answer grounded in it as general knowledge.
+  let ticketsChecked = false;
   const tools = await timed("agent.tools", () =>
     buildAgentTools(
       profile,
@@ -1506,6 +1512,9 @@ export async function runAgent(
         guardrailContext.referenceMaterialFound = true;
       },
       channel,
+      () => {
+        ticketsChecked = true;
+      },
     ),
   );
   const maxTurns = Math.max(1, profile.maxAgentTurns || 3);
@@ -1623,9 +1632,9 @@ export async function runAgent(
     if (!parsed.escalate && !parsed.needIdentity && promisesPersonFollowUp(parsed.answer)) {
       // The reply says a teammate will follow up but carries no handoff tag.
       console.warn("[agent] reply promised a person but did not hand over; handing over", { conversationId });
-      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined };
+      return { ...parsed, escalate: true, confidence: Math.min(0.4, profile.confidenceThreshold - 0.1), choices: undefined, ...(ticketsChecked ? { checkedTickets: true } : {}) };
     }
-    return parsed;
+    return ticketsChecked ? { ...parsed, checkedTickets: true } : parsed;
   } catch (error) {
     // Input tripwire: out-of-scope → polite decline (not Charan); other trips → handoff.
     // Output no longer trips the SDK wire — block is a soft reject + repair above.

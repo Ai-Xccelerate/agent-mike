@@ -6,6 +6,7 @@ import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 import { customerTickets } from "@/lib/customer-tickets";
 import { customerStatusWord, referenceNotice, ticketReference } from "@/lib/ticket-reference";
+import { recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 
@@ -74,6 +75,35 @@ describe("the reference a customer is given", () => {
     await db.update(conversations).set({ status: "needs_human" }).where(eq(conversations.id, conversation.id));
     const second = await turn(conversation.id, "Any news?");
     expect(second.reply.body).not.toContain("logged this");
+  });
+});
+
+describe("a status check on a request already with the team", () => {
+  it("adds nothing to the ticket and keeps the conversation with the team", async () => {
+    runAgentMock.mockResolvedValue({ answer: "SUP-24 is with the support team.", confidence: 0.9, escalate: true, citations: [], checkedTickets: true });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    await db.update(conversations).set({ status: "needs_human" }).where(eq(conversations.id, conversation.id));
+    vi.mocked(recordHandoffInJira).mockClear();
+    const result = await turn(conversation.id, "Any update on my ticket?");
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
+    expect(result.result.escalate).toBe(false);
+    expect(result.status).toBe("needs_human");
+    expect(result.reply.body).not.toContain("logged this");
+  });
+
+  it("still hands over when the customer is not just asking, or the conversation is not yet with the team", async () => {
+    runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    await db.update(conversations).set({ status: "needs_human" }).where(eq(conversations.id, conversation.id));
+    vi.mocked(recordHandoffInJira).mockClear();
+    await turn(conversation.id, "It is still broken, now also the reports page");
+    expect(recordHandoffInJira).toHaveBeenCalledTimes(1);
+
+    runAgentMock.mockResolvedValue({ answer: "Checking.", confidence: 0.3, escalate: true, citations: [], checkedTickets: true });
+    const fresh = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    vi.mocked(recordHandoffInJira).mockClear();
+    await turn(fresh.id, "Check my ticket and also our system is down");
+    expect(recordHandoffInJira).toHaveBeenCalledTimes(1);
   });
 });
 
