@@ -9,6 +9,7 @@ import { ArrowUpIcon, DocsIcon, MicrophoneIcon } from "@/icons";
 import { useDictation } from "@/hooks/useDictation";
 import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
+import { forgetRemembered, readRemembered } from "@/lib/remembered-customer";
 import { quickActionsFor, welcomeText } from "@/lib/widget-defaults";
 import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
 import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/customer-cards/CustomerCopilot";
@@ -253,7 +254,13 @@ function ChatPanelBody({
       const addReply = (message: Message) =>
         setMessages((items) => (items.some((item) => item.id === message.id) ? items : [...items, message]));
       await agent.runAgent(
-        { forwardedProps: { conversation_id: conversationId } },
+        {
+          forwardedProps: {
+            conversation_id: conversationId,
+            // A new chat on a device remembered from a verified visit starts verified, with no second code.
+            ...(compact && !conversationId ? { remember_token: readRemembered(siteToken)?.token } : {}),
+          },
+        },
         {
           onCustomEvent: ({ event }) => {
             if (event.name === "chat.turn") {
@@ -276,6 +283,9 @@ function ChatPanelBody({
       );
       if (!turn) throw new Error(failure ?? "No reply came back");
       const response: ChatResponse = turn;
+      if (compact && response.remembered) {
+        setIdentity({ name: response.remembered.name ?? undefined, email: response.remembered.email, verified: true });
+      }
       if (compact) {
         setCompactConversationId(response.conversation_id);
       } else {
@@ -312,6 +322,20 @@ function ChatPanelBody({
   const avatarInitials = profile?.avatarInitials ?? "AW";
   const accentColor = profile?.accentColor;
   const avatarUrl = profile?.avatarUrl;
+  // "Not you?": forget this device and start a fresh chat that asks again.
+  function startAsSomeoneElse() {
+    forgetRemembered(siteToken);
+    try {
+      sessionStorage.removeItem(storageKey(siteToken));
+    } catch {
+      // Storage blocked: the reset below still applies to this view.
+    }
+    setCompactConversationId(undefined);
+    setIdentity(undefined);
+    setEscalated(false);
+    setMessages([welcomeMessage(profile)]);
+  }
+
   const isBlank = !compact && !externalConversationId && messages.length <= 1;
   const visibleMessages = messages.map((message) =>
     message.id === "welcome" ? welcomeMessage(profile) : message,
@@ -372,7 +396,12 @@ function ChatPanelBody({
             <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">{displayName}</p>
             <p className="flex min-w-0 items-center gap-1.5 truncate text-xs text-gray-500 dark:text-gray-400">
               {compact && identity?.verified ? (
-                <span className="truncate font-medium text-success-700 dark:text-success-400">Email verified</span>
+                <>
+                  <span className="truncate font-medium text-success-700 dark:text-success-400">Email verified</span>
+                  <button type="button" onClick={startAsSomeoneElse} disabled={loading} className="shrink-0 underline decoration-dotted hover:text-gray-700 dark:hover:text-gray-200">
+                    Not you?
+                  </button>
+                </>
               ) : (
                 <span className="truncate">{compact ? "AI assistant" : "Online"}</span>
               )}

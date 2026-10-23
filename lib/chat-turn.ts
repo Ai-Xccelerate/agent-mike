@@ -4,9 +4,10 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
+import { readRememberToken } from "@/lib/remembered-customer";
 import { insertConversationWithTicket, runCustomerTurn, type TicketFollowUp } from "@/lib/customer-turn";
 import { timed, withTurnTimer } from "@/lib/timing";
-import { anonymousVisitorName } from "@/lib/customer-identity";
+import { anonymousVisitorName, normalizeIdentityMode } from "@/lib/customer-identity";
 
 /**
  * One chat turn for the Playground and the website widget, shared by the JSON
@@ -109,13 +110,21 @@ async function runChatRequestTimed(
       )
     : [];
 
+  // A customer who checked their email on an earlier visit and was remembered on this device: a new conversation
+  // starts as theirs, already verified. Only where the organization still asks for an emailed code.
+  const remembered =
+    !conversation && tenant.source === "widget" && normalizeIdentityMode(profile.identityMode) === "email_code"
+      ? readRememberToken(body?.remember_token, tenant.orgId)
+      : null;
+
   if (!conversation) {
     conversation = await insertConversationWithTicket({
       organizationId: tenant.orgId,
       channel: tenant.source === "widget" ? "widget" : "chat",
       subject: message.slice(0, 120),
       // A name for the inbox until the visitor gives theirs.
-      ...(tenant.source === "widget" ? { customerName: anonymousVisitorName() } : {}),
+      ...(tenant.source === "widget" ? { customerName: remembered?.name ?? anonymousVisitorName() } : {}),
+      ...(remembered ? { customerEmail: remembered.email, customerEmailVerifiedAt: new Date(), identitySource: "email_code" } : {}),
     });
   }
 
@@ -163,6 +172,7 @@ async function runChatRequestTimed(
       confidence: result.confidence,
       escalated: result.escalate,
       knowledge_sources: knowledgeSources,
+      ...(remembered ? { remembered: { name: remembered.name, email: remembered.email } } : {}),
     }),
     ...(pendingTicket ? { pendingTicket } : {}),
   };

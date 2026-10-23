@@ -433,6 +433,8 @@ export type ChatResponse = {
   status: Conversation["status"];
   confidence: number;
   escalated: boolean;
+  /** Set when this device was remembered from an earlier verified visit: the new conversation started verified. */
+  remembered?: { name: string | null; email: string };
 };
 
 /** The admin assistant's own chat endpoint (see /api/v1/assistant/chat) — no guardrail/escalation concepts, it's the manager asking their own assistant a question. */
@@ -1096,8 +1098,8 @@ export function submitIdentity(
 export function verifyIdentityCode(
   input: { conversationId: string; code: string },
   widgetSiteToken?: string,
-): Promise<{ ok: true; verified: true }> {
-  return apiFetch<{ ok: true; verified: true }>("/chat/identity/verify", {
+): Promise<{ ok: true; verified: true; remember_token?: string; name?: string | null }> {
+  return apiFetch<{ ok: true; verified: true; remember_token?: string; name?: string | null }>("/chat/identity/verify", {
     method: "POST",
     body: JSON.stringify({ conversation_id: input.conversationId, code: input.code }),
     widgetSiteToken,

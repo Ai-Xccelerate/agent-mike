@@ -6,7 +6,7 @@ import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 import { customerTickets } from "@/lib/customer-tickets";
 import { customerStatusWord, referenceNotice, ticketReference } from "@/lib/ticket-reference";
-import { recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { helpdeskRaisesTickets, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 
@@ -18,6 +18,7 @@ vi.mock("@/lib/retrieval", () => ({ retrieveKnowledge: vi.fn(async () => ({ matc
 vi.mock("@/lib/tools-integrations/atlassian", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tools-integrations/atlassian")>()),
   recordHandoffInJira: vi.fn(async () => null),
+  helpdeskRaisesTickets: vi.fn(async () => false),
 }));
 vi.mock("@/lib/conversation-memory", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/conversation-memory")>()),
@@ -176,5 +177,48 @@ describe("a verified customer quoting their own number", () => {
     expect(await about(checked.id)).toBe("Login fails after update");
     expect(await about(unchecked.id)).toBeNull();
     expect(await about(stranger.id)).toBeNull();
+  });
+});
+
+describe("a handover whose helpdesk ticket never came to be", () => {
+  const answer = { answer: "Thanks, I'm passing that on.", confidence: 0.9, escalate: false, citations: [] };
+
+  it("is raised on the customer's next message, and the number is given only then", async () => {
+    runAgentMock.mockResolvedValue(answer);
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-90", created: true, title: "Reports blank" });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human" });
+    const result = await turn(conversation.id, "hello? did you raise this?", true);
+    const followUp = await result.pendingTicket;
+    expect(recordHandoffInJira).toHaveBeenCalledTimes(1);
+    expect(followUp?.message.body).toContain("SUP-90");
+  });
+
+  it("says nothing when the retry makes no ticket", async () => {
+    runAgentMock.mockResolvedValue(answer);
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue(null);
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human" });
+    const result = await turn(conversation.id, "any news?", true);
+    expect(await result.pendingTicket).toBeNull();
+    expect(result.reply.body).not.toContain("logged this");
+  });
+
+  it("is not tried when a ticket exists, the helpdesk refused one, or tickets are switched off", async () => {
+    runAgentMock.mockResolvedValue(answer);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-91", created: true });
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(true);
+    const hasKey = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human", externalTicketKey: "SUP-1" });
+    const refused = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human", externalTicketError: "Refused" });
+    await turn(hasKey.id, "any news?", true);
+    await turn(refused.id, "any news?", true);
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
+    vi.mocked(helpdeskRaisesTickets).mockResolvedValue(false);
+    const off = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human" });
+    await turn(off.id, "any news?", true);
+    expect(recordHandoffInJira).not.toHaveBeenCalled();
   });
 });

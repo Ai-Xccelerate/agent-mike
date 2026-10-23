@@ -6,7 +6,7 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
-import { handoffTicketNotice, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { handoffTicketNotice, helpdeskRaisesTickets, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
@@ -266,12 +266,24 @@ export async function runCustomerTurn(input: {
     result = { ...result, escalate: false };
   }
 
+  // A handover whose helpdesk ticket never came to be (the server restarted mid-way, the helpdesk was briefly
+  // unreachable) is tried again on the customer's next message. A ticket the helpdesk refused is not: that is
+  // recorded on the conversation for the manager. Nothing is said to the customer unless a ticket results.
+  const missingTicket =
+    !result.escalate &&
+    conversation.status === "needs_human" &&
+    !conversation.externalTicketKey &&
+    !conversation.externalTicketError &&
+    !ticketsInFlight.has(conversation.id) &&
+    (await helpdeskRaisesTickets(organizationId));
+  const raisesTicket = result.escalate || missingTicket;
+
   // The ticket is raised after the reply is stored when the caller asked for that.
-  const deferTicket = Boolean(input.deferTicket) && result.escalate && showsCards;
+  const deferTicket = Boolean(input.deferTicket) && raisesTicket && showsCards;
   // The first time this conversation is handed over; later turns add to the same request.
   const firstHandoff = result.escalate && conversation.status !== "needs_human";
 
-  if (result.escalate && !deferTicket) {
+  if (raisesTicket && !deferTicket) {
     progress("ticket", "Logging this for the team…");
     const ticket = await timed("handoff.jira", () => raiseTicket(conversation));
     // A refused ticket is recorded on the conversation for the manager; the
@@ -349,7 +361,7 @@ export async function runCustomerTurn(input: {
       // The ticket gets a short summary of what it is about, not only the transcript.
       // Written here, after the reply is stored, so the customer never waits for it.
       const ticketSummary =
-        conversation.status === "needs_human"
+        conversation.status === "needs_human" && current.ticketSummary
           ? current.ticketSummary
           : await summarizeForHandoff([
               ...toHistoryTurns([...priorMessages, userMessage]),
