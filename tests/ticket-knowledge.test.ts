@@ -238,10 +238,11 @@ describe("fetchRedactedResolvedTickets", () => {
     expect(executeToolMock.mock.calls[0][1]).toMatchObject({ next_page_token: "abc123==" });
   });
 
-  it("ignores a page token with odd characters, so nothing can be injected", async () => {
+  it("refuses a page token with odd characters, so nothing can be injected and nothing silently restarts at page 1", async () => {
     jira(searchReply([]), () => getReply());
-    await fetchRedactedResolvedTickets({ ...base, nextPageToken: 'x" OR project = "Y' });
-    expect(executeToolMock.mock.calls[0][1]).not.toHaveProperty("next_page_token");
+    const out = await fetchRedactedResolvedTickets({ ...base, nextPageToken: 'x" OR project = "Y' });
+    expect(out).toContain("paging token isn't valid");
+    expect(executeToolMock).not.toHaveBeenCalled();
   });
 
   it("counts sensitive, empty and unreadable tickets separately", async () => {
