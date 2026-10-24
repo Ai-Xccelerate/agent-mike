@@ -238,6 +238,12 @@ describe("fetchRedactedResolvedTickets", () => {
     expect(executeToolMock.mock.calls[0][1]).toMatchObject({ next_page_token: "abc123==" });
   });
 
+  it("accepts the punctuation a real Jira paging token carries", async () => {
+    jira(searchReply([]), () => getReply());
+    await fetchRedactedResolvedTickets({ ...base, nextPageToken: "Ch4IAVIg:w~Q*9%3D!@#$&,;|{}[]" });
+    expect(executeToolMock.mock.calls[0][1]).toMatchObject({ next_page_token: "Ch4IAVIg:w~Q*9%3D!@#$&,;|{}[]" });
+  });
+
   it("refuses a page token with odd characters, so nothing can be injected and nothing silently restarts at page 1", async () => {
     jira(searchReply([]), () => getReply());
     const out = await fetchRedactedResolvedTickets({ ...base, nextPageToken: 'x" OR project = "Y' });
