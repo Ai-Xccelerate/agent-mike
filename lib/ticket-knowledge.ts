@@ -230,7 +230,12 @@ export async function fetchRedactedResolvedTickets(input: {
   const projectKey = input.projectKey.trim().toUpperCase();
   if (!PROJECT_KEY.test(projectKey)) return "That isn't a valid Jira project key (for example EESD).";
   const limit = Math.min(Math.max(Math.trunc(input.limit) || TICKETS_DEFAULT_LIMIT, 1), TICKETS_MAX_LIMIT);
-  const token = input.nextPageToken && PAGE_TOKEN.test(input.nextPageToken) ? input.nextPageToken : null;
+  // A token with characters outside the safe set is refused, not quietly dropped: dropping it restarted the read at
+  // page 1 every time, so a caller following the pages saw the same tickets again and thought it had reached the end.
+  if (input.nextPageToken && !PAGE_TOKEN.test(input.nextPageToken)) {
+    return "That paging token isn't valid, so nothing was read. Start again without a token.";
+  }
+  const token = input.nextPageToken || null;
   const logged = { projectKey, limit, paged: token !== null };
   const run = (slug: string, args: Record<string, unknown>) =>
     executeTool(slug, args, { connectedAccountId: input.connectedAccountId, userId: input.organizationId, version: JIRA_TOOLKIT_VERSION });
