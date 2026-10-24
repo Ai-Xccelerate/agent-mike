@@ -17,7 +17,7 @@ vi.mock("@/lib/tools-integrations/connection-repository", async (importOriginal)
 }));
 
 const previousAdapter = getIdentityAdapter();
-const adapter = (role: string): IdentityAdapter => ({
+const adapter = (role: "owner" | "member"): IdentityAdapter => ({
   resolveManagerRequest: async () => ({ orgId: "org-sample", userId: "m", role, source: "test" }),
   resolveWidgetRequest: async () => null,
 });
