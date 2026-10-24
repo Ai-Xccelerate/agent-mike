@@ -197,7 +197,10 @@ export function issueFromGetResult(result: unknown): unknown | null {
 }
 
 const PROJECT_KEY = /^[A-Z][A-Z0-9_]{1,19}$/;
-const PAGE_TOKEN = /^[A-Za-z0-9_=.+/-]{1,2000}$/;
+// Jira's paging token is opaque and its alphabet is not documented: the first real one held characters outside
+// letters, digits and "_=.+/-", and the read stopped after one batch. It only ever travels as one JSON string value,
+// so what must stay out is whitespace, quotes and backslashes (the shapes of text that tries to be something else).
+const PAGE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]{1,2000}$/;
 
 export function resolvedTicketsJql(projectKey: string): string {
   return `project = "${projectKey}" AND statusCategory = Done ORDER BY resolved DESC`;
