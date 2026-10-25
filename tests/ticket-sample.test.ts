@@ -55,6 +55,14 @@ describe("GET /api/v1/worker/ticket-sample", () => {
     expect(fetchMock.mock.calls.map((c) => c[0].nextPageToken)).toEqual([null, "t1", "t2"]);
   });
 
+  it("asks for each ticket's conversation only when threads=1", async () => {
+    fetchMock.mockResolvedValue(page([1], {}, null));
+    await call("?count=25");
+    expect(fetchMock.mock.calls[0][0].includeTurns).toBe(false);
+    await call("?count=25&threads=1");
+    expect(fetchMock.mock.calls[1][0].includeTurns).toBe(true);
+  });
+
   it("stops at the number asked for", async () => {
     fetchMock.mockImplementation(async () => page([1], { heldBackForReview: 24 }, "again-" + fetchMock.mock.calls.length));
     const { body } = await call("?count=50");

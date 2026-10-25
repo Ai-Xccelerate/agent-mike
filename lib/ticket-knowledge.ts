@@ -36,7 +36,11 @@ export type RedactedTicket = {
   priority: string | null;
   problem: string;
   resolution: string | null;
+  /** Only when asked for: the conversation in order, customer messages and the team's public replies. */
+  turns?: RedactedTurn[];
 };
+
+export type RedactedTurn = { from: "customer" | "team"; text: string };
 
 export type ResolvedTicketsResult = {
   tickets: RedactedTicket[];
@@ -110,7 +114,18 @@ function clip(text: string): string {
   return text.length > FIELD_CHARS ? `${text.slice(0, FIELD_CHARS).trimEnd()}…` : text;
 }
 
-export function redactIssue(issue: unknown): {
+const TURNS_MAX = 10;
+const TURN_CHARS = 700;
+const FIRST_NAME_MARK = "\u27e6FN\u27e7";
+
+export type RedactOptions = {
+  /** Also return the conversation in order. Internal notes and automatic messages are left out. */
+  turns?: boolean;
+  /** Keep the requester's first name (not their surname, and nobody else's). */
+  keepRequesterFirstName?: boolean;
+};
+
+export function redactIssue(issue: unknown, options: RedactOptions = {}): {
   ticket: RedactedTicket | null;
   reason?: "sensitive" | "internal" | "review" | "empty";
   resolved: string | null;
@@ -157,15 +172,49 @@ export function redactIssue(issue: unknown): {
   // A name or company that may have survived is not passed on at all: it can't be taken back once a model has it.
   if (looksLikeItStillHoldsAName(problem) || looksLikeItStillHoldsAName(resolution)) return { ticket: null, reason: "review", resolved };
 
+  let turns: RedactedTurn[] | undefined;
+  if (options.turns) {
+    const firstName = options.keepRequesterFirstName ? personName(fields.reporter).split(/[\s,]+/)[0]?.replace(/[^A-Za-z'-]/g, "") ?? "" : "";
+    const keepFirstName = (text: string) => (firstName.length >= 2 ? text.replace(new RegExp(`\\b${escapeForRegExp(firstName)}\\b`, "gi"), FIRST_NAME_MARK) : text);
+    const restoreFirstName = (text: string) => text.split(FIRST_NAME_MARK).join(firstName);
+    const redactTurn = (raw: string) => clipTurn(restoreFirstName(redactTicketText(keepFirstName(raw), names).text));
+    const ordered = comments
+      .filter((c) => c.jsdPublic !== false)
+      .map((c) => ({ from: personId(c.author) && personId(c.author) === reporter ? ("customer" as const) : ("team" as const), raw: adfToText(c.body).trim(), at: str(c.created) }))
+      .filter((c) => c.raw && !/^this is an automated message/i.test(c.raw))
+      .sort((a, b) => a.at.localeCompare(b.at));
+    // Judged on everything that will be shown, not only the last replies.
+    if (isSensitiveTicketText(ordered.map((c) => c.raw).join("\n"))) return { ticket: null, reason: "sensitive", resolved };
+    const built: RedactedTurn[] = [{ from: "customer", text: redactTurn(rawProblem).replace(/\n+/g, " ").trim() }];
+    let leaked = false;
+    for (const c of ordered.slice(0, TURNS_MAX - 1)) {
+      const result = redactTicketText(keepFirstName(c.raw), names);
+      if ((result.counts.secrets ?? 0) + (result.counts.usernames ?? 0) > 0) return { ticket: null, reason: "sensitive", resolved };
+      if (looksLikeItStillHoldsAName(result.text.split(FIRST_NAME_MARK).join(""))) leaked = true;
+      built.push({ from: c.from, text: redactTurn(c.raw) });
+    }
+    if (leaked) return { ticket: null, reason: "review", resolved };
+    turns = built;
+  }
+
   return {
     ticket: {
       requestType: nameOf(fields.issuetype),
       priority: nameOf(fields.priority),
       problem: clip(problem),
       resolution: resolution ? clip(resolution) : null,
+      ...(turns ? { turns } : {}),
     },
     resolved,
   };
+}
+
+function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function clipTurn(text: string): string {
+  return text.length > TURN_CHARS ? `${text.slice(0, TURN_CHARS).trimEnd()}…` : text;
 }
 
 const ISSUE_KEY = /^[A-Z][A-Z0-9_]*-\d+$/;
@@ -229,6 +278,8 @@ export async function fetchRedactedResolvedTickets(input: {
   projectKey: string;
   limit: number;
   nextPageToken: string | null;
+  /** The conversation of each ticket too (customer messages and the team's public replies), with the requester's first name kept. */
+  includeTurns?: boolean;
 }): Promise<string> {
   const projectKey = input.projectKey.trim().toUpperCase();
   if (!PROJECT_KEY.test(projectKey)) return "That isn't a valid Jira project key (for example EESD).";
@@ -279,7 +330,7 @@ export async function fetchRedactedResolvedTickets(input: {
           const reply = await run(JIRA_GET_ISSUE_SLUG, { issue_id_or_key: key, fields: GET_ISSUE_FIELDS });
           if ((reply as { successful?: boolean } | null)?.successful === false) return "unreadable" as const;
           const issue = issueFromGetResult(reply);
-          return issue ? redactIssue(issue) : ("unreadable" as const);
+          return issue ? redactIssue(issue, input.includeTurns ? { turns: true, keepRequesterFirstName: true } : {}) : ("unreadable" as const);
         } catch {
           return "unreadable" as const;
         }

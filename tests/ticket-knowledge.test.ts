@@ -290,3 +290,94 @@ describe("fetchRedactedResolvedTickets", () => {
     expect(logMock.mock.calls.map((call) => call[0].status)).toEqual(["error", "error", "error"]);
   });
 });
+
+describe("redactIssue as a conversation", () => {
+  const threaded = (comments: unknown[], over: Record<string, unknown> = {}) =>
+    issue({
+      summary: "Preview button does nothing",
+      description: adf("Hi, I'm Dana Smith. The Preview button does nothing when I run the duplicates report."),
+      comment: { comments },
+      ...over,
+    });
+  const customer = (text: string, created: string) => ({ author: { accountId: "r1", displayName: "Dana Smith" }, body: adf(text), created, jsdPublic: true });
+  const team = (text: string, created: string, over: Record<string, unknown> = {}) => ({ author: { accountId: "t1", displayName: "Asif Khan" }, body: adf(text), created, jsdPublic: true, ...over });
+
+  it("returns the customer's messages and the team's replies in order, with roles", () => {
+    const { ticket } = redactIssue(
+      threaded([
+        team("Can you tell me which browser you use?", "2026-09-30T10:00:00.000+0000"),
+        customer("Chrome. Same on Edge.", "2026-09-30T10:05:00.000+0000"),
+        team("We applied a fix, please try again.", "2026-09-30T11:00:00.000+0000"),
+      ]),
+      { turns: true, keepRequesterFirstName: true },
+    );
+    expect(ticket?.turns?.map((t) => t.from)).toEqual(["customer", "team", "customer", "team"]);
+    expect(ticket?.turns?.[0].text).toContain("Preview button does nothing");
+    expect(ticket?.turns?.[2].text).toBe("Chrome. Same on Edge.");
+  });
+
+  it("sorts by time, not by the order Jira listed them", () => {
+    const { ticket } = redactIssue(threaded([team("Second.", "2026-09-30T12:00:00.000+0000"), team("First.", "2026-09-30T09:00:00.000+0000")]), { turns: true });
+    expect(ticket?.turns?.map((t) => t.text).slice(1)).toEqual(["First.", "Second."]);
+  });
+
+  it("leaves out internal notes and automatic messages", () => {
+    const { ticket } = redactIssue(
+      threaded([
+        team("Internal: check the report cache", "2026-09-30T10:00:00.000+0000", { jsdPublic: false }),
+        team("This is an automated message. Greetings, we haven't heard from you in a while.", "2026-09-30T10:10:00.000+0000"),
+        team("Please try again now.", "2026-09-30T10:20:00.000+0000"),
+      ]),
+      { turns: true },
+    );
+    expect(ticket?.turns?.map((t) => t.text).slice(1)).toEqual(["Please try again now."]);
+  });
+
+  it("keeps the requester's first name, and removes the surname and the team's names", () => {
+    const { ticket } = redactIssue(
+      threaded([
+        team("Hi Dana, this is Asif Khan. We looked at your report.", "2026-09-30T10:00:00.000+0000"),
+        customer("Thanks Dana Smith here again, it works now.", "2026-09-30T10:30:00.000+0000"),
+      ]),
+      { turns: true, keepRequesterFirstName: true },
+    );
+    const all = ticket?.turns?.map((t) => t.text).join(" ") ?? "";
+    expect(all).toContain("Dana");
+    expect(all).not.toContain("Smith");
+    expect(all).not.toContain("Asif");
+    expect(all).not.toContain("Khan");
+  });
+
+  it("holds the ticket for review when an unknown person's name is in a reply", () => {
+    const { ticket, reason } = redactIssue(threaded([team("Hi Dana, we checked with Priya Raman on your report.", "2026-09-30T10:00:00.000+0000")]), { turns: true, keepRequesterFirstName: true });
+    expect(ticket).toBeNull();
+    expect(reason).toBe("review");
+  });
+
+  it("removes the requester's name entirely when the first name is not asked for", () => {
+    const { ticket } = redactIssue(threaded([customer("Thanks, Dana", "2026-09-30T10:00:00.000+0000")]), { turns: true });
+    expect((ticket?.turns ?? []).map((t) => t.text).join(" ")).not.toContain("Dana");
+  });
+
+  it("drops the whole ticket when a later reply mentions health details", () => {
+    const { ticket, reason } = redactIssue(threaded([team("Was this about a client's diagnosis?", "2026-09-30T10:00:00.000+0000")]), { turns: true });
+    expect(ticket).toBeNull();
+    expect(reason).toBe("sensitive");
+  });
+
+  it("gives no turns unless they are asked for", () => {
+    expect(redactIssue(threaded([])).ticket).not.toHaveProperty("turns");
+  });
+});
+
+describe("a login name written straight after 'user'", () => {
+  it("is caught, so the ticket is left out", () => {
+    expect(redactIssue(issue({ summary: "User mhales unable to open system", description: adf("Cannot open it.") })).reason).toBe("sensitive");
+  });
+
+  it("does not catch ordinary words after 'user'", () => {
+    for (const text of ["User cannot open the system", "The user guide says to restart", "A user is locked out of the report"]) {
+      expect(redactIssue(issue({ summary: text, description: adf("It happens daily."), comment: { comments: [] } })).ticket, text).not.toBeNull();
+    }
+  });
+});
