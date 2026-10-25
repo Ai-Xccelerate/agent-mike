@@ -7,6 +7,8 @@ import { getIdentityAdapter } from "@/lib/identity";
 import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
 import { withNormalizedCitations } from "@/lib/citations";
 import { feedbackForConversations } from "@/lib/answer-feedback";
+import { extractStatedCustomer } from "@/lib/customer-stated";
+import { lacksVerifiedCustomer } from "@/lib/tickets";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -53,6 +55,10 @@ export async function GET(req: NextRequest) {
         ...conversation,
         messages: msgs.map(withNormalizedCitations),
         feedback: ratings.get(conversation.id) ?? [],
+        // What the customer typed about themselves, shown (marked unverified) when no name or email was verified.
+        customerStated: lacksVerifiedCustomer(conversation)
+          ? extractStatedCustomer(msgs.filter((message) => message.senderType === "customer").map((message) => message.body))
+          : null,
       };
     }),
   );

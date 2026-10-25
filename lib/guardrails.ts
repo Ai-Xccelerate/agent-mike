@@ -126,8 +126,20 @@ export function isManagerConsoleConfigQuestion(message: string): boolean {
  * `collect-before-escalate` can gather intake before `[[ESCALATE]]`. The
  * semantic input guardrail still flags those themes for the agent path.
  */
+/**
+ * A threat to sue, or a mention of lawyers or legal action, goes to a person. Written as phrases, not the bare word
+ * "sue", so a typo for "use" or a name like "Sue" in a how-to question does not trigger it. A false match only sends
+ * a chat to a person, which costs little; missing a real threat costs more.
+ */
+const LEGAL_MATTER =
+  /\b(?:(?:going to|gonna|will|we'll|i'll|about to|plan(?:ning)? to|intend to|threaten(?:ing)? to|have to|need to|had to)\s+sue\b|sue\s+(?:you|us|the company|eap|them)\b|lawsuits?|lawyers?|attorneys?|solicitors?|legal\s+(?:action|proceedings|team|advice|counsel)|take\s+legal)/i;
+
 export function evaluateMessage(input: GuardrailInput): GuardrailDecision {
   const normalized = input.message.toLowerCase();
+
+  if (LEGAL_MATTER.test(input.message)) {
+    return { escalate: true, reason: "A legal threat or legal matter: a person should answer" };
+  }
 
   for (const pattern of INJECTION_PATTERNS) {
     if (normalized.includes(pattern)) {

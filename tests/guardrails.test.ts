@@ -595,3 +595,34 @@ describe("classifyCustomerOutput — KB grounding", () => {
     expect(classifierInstructions()).toContain("No approved reference material was retrieved");
   });
 });
+
+describe("evaluateMessage: legal threats", () => {
+  const input = (message: string) => ({ message, senderEmail: null, escalationTerms: [], allowedDomains: [], requireUserVerification: false });
+
+  it("hands over a threat to sue, and mentions of lawyers or legal action", () => {
+    for (const text of [
+      "I'm going to sue you if this is not fixed today",
+      "We will sue the company over the lost appointments",
+      "SUE YOU",
+      "our lawyer will be in touch",
+      "This is a lawsuit waiting to happen",
+      "I'm taking legal action",
+      "We have asked our attorney to look at the contract",
+    ]) {
+      expect(evaluateMessage(input(text)).escalate, text).toBe(true);
+    }
+  });
+
+  it("does not trip on a typo for 'use', a name, or an ordinary how-to", () => {
+    for (const text of [
+      "how do i sue the report builder",
+      "Sue from accounting needs a login",
+      "How do I issue an invoice?",
+      "I can't use the Preview button",
+      "pursue a different filter",
+      "the issue is with the grid",
+    ]) {
+      expect(evaluateMessage(input(text)).escalate, text).toBe(false);
+    }
+  });
+});

@@ -215,3 +215,17 @@ describe("the Inbox list carries ratings too", () => {
     expect(byId.get(b.conversation.id).feedback).toEqual([]);
   });
 });
+
+describe("the Inbox list shows what the customer said about themselves", () => {
+  it("attaches the stated name for a visitor with no verified details, and nothing for a known customer", async () => {
+    const visitor = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerName: "Visitor 5713" });
+    await db.insert(messages).values({ conversationId: visitor.id, senderType: "customer", senderName: "Visitor 5713", body: "Hi Eva, I'm Priya from a counselling centre. The Preview button does nothing." });
+    const known = await thread();
+    const { GET: list } = await import("@/app/api/v1/conversations/route");
+
+    const rows = (await (await list(req("GET", "http://t/api/v1/conversations", undefined))).json()) as any[];
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(visitor.id).customerStated).toEqual({ name: "Priya", email: null });
+    expect(byId.get(known.conversation.id).customerStated).toBeNull();
+  });
+});
