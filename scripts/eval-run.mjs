@@ -4,7 +4,7 @@
  *
  *   EVAL_SITE_TOKEN=<widget site token> node scripts/eval-run.mjs --base https://mike-api.aiworkforce.md --set all
  *
- * Sets: kb (the knowledge questions), worst (messy, hostile and sensitive messages), all.
+ * Sets: kb (the knowledge questions), worst (messy, hostile and sensitive messages), all. Or --file <cases.json>.
  * Each case is one fresh conversation, so every case leaves a test conversation (and a ticket reference on a
  * handover) behind: run it against the organization you mean to test, and clean up afterwards.
  *
@@ -25,16 +25,22 @@ const which = args.set || "all";
 const outFile = args.out || "eval-report.md";
 const concurrency = Number(args.concurrency || 3);
 if (!base || !token) {
-  console.error("Usage: EVAL_SITE_TOKEN=... node scripts/eval-run.mjs --base <api url> [--set kb|worst|all] [--out file] [--concurrency 3]");
+  console.error("Usage: EVAL_SITE_TOKEN=... node scripts/eval-run.mjs --base <api url> [--set kb|worst|all] [--out file] [--concurrency 3] [--file cases.json] [--full]");
   process.exit(2);
 }
 
 const kb = JSON.parse(readFileSync(join(here, "../tests/evals/eap-kb-questions.json"), "utf8"));
 const worst = JSON.parse(readFileSync(join(here, "../tests/evals/eap-worst-case.json"), "utf8"));
+// --file <path>: run cases from your own file (same shape as eap-worst-case.json) instead of the built-in sets, for
+// example messages written from real tickets that must stay out of the repository.
+const own = args.file ? JSON.parse(readFileSync(args.file, "utf8")) : null;
 
 /** Cases: { id, set, message, expect }. KB cases expect the article cited; boundary ones expect a handover. */
 const cases = [];
-if (which === "kb" || which === "all") {
+if (own) {
+  own.cases.forEach((c) => cases.push({ id: c.id, set: "file", message: c.message, expect: c.expect, note: c.note }));
+}
+if (!own && (which === "kb" || which === "all")) {
   kb.answerable.forEach((q, i) => cases.push({ id: `kb-${String(i + 1).padStart(2, "0")}`, set: "kb", message: q.question, expect: { handover: false, cites: q.expected } }));
   // Boundary cases: she may collect details before handing over, so what is checked is what she says, not the tag.
   kb.boundary.forEach((q, i) =>
@@ -50,7 +56,7 @@ if (which === "kb" || which === "all") {
     }),
   );
 }
-if (which === "worst" || which === "all") {
+if (!own && (which === "worst" || which === "all")) {
   worst.cases.forEach((c) => cases.push({ id: c.id, set: "worst", message: c.message, expect: c.expect }));
 }
 
@@ -148,6 +154,10 @@ const lines = [
   `|---|---|---|---|---|`,
   ...results.map((r) => `| ${r.id} | ${r.failures.length ? "FAIL" : "pass"} | ${(r.ms / 1000).toFixed(1)} s | ${r.reply ? (r.reply.escalated ? "yes" : "no") : "-"} | ${(r.reply?.body ?? r.error ?? "").replace(/\n+/g, " / ").replace(/\|/g, "/").slice(0, 110)} |`),
 ];
+if (args.full) {
+  lines.push("", "## Full replies");
+  for (const r of results) lines.push("", `### ${r.id}`, `Customer: ${r.message}`, ...(r.note ? [`Team did: ${r.note}`] : []), `Eva${r.reply?.escalated ? " (handed over)" : ""}: ${r.reply?.body ?? r.error ?? ""}`);
+}
 writeFileSync(outFile, lines.join("\n") + "\n");
 console.log(lines.slice(0, 4).join("\n"));
 console.log(`Report written to ${outFile}`);
