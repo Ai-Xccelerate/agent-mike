@@ -38,7 +38,9 @@ const own = args.file ? JSON.parse(readFileSync(args.file, "utf8")) : null;
 /** Cases: { id, set, message, expect }. KB cases expect the article cited; boundary ones expect a handover. */
 const cases = [];
 if (own) {
-  own.cases.forEach((c) => cases.push({ id: c.id, set: "file", message: c.message, expect: c.expect, note: c.note }));
+  own.cases.forEach((c) =>
+    cases.push({ id: c.id, set: "file", message: c.message ?? c.conversation?.[0]?.customer ?? "", expect: c.expect, note: c.note, ...(c.conversation ? { conversation: c.conversation } : {}) }),
+  );
 }
 if (!own && (which === "kb" || which === "all")) {
   kb.answerable.forEach((q, i) => cases.push({ id: `kb-${String(i + 1).padStart(2, "0")}`, set: "kb", message: q.question, expect: { handover: false, cites: q.expected } }));
@@ -100,7 +102,48 @@ function caseChecks(c, reply) {
   return failures;
 }
 
+/**
+ * A case with `conversation: [{ customer, team? }, ...]` is replayed turn by turn in one conversation: the customer's
+ * message goes in, Eva answers, then the customer's next real message goes in (what the team actually replied is kept
+ * only to show beside Eva's reply). Every reply gets the general checks and the two-questions limit.
+ */
+async function runConversation(c) {
+  const started = Date.now();
+  let conversationId;
+  const steps = [];
+  const failures = [];
+  for (const [i, step] of c.conversation.entries()) {
+    const at = Date.now();
+    try {
+      const res = await fetch(`${base}/api/v1/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-worker-site-token": token },
+        body: JSON.stringify({ message: step.customer, ...(conversationId ? { conversation_id: conversationId } : {}) }),
+      });
+      const json = await res.json().catch(() => null);
+      const ms = Date.now() - at;
+      if (!res.ok || !json) {
+        failures.push(`step ${i + 1}: HTTP ${res.status}`);
+        steps.push({ ...step, eva: "", escalated: false, ms });
+        break;
+      }
+      conversationId = json.conversation_id ?? conversationId;
+      const eva = String(json.message?.body ?? "");
+      const questions = (eva.match(/\?/g) || []).length;
+      failures.push(...generalChecks(eva, ms).map((f) => `step ${i + 1}: ${f}`));
+      if (questions > 2) failures.push(`step ${i + 1}: ${questions} question marks (max 2)`);
+      steps.push({ ...step, eva, escalated: Boolean(json.escalated), ms });
+    } catch (error) {
+      failures.push(`step ${i + 1}: ${String(error)}`);
+      break;
+    }
+  }
+  const last = steps[steps.length - 1];
+  return { ...c, ms: Date.now() - started, reply: { body: last?.eva ?? "", escalated: steps.some((s) => s.escalated), citations: [], warnings: [] }, steps, failures, warnings: [] };
+}
+
 async function runCase(c) {
+  if (c.conversation) return runConversation(c);
   const started = Date.now();
   try {
     const res = await fetch(`${base}/api/v1/chat`, {
@@ -156,7 +199,16 @@ const lines = [
 ];
 if (args.full) {
   lines.push("", "## Full replies");
-  for (const r of results) lines.push("", `### ${r.id}`, `Customer: ${r.message}`, ...(r.note ? [`Team did: ${r.note}`] : []), `Eva${r.reply?.escalated ? " (handed over)" : ""}: ${r.reply?.body ?? r.error ?? ""}`);
+  for (const r of results) {
+    if (r.steps) {
+      lines.push("", `### ${r.id}${r.failures.length ? " (FAIL)" : ""}`);
+      r.steps.forEach((s, i) =>
+        lines.push(``, `**Step ${i + 1}**`, `Customer: ${s.customer}`, ...(s.team ? [`EAP team replied: ${s.team}`] : []), `Eva${s.escalated ? " (handed over)" : ""}: ${s.eva}`),
+      );
+    } else {
+      lines.push("", `### ${r.id}`, `Customer: ${r.message}`, ...(r.note ? [`Team did: ${r.note}`] : []), `Eva${r.reply?.escalated ? " (handed over)" : ""}: ${r.reply?.body ?? r.error ?? ""}`);
+    }
+  }
 }
 writeFileSync(outFile, lines.join("\n") + "\n");
 console.log(lines.slice(0, 4).join("\n"));

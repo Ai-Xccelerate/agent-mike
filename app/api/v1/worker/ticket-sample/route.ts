@@ -20,6 +20,8 @@ const MAX_COUNT = 300;
  *
  *   ?project=EESD   the Jira project to read (default EESD)
  *   ?count=120      about how many tickets to look at, in batches of 25 (default 100, at most 300)
+ *   ?threads=1      each ticket's conversation too: the customer's messages and the team's public replies in order, with the
+ *                   requester's first name kept (surnames and everyone else's names are removed)
  *
  * Paging happens here, not in a model: the Assistant has to pass Jira's paging token back itself, which it did not do
  * reliably. Org admins only.
@@ -31,6 +33,7 @@ export async function GET(req: NextRequest) {
   }
   const params = req.nextUrl.searchParams;
   const project = (params.get("project") || "EESD").trim().toUpperCase();
+  const threads = params.get("threads") === "1";
   const count = Math.min(Math.max(Math.trunc(Number(params.get("count") || DEFAULT_COUNT)) || DEFAULT_COUNT, 1), MAX_COUNT);
 
   const connection = await getConnectionForOrg(tenant.orgId, "helpdesk");
@@ -53,6 +56,7 @@ export async function GET(req: NextRequest) {
       projectKey: project,
       limit: Math.min(BATCH, count - read),
       nextPageToken: token,
+      includeTurns: threads,
     });
     let batch: {
       tickets?: RedactedTicket[];

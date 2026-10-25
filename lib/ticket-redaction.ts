@@ -39,6 +39,12 @@ const SECRET_PHRASE = /\b(?:temp(?:orary)?\s+)?(?:password|passcode|passphrase|p
 const GENERATED_SECRET = /(?<![\w\[])(?=[A-Za-z0-9!@#$%^&*_-]*[A-Za-z])(?=[A-Za-z0-9!@#$%^&*_-]*\d)[A-Za-z0-9!@#$%^&*_-]{8,64}(?![\w\]])/g;
 /** "username jdoe", "user id: jdoe", "login name jdoe". */
 const USERNAME = /\b(user ?name|user ?id|login (?:name|id))\b(?:\s+(?:is|was|to|for))?\s*[:=]?\s*["']?([A-Za-z0-9._@-]{3,})|\blogin\s*[:=]\s*["']?([A-Za-z0-9._@-]{3,})/gi;
+/**
+ * "User mhales unable to open system": a login name written straight after "user". Ordinary words that follow "user"
+ * ("user cannot", "user guide") are not logins, so a short list of them is skipped.
+ */
+const USER_HANDLE =
+  /\b[Uu]ser\s+(?!(?:is|has|have|had|can|cannot|can't|cant|could|unable|was|were|are|will|would|should|does|did|do|not|no|and|or|to|in|on|at|for|with|of|the|a|an|my|our|account|accounts|login|session|name|names|id|ids|role|roles|type|types|access|permission|permissions|group|groups|profile|profiles|password|passwords|interface|experience|manual|guide|guides|list|lists|field|fields|setting|settings|license|licenses|licence|licences|count|error|errors|data|file|files|record|records|reports?|story|stories|feedback|training|support|that|this|who|which|when|where|then|still|also|just|only|now|cant|isn't|doesn't|didn't|hasn't|won't|wasn't)\b)([a-z][a-z0-9._-]{2,24})\b/g;
 const EMAIL = /[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const URL = /\b(?:https?:\/\/|www\.)[^\s<>"')\]]+/gi;
 const PHONE = /(?<![\w.])(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}(?:\s*(?:ext\.?|extension|x)\s*\d{1,5})?(?![\w])/gi;
@@ -104,6 +110,10 @@ export function redactTicketText(input: string, knownNames: string[] = []): Reda
   text = text.replace(SECRET_PHRASE, (match: string, value: string) => {
     bump(counts, "secrets");
     return match.slice(0, match.length - value.length) + "[secret]";
+  });
+  text = text.replace(USER_HANDLE, () => {
+    bump(counts, "usernames");
+    return "user [username]";
   });
   text = text.replace(USERNAME, (match: string, label: string | undefined) => {
     bump(counts, "usernames");
