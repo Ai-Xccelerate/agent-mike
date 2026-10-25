@@ -14,6 +14,8 @@ export function publicWorkerIdentity(profile: Profile, defaultQuickActions?: str
     // What the widget opens with; null means its built-in greeting and chips.
     welcomeMessage: profile.welcomeMessage,
     quickActions: profile.quickActions,
+    // Whether the widget shows the paperclip for attaching a file.
+    chatAttachments: profile.chatAttachments,
     // What the widget shows when quickActions is null; decided by what this worker can do.
     ...(defaultQuickActions ? { defaultQuickActions } : {}),
   };

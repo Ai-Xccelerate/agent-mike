@@ -1,5 +1,6 @@
 "use client";
 
+import CustomerFileChips from "@/components/worker/CustomerFileChips";
 import WhyThisReply from "@/components/worker/WhyThisReply";
 import { SHOW_REPLY_TRACE } from "@/lib/reply-trace";
 import AnswerFeedbackControls from "@/components/worker/AnswerFeedbackControls";
@@ -704,6 +705,7 @@ export default function WorkerInbox() {
                           </div>
                           <div className="rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-6 text-gray-800 dark:border-white/[0.08] dark:bg-white/[0.05] dark:text-gray-200">
                             <p className="whitespace-pre-wrap">{message.body}</p>
+                            {message.customerFiles && message.customerFiles.length > 0 && <CustomerFileChips files={message.customerFiles} />}
                           </div>
                         </div>
                       </article>

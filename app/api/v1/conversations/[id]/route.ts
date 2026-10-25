@@ -10,6 +10,7 @@ import { withNormalizedCitations } from "@/lib/citations";
 import { livePendingApprovals, toPendingActionView } from "@/lib/assistant-agent";
 import { backfillFromJira, jiraLinkFor, withTimeout } from "@/lib/ticket-jira";
 import { extractStatedCustomer } from "@/lib/customer-stated";
+import { attachmentsByMessage } from "@/lib/attachments";
 import { lacksVerifiedCustomer } from "@/lib/tickets";
 import { feedbackForConversation } from "@/lib/answer-feedback";
 
@@ -41,6 +42,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     withTimeout(backfillFromJira(conversation), JIRA_WAIT_MS, null),
     withTimeout(jiraLinkFor(tenant.orgId, conversation.externalTicketKey), JIRA_WAIT_MS, null),
   ]);
+  const files = await attachmentsByMessage(tenant.orgId, conversation.id);
   const customerStated = lacksVerifiedCustomer(conversation)
     ? extractStatedCustomer(msgs.filter((message) => message.senderType === "customer").map((message) => message.body))
     : null;
@@ -51,7 +53,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     // Ratings on this conversation's replies, with the signed-in manager's own flagged.
     feedback: await feedbackForConversation(tenant.orgId, conversation.id, tenant.userId),
     customerStated,
-    messages: msgs.map(withNormalizedCitations),
+    messages: msgs.map((message) => ({ ...withNormalizedCitations(message), customerFiles: files.get(message.id) ?? [] })),
     pendingActions,
     canChange: isOrgAdmin(tenant.role),
   });

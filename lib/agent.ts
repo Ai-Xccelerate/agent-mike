@@ -81,6 +81,8 @@ export interface WorkerProfileLike {
   integrationsConfig?: unknown;
   /** The prefix of the reference a customer is given for a request, e.g. "EAP" for EAP-1042. */
   ticketPrefix?: string | null;
+  /** Visitors may attach files in the website chat: the worker is told it cannot open them and that the team gets them. */
+  chatAttachments?: boolean;
   /**
    * Fail-closed default (true): a tool that creates/sends/modifies something
    * in an external system queues for a human instead of running immediately.
@@ -1317,6 +1319,11 @@ export async function buildInstructions(
     "open, apologise once, say you are passing on that they are chasing it, and hand over with [[ESCALATE]] naming that " +
     "reference. If you cannot find it, say a teammate will check it and ask for their name and email. Never say a " +
     "reference is closed, fixed or waiting on them unless the status says Resolved.\n\n" +
+    (profile.chatAttachments
+      ? "Files: a line like [Attached: name (size)] in a customer's message means they sent that file with it. You cannot open " +
+        "files. The file is passed to the team with the conversation, so say that in a few words, ask them to describe in a line " +
+        "what it shows, and never ask them to send client or patient details.\n\n"
+      : "") +
     "When you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]." +
