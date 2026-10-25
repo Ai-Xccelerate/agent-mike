@@ -42,3 +42,17 @@ describe("extractStatedCustomer", () => {
     expect(extractStatedCustomer(["@@@ a@ @b .com ,,,"])).toBeNull();
   });
 });
+
+describe("extractStatedCustomer: 'I'm Priya'", () => {
+  it("reads a name straight after I'm or I am", () => {
+    expect(extractStatedCustomer(["Hi Eva, I'm Priya from a counselling centre. The Preview button does nothing."])?.name).toBe("Priya");
+    expect(extractStatedCustomer(["Hello, I am Priya Nair and I can't log in"])?.name).toBe("Priya Nair");
+    expect(extractStatedCustomer(["Hi, I’m Sam, our reports are blank"])?.name).toBe("Sam");
+  });
+
+  it("does not take ordinary sentences, shouting or stop words for a name", () => {
+    for (const text of ["I'm having an issue with the report", "I'M FRUSTRATED, nobody called me back", "I'm Sorry to bother you", "I am Unable to log in", "I'm trying to add a client"]) {
+      expect(extractStatedCustomer([text])?.name ?? null, text).toBeNull();
+    }
+  });
+});

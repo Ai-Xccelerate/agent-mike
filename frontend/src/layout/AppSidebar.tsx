@@ -3,7 +3,7 @@
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import { useSidebar } from "@/context/SidebarContext";
 import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
-import { GearIcon, GridIcon, MailIcon, SparklesIcon, TableIcon } from "@/icons";
+import { GearIcon, GridIcon, MailIcon, SparklesIcon, TicketIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
@@ -20,7 +20,7 @@ const primaryNav: { name: string; path: string; icon: React.FC }[] = [
   { name: "Overview", path: "/", icon: GridIcon },
   { name: "Assistant", path: "/assistant", icon: SparklesIcon },
   { name: "Inbox", path: "/inbox", icon: MailIcon },
-  { name: "Tickets", path: "/tickets", icon: TableIcon },
+  { name: "Tickets", path: "/tickets", icon: TicketIcon },
 ];
 
 export default function AppSidebar() {

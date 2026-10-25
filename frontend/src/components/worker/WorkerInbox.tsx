@@ -31,7 +31,7 @@ import {
   markConversationRead,
   type ConversationReadMap,
 } from "@/lib/conversation-read-state";
-import { isPlaceholderName } from "@/lib/tickets";
+import { customerLabel, isPlaceholderName } from "@/lib/tickets";
 import { apiFetch, Conversation, WorkerApiError, WorkerProfile } from "@/lib/worker-api";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -162,7 +162,9 @@ function identityTag(conversation: Conversation): { label: string; tone: "succes
   if (conversation.channel !== "widget" && conversation.channel !== "chat") return null;
   if (conversation.customerEmailVerifiedAt) return { label: "Verified", tone: "success" };
   if (conversation.customerEmail) return { label: "Email given", tone: "muted" };
-  if (isPlaceholderName(conversation.customerName)) return { label: "Anonymous", tone: "muted" };
+  if (isPlaceholderName(conversation.customerName)) {
+    return customerLabel(conversation).unverified ? { label: "Name given", tone: "muted" } : { label: "Anonymous", tone: "muted" };
+  }
   return null;
 }
 
@@ -303,7 +305,8 @@ export default function WorkerInbox() {
     return byChannel.filter((item) => {
       return (
         item.customerName.toLowerCase().includes(query) ||
-        (item.customerEmail ?? "").toLowerCase().includes(query) ||
+        customerLabel(item).name.toLowerCase().includes(query) ||
+        (item.customerEmail ?? customerLabel(item).email ?? "").toLowerCase().includes(query) ||
         ticketRef(item).toLowerCase().includes(query) ||
         (item.subject ?? "").toLowerCase().includes(query)
       );
@@ -544,7 +547,7 @@ export default function WorkerInbox() {
                 <button
                   key={conversation.id}
                   onClick={() => selectConversation(conversation.id)}
-                  aria-label={unread ? `${conversation.customerName}, unread` : conversation.customerName}
+                  aria-label={unread ? `${customerLabel(conversation).name}, unread` : customerLabel(conversation).name}
                   aria-current={active ? "true" : undefined}
                   className={`relative flex w-full items-start gap-3 border-b border-gray-100 py-3 pl-4 pr-3 text-left transition-colors dark:border-white/[0.06] ${
                     active
@@ -553,7 +556,7 @@ export default function WorkerInbox() {
                   }`}
                 >
                   {active && <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[3px] bg-brand-500" />}
-                  <CustomerAvatar name={conversation.customerName} />
+                  <CustomerAvatar name={customerLabel(conversation).name} />
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex items-baseline justify-between gap-2">
                       <span className="flex min-w-0 items-center gap-1.5">
@@ -563,7 +566,7 @@ export default function WorkerInbox() {
                             active ? "text-brand-600 dark:text-brand-400" : "text-gray-900 dark:text-white/90"
                           }`}
                         >
-                          {conversation.customerName}
+                          {customerLabel(conversation).name}
                         </span>
                       </span>
                       <span
@@ -603,14 +606,14 @@ export default function WorkerInbox() {
                 >
                   <ChevronLeftIcon className="size-5" />
                 </button>
-                <CustomerAvatar name={selected.customerName} size="lg" />
+                <CustomerAvatar name={customerLabel(selected).name} size="lg" />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-white/90">{selected.customerName}</p>
+                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-white/90">{customerLabel(selected).name}</p>
                     <StatusTag conversation={selected} />
                   </div>
                   <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
-                    {[selected.customerEmail, CHANNEL_LABEL[selected.channel]].filter(Boolean).join(" · ")}
+                    {[customerLabel(selected).email, CHANNEL_LABEL[selected.channel]].filter(Boolean).join(" · ")}
                     {selected.externalTicketKey ? (
                       <>
                         {" "}
@@ -810,7 +813,7 @@ export default function WorkerInbox() {
                       maxRows={8}
                       maxLength={REPLY_MAX_LENGTH}
                       aria-label="Reply"
-                      placeholder={isPlaceholderName(selected.customerName) ? "Write a reply…" : `Reply to ${selected.customerName.split(" ")[0]}…`}
+                      placeholder={isPlaceholderName(customerLabel(selected).name) ? "Write a reply…" : `Reply to ${customerLabel(selected).name.split(" ")[0]}…`}
                       className="block w-full resize-none bg-transparent px-3.5 py-2.5 text-sm leading-6 text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
                     />
                     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 py-2 pl-3.5 pr-2 dark:border-white/[0.08]">

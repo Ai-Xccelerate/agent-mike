@@ -365,6 +365,15 @@ describe("redactIssue as a conversation", () => {
     expect(reason).toBe("sensitive");
   });
 
+  it("keeps a long thread whole, not cut at ten messages", () => {
+    const many = Array.from({ length: 24 }, (_, i) =>
+      i % 2 === 0 ? customer(`Customer message ${i}`, `2026-09-30T10:${String(i).padStart(2, "0")}:00.000+0000`) : team(`Team reply ${i}`, `2026-09-30T10:${String(i).padStart(2, "0")}:00.000+0000`),
+    );
+    const { ticket } = redactIssue(threaded(many), { turns: true });
+    expect(ticket?.turns?.length).toBe(25);
+    expect(ticket?.turns?.[24].text).toBe("Team reply 23");
+  });
+
   it("gives no turns unless they are asked for", () => {
     expect(redactIssue(threaded([])).ticket).not.toHaveProperty("turns");
   });
