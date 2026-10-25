@@ -114,8 +114,9 @@ function clip(text: string): string {
   return text.length > FIELD_CHARS ? `${text.slice(0, FIELD_CHARS).trimEnd()}…` : text;
 }
 
-const TURNS_MAX = 10;
-const TURN_CHARS = 700;
+// A real support thread can run long: the first sample's longest came back at exactly the old limit of 10, so it was cut.
+const TURNS_MAX = 40;
+const TURN_CHARS = 1500;
 const FIRST_NAME_MARK = "\u27e6FN\u27e7";
 
 export type RedactOptions = {
