@@ -11,16 +11,24 @@ export type StatedCustomer = { name: string | null; email: string | null };
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
 // Words are joined by spaces or tabs only, so a name never runs onto the next line.
 const NAME = "[A-Z][\\p{L}'’-]+(?:[ \\t]+[A-Z][\\p{L}'’-]+){0,2}";
+// One name word: a capital then lower-case letters, so "I'M FRUSTRATED" is not a name.
+const NAME_WORD = "[A-Z][\\p{Ll}'’-]+";
 // "my name is Dana Reyes", "name: Dana Reyes", "this is Dana Reyes" (two or more words, so "this is Urgent" is not a name)
 const INTRODUCED = [
   new RegExp(`\\bmy name is[ \\t]+(${NAME})`, "u"),
   new RegExp(`\\b[Nn]ame[ \\t]*:[ \\t]*(${NAME})`, "u"),
   new RegExp(`\\bthis is[ \\t]+([A-Z][\\p{L}'’-]+[ \\t]+[A-Z][\\p{L}'’-]+)`, "u"),
+  // "I'm Priya", "Hi, I am Priya Nair": a capitalised word straight after, which an ordinary sentence ("I'm having…") does not have
+  new RegExp(`\\bI(?:'|’| a)m[ \\t]+(${NAME_WORD}(?:[ \\t]+${NAME_WORD})?)\\b`, "u"),
 ];
 // "Dana Reyes, dana@example.com, Riverside Counseling": two or three capitalised words, then a separator, then the email
 const NAME_THEN_EMAIL = new RegExp(`^\\s*(${NAME.replace("{0,2}", "{1,2}")})\\s*[,;|–-]\\s*\\S*@`, "u");
 
-const NOT_NAMES = new Set(["hello team", "thank you", "good morning", "good afternoon", "kind regards", "best regards"]);
+const NOT_NAMES = new Set([
+  "hello team", "thank you", "good morning", "good afternoon", "kind regards", "best regards",
+  "sorry", "unable", "having", "trying", "looking", "writing", "calling", "using", "getting", "still", "just", "very", "really",
+  "afraid", "glad", "happy", "sure", "fine", "wondering", "hoping", "here", "back", "not", "from", "with", "new", "locked",
+]);
 
 function cleanName(raw: string | undefined): string | null {
   const name = raw?.trim().replace(/[.,;]+$/, "");
