@@ -56,9 +56,11 @@ export async function cannedRepliesBlock(organizationId: string): Promise<string
   }
   if (lines.length === 0) return "";
   return (
-    "Approved wording from the team. When a customer's message matches one of these situations, say what it says, in a chat " +
-    "voice and fitted to what they wrote (use their details, drop what does not apply). Never invent facts it does not " +
-    "contain, and do not use a reply for a situation it does not fit:\n" +
+    "Approved wording from the team, for situations that come up again and again. When a customer's message matches one of " +
+    "these situations, lead with what it says, in a chat voice and fitted to what they wrote (use their details, drop what " +
+    "does not apply). It wins over the reference material below when both cover the question: do not replace it with a " +
+    "different answer, and add steps from the material only if the customer needs more than the reply gives. Never invent " +
+    "facts it does not contain, and do not use a reply for a situation it does not fit:\n" +
     lines.join("\n") +
     "\n\n"
   );
