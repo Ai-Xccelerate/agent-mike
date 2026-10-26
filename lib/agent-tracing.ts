@@ -1,4 +1,5 @@
 import { Runner, getGlobalTraceProvider } from "@openai/agents";
+import { initLangfuseTracing } from "@/lib/langfuse-tracing";
 import { noteTurn } from "@/lib/timing";
 import type { Agent, RunStreamEvent } from "@openai/agents";
 
@@ -34,6 +35,7 @@ export async function runTracedAgent(
   input: string,
   options: { maxTurns: number; context?: unknown },
 ) {
+  initLangfuseTracing();
   const runner = new Runner(agentTraceRunConfig(workflowName, ctx));
   try {
     const result = await runner.run(agent, input, {
@@ -75,6 +77,7 @@ export async function runTracedAgentStreamed(
   options: { maxTurns: number; context?: unknown },
   onEvent: (event: RunStreamEvent) => void,
 ) {
+  initLangfuseTracing();
   const runner = new Runner(agentTraceRunConfig(workflowName, ctx));
   try {
     const result = await runner.run(agent, input, {
