@@ -58,6 +58,7 @@ describe("canned replies", () => {
     await createCannedReply(orgId, reply);
     const block = await cannedRepliesBlock(orgId);
     expect(block).toContain("When: A customer asks when a bug will be fixed");
+    expect(block).toContain("It wins over the reference material");
     expect(block).not.toContain("Switched off wording");
     expect(off?.enabled).toBe(false);
   });
