@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { LangfuseProcessor, buildSpans, maskForTrace } from "@/lib/langfuse-tracing";
+import { traceSet, withTurnTimer } from "@/lib/timing";
 
 const trace = { traceId: "trace_0123456789abcdef0123456789abcdef", name: "Customer chat", groupId: "conv-123", metadata: { organizationId: "org-1", conversationId: "conv-123" } } as never;
 const span = (spanId: string, spanData: Record<string, unknown>, parentId: string | null = null, traceId = "trace_0123456789abcdef0123456789abcdef") =>
@@ -68,5 +69,32 @@ describe("what every observation carries", () => {
       expect(attr(s as never, "langfuse.session.id")).toBe("conv-123");
       expect(attr(s as never, "langfuse.environment")).toBe("prod");
     }
+  });
+});
+
+describe("side runs of a chat turn", () => {
+  it("join the chat's session and are named for the agent that ran", async () => {
+    const post = vi.fn(async () => new Response("{}", { status: 200 }));
+    const processor = new LangfuseProcessor({ baseUrl: "https://lf.example", publicKey: "pk", secretKey: "sk" }, post as never);
+    const side = { traceId: "trace_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", name: "Agent workflow", groupId: null, metadata: undefined } as never;
+    await withTurnTimer({ turn: "test" }, async () => {
+      traceSet("conversationId", "conv-777");
+      await processor.onTraceStart(side);
+    });
+    await processor.onSpanEnd(span("span_s", { type: "agent", name: "Ticket classifier" }, null, "trace_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"));
+    await processor.onTraceEnd(side);
+    await processor.forceFlush();
+    const spans = JSON.parse(((post.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).resourceSpans[0].scopeSpans[0].spans;
+    expect(attr(spans[0], "langfuse.session.id")).toBe("conv-777");
+    expect(spans[0].name).toBe("side task: Ticket classifier");
+  });
+});
+
+describe("names the visitor gave", () => {
+  it("are hidden everywhere in the turn's traces", async () => {
+    await withTurnTimer({ turn: "test" }, async () => {
+      traceSet("customerNames", ["Dana Smith"]);
+      expect(maskForTrace("Dana (dana@acme.org) needs help with an invoice")).toBe("[name] ([email]) needs help with an invoice");
+    });
   });
 });

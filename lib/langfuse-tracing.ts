@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { addTraceProcessor, setTraceProcessors, setTracingDisabled } from "@openai/agents";
 import type { Span, SpanData, Trace, TracingProcessor } from "@openai/agents";
+import { traceGet } from "@/lib/timing";
 import { redactTicketText } from "@/lib/ticket-redaction";
 
 /**
@@ -15,8 +16,14 @@ import { redactTicketText } from "@/lib/ticket-redaction";
 const MAX_TEXT = 20_000;
 const MAX_DEPTH = 8;
 
+/** Names the visitor has given in this turn's chat; hidden wherever they appear. */
+function knownNames(): string[] {
+  const names = traceGet("customerNames");
+  return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : [];
+}
+
 export function maskForTrace(value: unknown, depth = 0): unknown {
-  if (typeof value === "string") return redactTicketText(value.length > MAX_TEXT ? `${value.slice(0, MAX_TEXT)}…` : value).text;
+  if (typeof value === "string") return redactTicketText(value.length > MAX_TEXT ? `${value.slice(0, MAX_TEXT)}…` : value, knownNames()).text;
   if (value === null || typeof value !== "object" || depth >= MAX_DEPTH) return typeof value === "object" ? "[too deep]" : value;
   if (Array.isArray(value)) return value.map((item) => maskForTrace(item, depth + 1));
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, maskForTrace(item, depth + 1)]));
@@ -140,18 +147,20 @@ export function buildSpans(trace: Trace, spans: Span<SpanData>[], environment: s
     });
   }
 
+  const sideTask = trace.name === "Agent workflow" ? (spans.map((s) => (s.spanData as { type: string; name?: string }) ).find((d) => d.type === "agent")?.name ?? null) : null;
+  const rootName = sideTask ? `side task: ${sideTask}` : trace.name;
   const starts = out.map((s) => BigInt(s.startTimeUnixNano));
   const ends = out.map((s) => BigInt(s.endTimeUnixNano));
   const metadata = Object.entries(trace.metadata ?? {}).flatMap(([key, value]) => text(`langfuse.trace.metadata.${key}`, value));
   out.unshift({
     traceId,
     spanId: rootId,
-    name: trace.name,
+    name: rootName,
     kind: 1,
     startTimeUnixNano: String(starts.length ? starts.reduce((a, b) => (a < b ? a : b)) : BigInt(now) * 1_000_000n),
     endTimeUnixNano: String(ends.length ? ends.reduce((a, b) => (a > b ? a : b)) : BigInt(now) * 1_000_000n),
     attributes: [
-      ...text("langfuse.trace.name", trace.name),
+      ...text("langfuse.trace.name", rootName),
       ...shared,
       ...text("langfuse.trace.input", input ? maskForTrace(input) : undefined),
       ...text("langfuse.trace.output", output ? maskForTrace(output) : undefined),
@@ -173,6 +182,12 @@ export class LangfuseProcessor implements TracingProcessor {
   ) {}
 
   async onTraceStart(trace: Trace) {
+    // Runs outside the chat's own trace (ticket sorting, summaries) start with no group: they join the turn's chat.
+    const conversationId = traceGet("conversationId");
+    if (!trace.groupId && typeof conversationId === "string") {
+      trace.groupId = conversationId;
+      trace.metadata = { ...(trace.metadata ?? {}), conversationId };
+    }
     this.open.set(trace.traceId, { trace, spans: [] });
   }
   async onSpanStart() {}
