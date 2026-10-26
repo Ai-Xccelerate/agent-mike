@@ -29,6 +29,8 @@ import {
   helpdeskCapabilities,
   lookupJiraCustomerByEmail,
   HANDOFF_TICKET_LABEL,
+  ANSWERED_TICKET_LABEL,
+  helpdeskTicketsEveryConversation,
   handoffTicketSummary,
   issueKeyFrom,
   jiraSettingsProblem,
@@ -185,6 +187,7 @@ describe("connection settings", () => {
       createTicketOnHandoff: true,
       workerChoosesRequestType: false,
       createCustomers: false,
+      ticketEveryConversation: false,
     });
     expect(readJiraSettings({ settings: { projectKey: "not a key!" } }).projectKey).toBeNull();
     expect(readConfluenceSettings(null)).toEqual({ spaceKeys: [], searchBeforeAnswering: true, searchIndex: false });
@@ -402,6 +405,59 @@ describe("raising a Jira ticket on handoff", () => {
       );
       const [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
       expect(stored.externalTicketKey).toBe("SUP-12");
+    });
+
+    it("logs a conversation the worker answered itself as answered, not as a handoff", async () => {
+      connectionsFor({ helpdesk: jsmReady() });
+      jiraAnswers({ status: 201, data: { issueKey: "SUP-13", requestTypeId: "8" } });
+      const row = await newConversation({ customerName: "Ana", customerEmail: "ana@example.com" });
+
+      const result = await recordHandoffInJira({
+        organizationId: orgId,
+        workerName: "Eva",
+        conversation: handoffConversation(row),
+        transcript: [{ speaker: "Ana", body: "How do I add a provider?" }],
+        latestMessage: "How do I add a provider?",
+        workerReply: "Open Providers and choose New.",
+        answeredByWorker: true,
+      });
+
+      expect(result).toMatchObject({ key: "SUP-13", created: true });
+      const create = proxyRequestMock.mock.calls.find(([call]) => call.method === "POST")![0];
+      const description = (create.body as { requestFieldValues: { description: string } }).requestFieldValues.description;
+      expect(description).toContain("answered this conversation herself");
+      expect(description).not.toContain("handed this conversation to a person");
+      const label = proxyRequestMock.mock.calls.find(([call]) => call.method === "PUT")![0];
+      expect(label.body).toEqual({ update: { labels: [{ add: ANSWERED_TICKET_LABEL }] } });
+    });
+
+    it("turns an answered ticket into a handoff ticket when the customer then needs a person", async () => {
+      connectionsFor({ helpdesk: jsmReady() });
+      jiraAnswers({ status: 201, data: {} });
+      const row = await newConversation({ externalTicketKey: "SUP-13" });
+      await recordHandoffInJira({ organizationId: orgId, workerName: "Eva", conversation: handoffConversation(row), transcript: [], latestMessage: "That did not work, I need help" });
+      const relabel = proxyRequestMock.mock.calls.find(([call]) => call.method === "PUT")![0];
+      expect(relabel).toMatchObject({
+        endpoint: `${API}/rest/api/3/issue/SUP-13`,
+        body: { update: { labels: [{ add: HANDOFF_TICKET_LABEL }, { remove: ANSWERED_TICKET_LABEL }] } },
+      });
+    });
+
+    it("only logs every conversation when that is switched on next to ticket raising and a project", async () => {
+      connectionsFor({ helpdesk: jsmReady() });
+      expect(await helpdeskTicketsEveryConversation(orgId)).toBe(false);
+      connectionsFor({
+        helpdesk: connection("helpdesk", "jira", {
+          metadata: { settings: { projectKey: "SUP", issueType: null, requestTypeId: "8", requestTypeName: "x", createTicketOnHandoff: true, ticketEveryConversation: true } },
+        }),
+      });
+      expect(await helpdeskTicketsEveryConversation(orgId)).toBe(true);
+      connectionsFor({
+        helpdesk: connection("helpdesk", "jira", {
+          metadata: { settings: { projectKey: "SUP", issueType: null, requestTypeId: "8", requestTypeName: "x", createTicketOnHandoff: false, ticketEveryConversation: true } },
+        }),
+      });
+      expect(await helpdeskTicketsEveryConversation(orgId)).toBe(false);
     });
 
     it("adds a later handoff as an internal note, falling back to a comment on a ticket that isn't a request", async () => {

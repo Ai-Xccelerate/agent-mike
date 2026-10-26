@@ -709,6 +709,8 @@ export type JiraConnectionSettings = {
   workerChoosesRequestType: boolean;
   /** Create a Jira customer account for a verified visitor who is not one yet. Needs identity mode email_code. */
   createCustomers: boolean;
+  /** Also raise a ticket for a conversation the worker answers itself, marked as answered, with no manager email. */
+  ticketEveryConversation: boolean;
 };
 
 /** Which Confluence spaces ground the worker's answers (empty = every space). */

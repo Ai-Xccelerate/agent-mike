@@ -138,6 +138,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
   const [createTicketOnHandoff, setCreateTicketOnHandoff] = useState(settings.createTicketOnHandoff);
   const [workerChooses, setWorkerChooses] = useState(settings.workerChoosesRequestType);
   const [createCustomers, setCreateCustomers] = useState(Boolean(settings.createCustomers));
+  const [ticketEveryConversation, setTicketEveryConversation] = useState(Boolean(settings.ticketEveryConversation));
   // Null while loading; "failed" falls back to typing the values in.
   const [projects, setProjects] = useState<JiraProject[] | "failed" | null>(null);
   const { saving, error, save } = useSave(integrationType, onSaved, onClose);
@@ -172,6 +173,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
           workerChoosesRequestType: listed ? asRequest && workerChooses : settings.workerChoosesRequestType,
           createTicketOnHandoff,
           createCustomers,
+          ticketEveryConversation,
         });
       }}
     >
@@ -284,6 +286,13 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
           checked={createTicketOnHandoff}
           disabled={saving}
           onChange={() => setCreateTicketOnHandoff((value) => !value)}
+        />
+        <SettingsToggleRow
+          title="Also raise a ticket for conversations the worker answers"
+          description="For the desk's reporting. The ticket is marked as answered, nobody is emailed, and the customer is told nothing. It needs the visitor's name and email first, so a visitor who has not given them is asked once. Greetings and out-of-scope questions are not logged. Needs ticket raising above."
+          checked={ticketEveryConversation}
+          disabled={saving || !createTicketOnHandoff}
+          onChange={() => setTicketEveryConversation((value) => !value)}
         />
         <SettingsToggleRow
           title="Create Jira customers"
