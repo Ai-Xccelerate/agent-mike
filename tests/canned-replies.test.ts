@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { GET, POST } from "@/app/api/v1/canned-replies/route";
 import { DELETE, PATCH } from "@/app/api/v1/canned-replies/[id]/route";
 import { ensureOrganization } from "@/lib/bootstrap";
+import { buildInstructions } from "@/lib/agent";
 import { CANNED_LIMITS, cannedRepliesBlock, createCannedReply } from "@/lib/canned-replies";
 import { getIdentityAdapter, setIdentityAdapter } from "@/lib/identity";
 
@@ -60,5 +61,16 @@ describe("canned replies", () => {
     expect(block).toContain("When: A customer asks when a bug will be fixed");
     expect(block).not.toContain("Switched off wording");
     expect(off?.enabled).toBe(false);
+  });
+
+  it("reach the worker's instructions, above the part that changes every turn", async () => {
+    const profile = { displayName: "Eva", role: "Support", tone: "friendly", managerName: "Sam", confidenceThreshold: 0.6, escalationTerms: [], enabledSkills: [] } as never;
+    await createCannedReply(orgId, reply);
+    const instructions = await buildInstructions(profile, "Acme", [], orgId);
+    expect(instructions).toContain("Approved wording from the team");
+    expect(instructions).toContain("Say: I can't give a date");
+    expect(instructions.indexOf("Approved wording")).toBeLessThan(instructions.indexOf("Reminder: if the reference material above"));
+    const none = await buildInstructions(profile, "Acme", [], `org-${crypto.randomUUID()}`);
+    expect(none).not.toContain("Approved wording");
   });
 });
