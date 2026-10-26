@@ -7,7 +7,8 @@ import WorkerChatRail from "@/components/worker/WorkerChatRail";
 import Badge from "@/components/ui/badge/Badge";
 import { ArrowUpIcon, DocsIcon, MicrophoneIcon } from "@/icons";
 import { useDictation } from "@/hooks/useDictation";
-import { apiFetch, ChatResponse, Conversation, Message, WorkerProfile } from "@/lib/worker-api";
+import { apiFetch, ChatResponse, Conversation, Message, WorkerApiError, WorkerProfile } from "@/lib/worker-api";
+import { attachedLines, FILE_ACCEPT, FILE_MAX_BYTES, FILES_MAX, fileSize } from "@/lib/customer-files";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { forgetRemembered, readRemembered } from "@/lib/remembered-customer";
 import { quickActionsFor, welcomeText } from "@/lib/widget-defaults";
@@ -100,6 +101,11 @@ function ChatPanelBody({
   // What the server says it is doing right now ("Checking our help articles"). Never made up here.
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Files the visitor has chosen for their next message (uploaded already, not yet sent). Only where the manager allows it.
+  const [files, setFiles] = useState<{ id: string; filename: string; size: number }[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
 
@@ -227,9 +233,43 @@ function ChatPanelBody({
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
 
+  const canAttach = compact && Boolean(profile?.chatAttachments);
+
+  async function attachFiles(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    setFileError(null);
+    setUploading(true);
+    let held = files.length;
+    try {
+      for (const file of Array.from(list)) {
+        if (held >= FILES_MAX) {
+          setFileError(`You can attach up to ${FILES_MAX} files.`);
+          break;
+        }
+        if (file.size > FILE_MAX_BYTES) {
+          setFileError(`${file.name} is too big. The limit is ${FILE_MAX_BYTES / (1024 * 1024)} MB.`);
+          continue;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        try {
+          const saved = await apiFetch<{ id: string; filename: string; size: number }>("/chat/attachments", { method: "POST", body: form, widgetSiteToken: siteToken });
+          setFiles((current) => [...current, { id: saved.id, filename: saved.filename, size: saved.size }]);
+          held += 1;
+        } catch (error) {
+          setFileError(error instanceof WorkerApiError ? error.message : "That file couldn't be attached.");
+        }
+      }
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   async function sendText(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed || loading) return;
+    const sending = files;
+    const trimmed = text.trim() || (sending.length > 0 ? "I've attached a file." : "");
+    if (!trimmed || loading || uploading) return;
     setMessages((items) => [
       ...items,
       {
@@ -237,12 +277,14 @@ function ChatPanelBody({
         conversationId: conversationId ?? "",
         senderType: "customer",
         senderName: "You",
-        body: trimmed,
+        body: sending.length > 0 ? `${trimmed}\n\n${attachedLines(sending)}` : trimmed,
         citations: [],
         createdAt: new Date().toISOString(),
       },
     ]);
     setValue("");
+    setFiles([]);
+    setFileError(null);
     setStatusLabel(null);
     setLoading(true);
     try {
@@ -259,6 +301,7 @@ function ChatPanelBody({
             conversation_id: conversationId,
             // A new chat on a device remembered from a verified visit starts verified, with no second code.
             ...(compact && !conversationId ? { remember_token: readRemembered(siteToken)?.token } : {}),
+            ...(sending.length > 0 ? { attachment_ids: sending.map((file) => file.id) } : {}),
           },
         },
         {
@@ -554,6 +597,31 @@ function ChatPanelBody({
         }}
         className="shrink-0 border-t border-gray-200 p-3 dark:border-gray-800 sm:p-4"
       >
+        {canAttach && (files.length > 0 || uploading || fileError) && (
+          <div className="mb-2 flex flex-col gap-1.5">
+            {files.length > 0 && (
+              <ul className="flex flex-wrap gap-2">
+                {files.map((file) => (
+                  <li key={file.id} className="flex max-w-full items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700 dark:border-gray-700 dark:bg-white/[0.04] dark:text-gray-200">
+                    <span className="truncate">{file.filename}</span>
+                    <span className="shrink-0 text-gray-400">{fileSize(file.size)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setFiles((current) => current.filter((item) => item.id !== file.id))}
+                      aria-label={`Remove ${file.filename}`}
+                      className="shrink-0 rounded px-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {uploading && <p className="text-xs text-gray-500 dark:text-gray-400">Attaching…</p>}
+            {fileError && <p role="alert" className="text-xs text-error-600 dark:text-error-500">{fileError}</p>}
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">Please don't attach anything that shows client or patient details.</p>
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-xl border border-gray-300 bg-white p-1.5 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900">
           <AutoGrowTextarea
             ref={inputRef}
@@ -577,6 +645,31 @@ function ChatPanelBody({
             }
             className="flex-1 resize-none bg-transparent px-2 py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-white/90"
           />
+          {canAttach && (
+            <>
+              <input
+                ref={fileInputRef}
+                id="chat-file-input"
+                type="file"
+                multiple
+                accept={FILE_ACCEPT}
+                className="hidden"
+                onChange={(event) => void attachFiles(event.target.files)}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || loading || files.length >= FILES_MAX}
+                aria-label="Attach a file"
+                title="Attach a file (image, PDF, text, CSV, Excel or Word, up to 10 MB)"
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-400 dark:hover:bg-white/[0.05]"
+              >
+                <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m21 11.5-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9" />
+                </svg>
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={toggleVoice}
@@ -602,7 +695,7 @@ function ChatPanelBody({
           </button>
           <button
             type="submit"
-            disabled={!value.trim() || loading}
+            disabled={(!value.trim() && files.length === 0) || loading || uploading}
             aria-label="Send message"
             title="Send message"
             className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"

@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const runId = typeof input?.runId === "string" ? input.runId : crypto.randomUUID();
   const forwarded =
     input?.forwardedProps && typeof input.forwardedProps === "object" ? (input.forwardedProps as Record<string, unknown>) : {};
-  const body = { message: lastUserText(input?.messages), conversation_id: forwarded.conversation_id, remember_token: forwarded.remember_token };
+  const body = { message: lastUserText(input?.messages), conversation_id: forwarded.conversation_id, remember_token: forwarded.remember_token, attachment_ids: forwarded.attachment_ids };
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

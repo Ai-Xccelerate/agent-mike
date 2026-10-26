@@ -3,6 +3,7 @@ import type { AssistantCard } from "@/lib/assistant-cards";
 import type { CustomerCard } from "@/lib/customer-cards";
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -106,6 +107,8 @@ export const workerProfiles = pgTable(
     autoReply: boolean("auto_reply").notNull().default(true),
     // Email the manager when the worker hands a conversation over (any channel).
     emailManagerOnHandoff: boolean("email_manager_on_handoff").notNull().default(true),
+    /** Visitors may attach files in the website chat (passed to the team; the worker never reads them). */
+    chatAttachments: boolean("chat_attachments").notNull().default(false),
     // The team's first-reply target in hours, shown on the Overview. Null = none.
     firstReplyTargetHours: integer("first_reply_target_hours"),
     // The request types, tiers and labels this worker classifies tickets with
@@ -804,5 +807,40 @@ export const replyTraces = pgTable(
   (table) => ({
     orgIdx: index("reply_traces_org_idx").on(table.organizationId, table.createdAt),
     conversationIdx: index("reply_traces_conversation_idx").on(table.conversationId),
+  }),
+);
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+/**
+ * A file a visitor attached in the website chat. The worker never reads it: it is passed to the team, who open it in
+ * the Inbox. Unlinked (no conversation or message) and expiring within the hour until the message that carries it is
+ * sent, then kept for 30 days. Never served from a public address.
+ */
+export const messageAttachments = pgTable(
+  "message_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").references(() => messages.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    orgIdx: index("message_attachments_org_idx").on(table.organizationId, table.createdAt),
+    conversationIdx: index("message_attachments_conversation_idx").on(table.conversationId),
+    expiresIdx: index("message_attachments_expires_idx").on(table.expiresAt),
   }),
 );

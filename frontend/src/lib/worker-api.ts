@@ -14,6 +14,8 @@ export type Message = {
   citations: string[];
   /** Files the manager attached in the admin Assistant; empty elsewhere. */
   attachments?: MessageAttachment[];
+  /** Files a visitor attached in the website chat (Inbox only). */
+  customerFiles?: { id: string; filename: string; contentType: string; sizeBytes: number }[];
   /** Interactive panels an admin Assistant reply shows (kinds only; data is fetched live). */
   panels?: AssistantPanelKind[];
   /** Rich cards an admin Assistant reply shows (lib/assistant-cards.ts), or a customer reply shows (lib/customer-cards.ts). */
@@ -180,6 +182,8 @@ export type WorkerProfile = {
   autoReply: boolean;
   /** Email the manager when the worker hands a conversation over. */
   emailManagerOnHandoff: boolean;
+  /** Visitors may attach files in the website chat; the worker never reads them, the team does. */
+  chatAttachments: boolean;
   /** The team's first-reply target in hours, shown on the Overview. */
   firstReplyTargetHours: number | null;
   /** Settings > Email domains: on = the worker may only email approved domains. */
@@ -558,6 +562,19 @@ async function attachAuth(headers: Headers, init: ApiFetchOptions | undefined, f
   } else {
     headers.delete("Authorization");
   }
+}
+
+/** A file from the API as bytes, for a signed-in manager (downloads). */
+export async function apiBlob(path: string): Promise<Blob> {
+  const get = async (forceFreshToken: boolean) => {
+    const headers = new Headers();
+    await attachAuth(headers, undefined, forceFreshToken);
+    return fetch(`/api/v1${path}`, { headers });
+  };
+  let response = await get(false);
+  if (response.status === 401) response = await get(true);
+  if (!response.ok) throw new Error(response.status === 404 ? "That file has expired or is gone." : `Download failed with ${response.status}`);
+  return response.blob();
 }
 
 export async function apiFetch<T>(path: string, init?: ApiFetchOptions): Promise<T> {

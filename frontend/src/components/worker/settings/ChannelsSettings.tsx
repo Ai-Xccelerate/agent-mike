@@ -23,7 +23,7 @@ import { useWorkerProfile } from "@/lib/use-worker-profile";
 const SIGNATURE_MAX_LENGTH = 300;
 
 /** Everything on this page that the header's Save writes. */
-const CHANNEL_FIELDS: (keyof WorkerProfile)[] = ["channelsConfig", "email", "emailSignature", "welcomeMessage", "quickActions"];
+const CHANNEL_FIELDS: (keyof WorkerProfile)[] = ["channelsConfig", "email", "emailSignature", "welcomeMessage", "quickActions", "chatAttachments"];
 
 type Update = <K extends keyof WorkerProfile>(key: K, value: WorkerProfile[K]) => void;
 
@@ -187,6 +187,12 @@ function ChatChannelSettings({
         </div>
         <FieldError message={quickActionsError} />
       </fieldset>
+      <SettingsToggleRow
+        title="Let visitors attach files"
+        description={`Images, PDF, text, CSV, Excel and Word, up to 10 MB each and 5 per conversation. ${profile.displayName} never opens them: the file goes to the team with the conversation, and you download it from the Inbox. Kept for 30 days. The chat asks visitors not to attach anything that shows client or patient details.`}
+        checked={profile.chatAttachments}
+        onChange={() => update("chatAttachments", !profile.chatAttachments)}
+      />
     </div>
   );
 }

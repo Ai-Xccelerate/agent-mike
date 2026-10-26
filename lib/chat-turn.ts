@@ -5,6 +5,7 @@ import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { readRememberToken } from "@/lib/remembered-customer";
+import { attachmentMarker, linkUploads, usableUploads } from "@/lib/attachments";
 import { insertConversationWithTicket, runCustomerTurn, type TicketFollowUp } from "@/lib/customer-turn";
 import { timed, withTurnTimer } from "@/lib/timing";
 import { anonymousVisitorName, normalizeIdentityMode } from "@/lib/customer-identity";
@@ -129,6 +130,13 @@ async function runChatRequestTimed(
   }
 
   const speakerName = tenant.source === "widget" ? conversation.customerName : "Manager";
+  // Files the visitor attached to this message, when the worker allows it: the message says so, so the team, the
+  // ticket and the worker all see it. The worker never opens a file.
+  const attachmentIds = Array.isArray(body?.attachment_ids) ? (body.attachment_ids as unknown[]).filter((id): id is string => typeof id === "string") : [];
+  const uploads =
+    tenant.source === "widget" && profile.chatAttachments && attachmentIds.length > 0
+      ? await usableUploads({ organizationId: tenant.orgId, conversationId: conversation.id, ids: attachmentIds })
+      : [];
   const [userMessage] = await timed("db.insertMessage", () =>
     db
       .insert(messages)
@@ -136,10 +144,13 @@ async function runChatRequestTimed(
         conversationId: conversation!.id,
         senderType: tenant.source === "widget" ? "customer" : "manager",
         senderName: speakerName,
-        body: message,
+        body: uploads.length > 0 ? `${message}\n\n${attachmentMarker(uploads)}` : message,
       })
       .returning(),
   );
+  if (uploads.length > 0) {
+    await linkUploads({ organizationId: tenant.orgId, conversationId: conversation.id, messageId: userMessage.id, ids: uploads.map((file) => file.id) });
+  }
 
   // A manager has taken over — the agent stays quiet until it's handed back.
   if (conversation.humanControlled) {
