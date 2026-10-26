@@ -3,6 +3,7 @@ import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { modelUnavailabilityReason } from "@/lib/env";
+import { cannedRepliesBlock } from "@/lib/canned-replies";
 import { timed, traceAdd, traceSet } from "@/lib/timing";
 import { cleanChoices } from "@/lib/customer-cards";
 import { CUSTOMER_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
@@ -1333,6 +1334,7 @@ export async function buildInstructions(
         "files. The file is passed to the team with the conversation, so say that in a few words, ask them to describe in a line " +
         "what it shows, and never ask them to send client or patient details.\n\n"
       : "") +
+    (await cannedRepliesBlock(organizationId)) +
     "Thanks and goodbye: when a customer thanks you or says goodbye, answer warmly in one short line (for example \"You're " +
     "welcome! Glad I could help. Message me any time if anything else comes up.\") and ask nothing more. " +
     "Asking for a person: when a customer asks to talk to a person, say a teammate will follow up, and in the same reply ask " +

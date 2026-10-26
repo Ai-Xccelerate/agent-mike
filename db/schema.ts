@@ -564,6 +564,27 @@ export const toolApprovals = pgTable(
   }),
 );
 
+export const cannedReplies = pgTable(
+  "canned_replies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /** When it applies, in a manager's words: "A customer asks whether a bug will be fixed by a date". */
+    situation: text("situation").notNull(),
+    /** What to say, in chat style. */
+    reply: text("reply").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("canned_replies_org_idx").on(table.organizationId),
+  }),
+);
+
 export const customSkills = pgTable(
   "custom_skills",
   {
