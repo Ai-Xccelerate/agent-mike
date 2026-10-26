@@ -15,6 +15,8 @@ export type CustomerTicket = {
   updated: string;
   /** A number the customer quoted that is theirs (checked email) and has a helpdesk key: a chase can go on it. */
   chaseable?: boolean;
+  /** The request being handled in this very conversation: not an earlier one. */
+  thisChat?: boolean;
 };
 
 /**
@@ -56,10 +58,13 @@ export async function customerTickets(
     about: row.ticketSummary ?? row.subject ?? null,
     status: customerStatusWord(row.status),
     updated: row.updatedAt.toISOString(),
+    ...(row.id === conversationId ? { thisChat: true } : {}),
     // An earlier request of this checked customer, quoted by its number: a chase can go on it.
     ...(email && asked && row.id !== conversationId && row.externalTicketKey && asked(row) ? { chaseable: true } : {}),
   }));
-  const quoted = quotedReference ? await quotedTicket(organizationId, ticketPrefix, quotedReference, email ?? null) : null;
+  // The address typed in this chat (not checked) can match a request's address; it is not proof, so it only ever earns a status.
+  const typedEmail = current.customerEmail?.trim().toLowerCase() || null;
+  const quoted = quotedReference ? await quotedTicket(organizationId, ticketPrefix, quotedReference, email ?? null, typedEmail) : null;
   if (quoted && !own.some((ticket) => ticket.reference === quoted.reference)) own.push(quoted);
   return own;
 }
@@ -77,15 +82,16 @@ function quotedMatcher(
 }
 
 /**
- * A request the customer quotes by its number, from an earlier chat. Anyone could type a number, so only its
- * status in plain words is given, and the summary stays hidden, unless the customer's address is a checked one
- * and is the address on that request.
+ * A request the customer quotes by its number, from an earlier chat. Anyone could type a number, so a number alone
+ * shows nothing. With the request's own address typed in this chat (not checked) only its status in plain words is
+ * given; with a checked address that is the one on the request, what it is about as well.
  */
 async function quotedTicket(
   organizationId: string,
   ticketPrefix: string | null | undefined,
   quoted: string,
   verifiedEmail: string | null,
+  typedEmail: string | null,
 ): Promise<CustomerTicket | null> {
   const text = quoted.trim();
   const own = new RegExp(`^(?:${(ticketPrefix || "TCK").replace(/[^A-Za-z0-9]/g, "")}-)?(\\d{1,9})$`, "i").exec(text);
@@ -101,8 +107,12 @@ async function quotedTicket(
     .where(and(eq(conversations.organizationId, organizationId), ne(conversations.channel, "assistant"), or(...conditions)))
     .limit(1);
   if (!row) return null;
+  const rowEmail = row.customerEmail?.trim().toLowerCase() || null;
   // The same address, checked by a code (or the sender of an email): it is their own request, so say what it is about.
-  const theirs = Boolean(verifiedEmail) && row.customerEmail?.trim().toLowerCase() === verifiedEmail;
+  const theirs = Boolean(verifiedEmail) && rowEmail === verifiedEmail;
+  // A number alone proves nothing, and numbers are easy to guess: with neither a checked address nor the request's own
+  // address typed in this chat, nothing at all is shown, not even that the request exists.
+  if (!theirs && !(typedEmail && rowEmail === typedEmail)) return null;
   return {
     reference: ticketReference(ticketPrefix, row.ticketNumber),
     serviceDeskKey: row.externalTicketKey ?? null,

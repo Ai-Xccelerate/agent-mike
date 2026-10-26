@@ -390,3 +390,20 @@ describe("a login name written straight after 'user'", () => {
     }
   });
 });
+
+describe("a record number of any length", () => {
+  it("is removed after client, file, case and similar words", () => {
+    const { ticket } = redactIssue(issue({ summary: "Separate client #8964 from another client", description: adf("Same name, different people. File 1234 and case no. 77 are both affected."), comment: { comments: [] } }));
+    const text = ticket?.problem ?? "";
+    expect(text).not.toContain("8964");
+    expect(text).not.toContain("1234");
+    expect(text).not.toContain("77");
+    expect(text).toContain("client [number]");
+  });
+
+  it("leaves ordinary numbers alone", () => {
+    const { ticket } = redactIssue(issue({ summary: "Add 18 sessions to 614 contracts", description: adf("Please do it in 3 steps."), comment: { comments: [] } }));
+    expect(ticket?.problem).toContain("18 sessions");
+    expect(ticket?.problem).toContain("614 contracts");
+  });
+});

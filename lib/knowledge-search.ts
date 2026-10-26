@@ -5,6 +5,8 @@ import { cosine, embedTexts, type Embedder } from "@/lib/embeddings";
 import { INDEX_SOURCE } from "@/lib/knowledge-index";
 import { expandKeywords, focusOnQuestion, searchKeywords, stemWeights, wordStem } from "@/lib/tools-integrations/atlassian";
 import type { KnowledgeMatch } from "@/lib/knowledge";
+import { rewriteForSearch } from "@/lib/query-rewrite";
+import { traceSet } from "@/lib/timing";
 
 /**
  * Finds the sections of the saved copy of an organization's knowledge that answer a question.
@@ -173,7 +175,13 @@ export type IndexMatchDetail = { title: string; heading: string | null; meaning:
 export async function searchKnowledgeIndex(
   organizationId: string,
   question: string,
-  options: { limit?: number; embed?: Embedder; tuning?: Partial<SearchTuning> } = {},
+  options: {
+    limit?: number;
+    embed?: Embedder;
+    tuning?: Partial<SearchTuning>;
+    /** Makes a clean English query from the message; false turns it off (the experiment runner). Defaults to the model-backed one. */
+    rewrite?: false | ((question: string) => Promise<string | null>);
+  } = {},
 ): Promise<{ matches: KnowledgeMatch[]; timings: IndexSearchTimings; details: IndexMatchDetail[] }> {
   const started = Date.now();
   const tuning: SearchTuning = {
@@ -184,23 +192,33 @@ export async function searchKnowledgeIndex(
   };
   const limit = tuning.limit;
   const embed = options.embed ?? embedTexts;
-  const focus = focusOnQuestion(question);
-  const words = expandKeywords(focus, searchKeywords(focus, 12));
+  const buildQuery = (text: string) => {
+    const focus = focusOnQuestion(text);
+    return { focus, words: expandKeywords(focus, searchKeywords(focus, 12)) };
+  };
+  const primary = buildQuery(question);
+  // A clean English version of a long or non-English message is searched too, and the two result lists are merged.
+  const rewritten = options.rewrite === false ? null : await (options.rewrite ?? rewriteForSearch)(question).catch(() => null);
+  const queries = [primary];
+  if (rewritten && normalizeQuestion(rewritten) !== normalizeQuestion(primary.focus)) {
+    queries.push(buildQuery(rewritten));
+    traceSet("searchRewrite", rewritten);
+  }
   const timings: IndexSearchTimings = { keywordMs: 0, meaningMs: 0, totalMs: 0, meaning: "none" };
 
-  const keywordSearch = async (): Promise<string[]> => {
+  const keywordSearch = async (words: string[]): Promise<string[]> => {
     if (words.length === 0) return [];
     const t0 = Date.now();
     const rows = await db.execute<{ id: string }>(sql`
       select id from knowledge_sections, websearch_to_tsquery('english', ${words.join(" or ")}) q
       where organization_id = ${organizationId} and source = ${INDEX_SOURCE} and search @@ q
       order by ts_rank_cd(search, q, ${tuning.keywordNorm}) desc limit ${tuning.pool}`);
-    timings.keywordMs = Date.now() - t0;
+    timings.keywordMs = Math.max(timings.keywordMs, Date.now() - t0);
     return rows.rows.map((row) => row.id);
   };
 
   const meaningScores = new Map<string, number>();
-  const meaningSearch = async (all: Loaded): Promise<string[]> => {
+  const meaningSearch = async (all: Loaded, focus: string): Promise<string[]> => {
     const t0 = Date.now();
     try {
       const vector = await queryVector(focus, embed);
@@ -210,7 +228,7 @@ export async function searchKnowledgeIndex(
         .sort((a, b) => b.score - a.score)
         .slice(0, tuning.pool);
       timings.meaning = "used";
-      for (const entry of scored) meaningScores.set(entry.id, entry.score);
+      for (const entry of scored) meaningScores.set(entry.id, Math.max(meaningScores.get(entry.id) ?? 0, entry.score));
       return scored.filter((entry) => entry.score >= tuning.minMeaning).map((entry) => entry.id);
     } catch (error) {
       // Without the meaning half the keyword half still answers; say so in the log.
@@ -218,21 +236,28 @@ export async function searchKnowledgeIndex(
       timings.meaning = "failed";
       return [];
     } finally {
-      timings.meaningMs = Date.now() - t0;
+      timings.meaningMs = Math.max(timings.meaningMs, Date.now() - t0);
     }
   };
 
   const all = await sectionsFor(organizationId);
   if (all.sections.length === 0) return { matches: [], timings: { ...timings, totalMs: Date.now() - started }, details: [] };
-  const [byKeyword, byMeaning] = await Promise.all([keywordSearch(), meaningSearch(all)]);
-
-  // The page-title signal: the first sections of the pages named for the question.
-  const byTitle = tuning.weights.title > 0 ? pagesByTitle(all, words, tuning.titlePages).flatMap((page) => page.sectionIds.slice(0, tuning.titleSections)) : [];
+  const perQuery = await Promise.all(
+    queries.map(async (query) => {
+      const [keyword, meaning] = await Promise.all([keywordSearch(query.words), meaningSearch(all, query.focus)]);
+      // The page-title signal: the first sections of the pages named for the question.
+      const title = tuning.weights.title > 0 ? pagesByTitle(all, query.words, tuning.titlePages).flatMap((page) => page.sectionIds.slice(0, tuning.titleSections)) : [];
+      return { keyword, meaning, title };
+    }),
+  );
+  const byKeyword = perQuery[0].keyword;
 
   // Reciprocal rank fusion: a section near the top of any list scores, one near the top of several scores most.
   const fused = new Map<string, number>();
-  for (const [list, weight] of [[byKeyword, tuning.weights.keyword], [byMeaning, tuning.weights.meaning], [byTitle, tuning.weights.title]] as const) {
-    list.forEach((id, index) => fused.set(id, (fused.get(id) ?? 0) + weight / (tuning.rrfK + index + 1)));
+  for (const lists of perQuery) {
+    for (const [list, weight] of [[lists.keyword, tuning.weights.keyword], [lists.meaning, tuning.weights.meaning], [lists.title, tuning.weights.title]] as const) {
+      list.forEach((id, index) => fused.set(id, (fused.get(id) ?? 0) + weight / (tuning.rrfK + index + 1)));
+    }
   }
   const byId = new Map(all.sections.map((section) => [section.id, section]));
   const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]);

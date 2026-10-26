@@ -141,12 +141,23 @@ describe("checking a request's status", () => {
 });
 
 describe("a customer chasing an earlier request by its number", () => {
-  it("finds it in a new chat and shows only its status, never what it was about", async () => {
-    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human", ticketSummary: "Someone's private login problem" });
-    const fresh = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+  it("shows nothing for a number alone, since numbers are easy to guess", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human", customerEmail: "pat@example.com", ticketSummary: "Someone's private login problem" });
+    const stranger = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
+    const other = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "someone.else@example.com" });
+    for (const from of [stranger.id, other.id]) {
+      const found = await customerTickets(orgId, from, "EAP", `EAP-${earlier.ticketNumber}`);
+      expect(found.some((ticket) => ticket.reference === `EAP-${earlier.ticketNumber}`), "no trace of it").toBe(false);
+    }
+  });
+
+  it("shows only the status when the request's own address was typed in this chat, never what it was about", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", status: "needs_human", customerEmail: "Pat@Example.com", ticketSummary: "Private login problem" });
+    const fresh = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com" });
     const found = await customerTickets(orgId, fresh.id, "EAP", `EAP-${earlier.ticketNumber}`);
     const quoted = found.find((ticket) => ticket.reference === `EAP-${earlier.ticketNumber}`);
     expect(quoted).toMatchObject({ status: "With the support team", about: null });
+    expect(quoted?.chaseable).toBeUndefined();
     // Also by the bare number, in any letter case.
     expect((await customerTickets(orgId, fresh.id, "EAP", `eap-${earlier.ticketNumber}`)).some((t) => t.reference === `EAP-${earlier.ticketNumber}`)).toBe(true);
     expect((await customerTickets(orgId, fresh.id, "EAP", String(earlier.ticketNumber))).some((t) => t.reference === `EAP-${earlier.ticketNumber}`)).toBe(true);
@@ -175,8 +186,10 @@ describe("a verified customer quoting their own number", () => {
     const about = async (from: string) =>
       (await customerTickets(orgId, from, "EAP", `EAP-${earlier.ticketNumber}`)).find((t) => t.reference === `EAP-${earlier.ticketNumber}`)?.about;
     expect(await about(checked.id)).toBe("Login fails after update");
+    // The same address only typed, not checked: the status, nothing about the request.
     expect(await about(unchecked.id)).toBeNull();
-    expect(await about(stranger.id)).toBeNull();
+    // Someone else's checked address: no trace of it at all.
+    expect(await about(stranger.id)).toBeUndefined();
   });
 });
 
@@ -325,5 +338,15 @@ describe("chasing a request that is already in the verified customer's own list"
     expect(await chaseable(checked.id, "SUP-99")).toEqual([]);
     expect(await chaseable(unchecked.id, "SUP-30")).toEqual([]);
     expect(await chaseable(earlier.id, "SUP-30")).toEqual([]);
+  });
+});
+
+describe("telling a chat's own request from an earlier one", () => {
+  it("marks the current conversation's request, and no other", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com", customerEmailVerifiedAt: new Date() });
+    const current = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com", customerEmailVerifiedAt: new Date() });
+    const list = await customerTickets(orgId, current.id, "EAP");
+    expect(list.find((t) => t.reference === `EAP-${current.ticketNumber}`)?.thisChat).toBe(true);
+    expect(list.find((t) => t.reference === `EAP-${earlier.ticketNumber}`)?.thisChat).toBeUndefined();
   });
 });

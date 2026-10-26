@@ -81,6 +81,8 @@ export interface WorkerProfileLike {
   integrationsConfig?: unknown;
   /** The prefix of the reference a customer is given for a request, e.g. "EAP" for EAP-1042. */
   ticketPrefix?: string | null;
+  /** Visitors may attach files in the website chat: the worker is told it cannot open them and that the team gets them. */
+  chatAttachments?: boolean;
   /**
    * Fail-closed default (true): a tool that creates/sends/modifies something
    * in an external system queues for a human instead of running immediately.
@@ -999,7 +1001,7 @@ export async function buildAgentTools(
         description:
           "Check the status of this customer's own support requests (the ones raised for this conversation or " +
           "this customer's email). Read-only. Use it when they ask about a ticket, a reference number or an earlier " +
-          "request. When they quote a number, pass it as `reference`: a request found that way shows its status only " +
+          "request. A request marked `thisChat` is this conversation's own, not an earlier one. When they quote a number, pass it as `reference`: a request found that way shows its status only " +
           "unless their email is verified and is the one on it; when `about` is empty, ask them to say what it was about. Quote each request by its `number` only and give its status in plain words. Checking on a request is " +
           "not a new handoff: answer the status and do not end that reply with [[ESCALATE]], which would add a " +
           "comment to the ticket each time the customer asks.",
@@ -1018,6 +1020,10 @@ export async function buildAgentTools(
           } catch {
             // A helpdesk answer that cannot be read leaves the worker's own status in place.
           }
+          const noteForQuoted =
+            reference && !own.some((ticket) => !ticket.thisChat)
+              ? "No request with that number is visible to this customer. Never say whether it exists. If they have not given the email address on that request, ask for it (a request is only shown to the person it belongs to); if they have, tell them a teammate will check it."
+              : null;
           if (own.length === 0) {
             return JSON.stringify({
               tickets: [],
@@ -1025,6 +1031,7 @@ export async function buildAgentTools(
             });
           }
           return JSON.stringify({
+            ...(noteForQuoted ? { note: noteForQuoted } : {}),
             // `number` is the one the customer was told: the helpdesk key when there is one, else the reference.
             tickets: own.map((ticket) => ({
               number: ticket.serviceDeskKey ?? ticket.reference,
@@ -1316,7 +1323,16 @@ export async function buildInstructions(
     "so they know you have the picture; if you can't see what it was about, ask them to say in a line. If it is still " +
     "open, apologise once, say you are passing on that they are chasing it, and hand over with [[ESCALATE]] naming that " +
     "reference. If you cannot find it, say a teammate will check it and ask for their name and email. Never say a " +
-    "reference is closed, fixed or waiting on them unless the status says Resolved.\n\n" +
+    "reference is closed, fixed or waiting on them unless the status says Resolved. The request marked thisChat in the lookup " +
+    "is the one being handled in this conversation, not an earlier one: never call it their earlier request, and if they say " +
+    "they wrote before and you can't see another request, ask for its reference number and don't apologise for a silence you " +
+    "cannot know about. Never tell them to update an existing request unless the lookup shows one that is not thisChat; say " +
+    "what happens next in this chat. After a plain thank-you, don't repeat a request's status.\n\n" +
+    (profile.chatAttachments
+      ? "Files: a line like [Attached: name (size)] in a customer's message means they sent that file with it. You cannot open " +
+        "files. The file is passed to the team with the conversation, so say that in a few words, ask them to describe in a line " +
+        "what it shows, and never ask them to send client or patient details.\n\n"
+      : "") +
     "When you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]." +

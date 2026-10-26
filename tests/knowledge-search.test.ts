@@ -6,6 +6,10 @@ import { ensureOrganization } from "@/lib/bootstrap";
 import { INDEX_SOURCE, clearRefreshMemory, refreshKnowledgeIndexIfStale, syncKnowledgeIndex } from "@/lib/knowledge-index";
 import { DEFAULT_TUNING, MIN_MEANING_SCORE, clearKnowledgeSearchCache, searchKnowledgeIndex } from "@/lib/knowledge-search";
 import type { IndexPage, IndexSource } from "@/lib/tools-integrations/atlassian";
+import { worthRewriting } from "@/lib/query-rewrite";
+
+// The other tests search as they always did: no model call to rewrite the question.
+vi.mock("@/lib/query-rewrite", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/query-rewrite")>()), rewriteForSearch: vi.fn(async () => null) }));
 
 // A stand-in for meaning: texts about the same idea land on the same axis, whatever words they use.
 const AXES = [
@@ -202,5 +206,45 @@ describe("keeping the copy fresh", () => {
     const fresh = `org-search-fresh-${crypto.randomUUID()}`;
     await ensureOrganization(fresh);
     expect(await refreshKnowledgeIndexIfStale(fresh, run)).toBe(true);
+  });
+});
+
+describe("searching with a clean English version of the question too", () => {
+  const pages = [
+    { id: "1", title: "Registration", text: `## Register\nTo register a new member, open the member list and choose Register.${FILL}` },
+    { id: "2", title: "Cooking", text: `## Pasta\nBoil water.${FILL}` },
+  ];
+
+  it("finds the page for a question in another language once it is rewritten, and not before", async () => {
+    await indexed(pages);
+    const spanish = "¿Cómo inscribo a un socio nuevo en el sistema?";
+    expect((await searchKnowledgeIndex(orgId, spanish, { embed })).matches).toEqual([]);
+    const { matches } = await searchKnowledgeIndex(orgId, spanish, { embed, rewrite: async () => "register a new member" });
+    expect(matches[0]).toMatchObject({ title: "Registration" });
+  });
+
+  it("keeps the original search, so a rewrite never loses what the plain search found", async () => {
+    await indexed(pages);
+    const { matches } = await searchKnowledgeIndex(orgId, "How do members register?", { embed, rewrite: async () => "boil pasta" });
+    expect(matches.map((m) => m.title)).toContain("Registration");
+  });
+
+  it("carries on as normal when the rewrite fails, is empty, or is switched off", async () => {
+    await indexed(pages);
+    const plain = (await searchKnowledgeIndex(orgId, "How do members register?", { embed, rewrite: false })).matches.map((m) => m.title);
+    expect(plain).toContain("Registration");
+    for (const rewrite of [async () => { throw new Error("model down"); }, async () => null, async () => ""]) {
+      const got = (await searchKnowledgeIndex(orgId, "How do members register?", { embed, rewrite })).matches.map((m) => m.title);
+      expect(got).toEqual(plain);
+    }
+  });
+
+  it("decides which messages are worth rewriting", () => {
+    expect(worthRewriting("hi")).toBe(false);
+    expect(worthRewriting("How do I add a client?")).toBe(false);
+    expect(worthRewriting("How do we submit claims? I see the authorization number under open files")).toBe(true);
+    expect(worthRewriting("¿Cómo agrego una organización?")).toBe(true);
+    expect(worthRewriting("Comment ajouter une organisation cliente?")).toBe(true);
+    expect(worthRewriting("")).toBe(false);
   });
 });

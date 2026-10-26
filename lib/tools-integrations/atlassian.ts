@@ -456,6 +456,7 @@ export function handoffTicketDescription(input: HandoffTicketInput): string {
     `**Customer:** ${customer || "unknown (not given)"}`,
     `**Channel:** ${conversation.channel}`,
     `**Conversation:** #${conversation.ticketNumber}`,
+    turns.some((turn) => turn.body.includes("[Attached:")) ? "**Files:** the customer attached files. They are kept in Mike for 30 days: open this conversation in the Inbox to download them." : "",
     conversation.ticketSummary ? `\n**Summary:** ${clip(conversation.ticketSummary, 600)}` : "",
     conversation.summary ? `\n**Summary so far:** ${clip(conversation.summary, 2000)}` : "",
     "",

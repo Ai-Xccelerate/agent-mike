@@ -47,6 +47,8 @@ export const workerPatchSchema = z
     managerEmail: emptyToNull(z.string().email().nullable()),
     autoReply: z.boolean(),
     emailManagerOnHandoff: z.boolean(),
+    // Visitors may attach files in the website chat (passed to the team).
+    chatAttachments: z.boolean(),
     firstReplyTargetHours: z.number().int().min(1).max(720).nullable(),
     // Settings > Email domains: on = only approved domains may be emailed.
     restrictEmailDomains: z.boolean(),
