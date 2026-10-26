@@ -164,6 +164,19 @@ Boil water.${FILL}` },
   });
 });
 
+describe("a word in nearly every page title", () => {
+  it("does not bury the page for the word that says what the question is about", async () => {
+    const common = Array.from({ length: 40 }, (_, i) => ({
+      id: `c${i}`,
+      title: `Acme Expert Guide ${i}`,
+      text: `## Using Acme Expert\nHow to use Acme Expert to log in to Acme Expert and get to your Acme Expert items.${FILL}`,
+    }));
+    await indexed([...common, { id: "p", title: "Installing Quartzlink", text: `## Install\nDownload Quartzlink and install it on your computer.${FILL}` }]);
+    const { matches } = await searchKnowledgeIndex(orgId, "How do I use Quartzlink to get to Acme Expert?", { embed });
+    expect(matches.map((m) => m.title)).toContain("Installing Quartzlink");
+  });
+});
+
 describe("the chosen settings", () => {
   it("are the ones the experiment on EAP's pages picked: title counts triple, shorter sections favoured, sharper merge, eight sections", () => {
     expect(DEFAULT_TUNING).toMatchObject({ limit: 8, perPage: 3, rrfK: 20, keywordNorm: 1, weights: { keyword: 1, meaning: 1, title: 3 } });

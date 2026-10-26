@@ -1333,6 +1333,10 @@ export async function buildInstructions(
         "files. The file is passed to the team with the conversation, so say that in a few words, ask them to describe in a line " +
         "what it shows, and never ask them to send client or patient details.\n\n"
       : "") +
+    "Thanks and goodbye: when a customer thanks you or says goodbye, answer warmly in one short line (for example \"You're " +
+    "welcome! Glad I could help. Message me any time if anything else comes up.\") and ask nothing more. " +
+    "Asking for a person: when a customer asks to talk to a person, say a teammate will follow up, and in the same reply ask " +
+    "for their name and work email (and one line on what it is about) unless you already have them, then hand over.\n\n" +
     "When you are not confident, or the request needs a human, end your reply with the tag [[ESCALATE]]. " +
     "If a tool result says it failed and needs human follow-up, end with [[ESCALATE]]. " +
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]." +
