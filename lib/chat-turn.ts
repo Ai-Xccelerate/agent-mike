@@ -7,7 +7,8 @@ import { getOrCreateProfile } from "@/lib/bootstrap";
 import { readRememberToken } from "@/lib/remembered-customer";
 import { attachmentMarker, linkUploads, usableUploads } from "@/lib/attachments";
 import { insertConversationWithTicket, runCustomerTurn, type TicketFollowUp } from "@/lib/customer-turn";
-import { timed, withTurnTimer } from "@/lib/timing";
+import { extractStatedCustomer } from "@/lib/customer-stated";
+import { timed, traceSet, withTurnTimer } from "@/lib/timing";
 import { anonymousVisitorName, normalizeIdentityMode } from "@/lib/customer-identity";
 
 /**
@@ -129,6 +130,11 @@ async function runChatRequestTimed(
     });
   }
 
+  // Side runs of this turn (ticket sorting, summaries) carry the conversation into their traces.
+  traceSet("conversationId", conversation.id);
+  // Names the visitor has given, so a trace can hide them wherever they appear (not only after "Hi").
+  const given = extractStatedCustomer([...priorMessages.filter((m) => m.senderType !== "agent").map((m) => m.body), message]);
+  traceSet("customerNames", [conversation.customerName, given?.name].filter((name): name is string => Boolean(name) && !/^website visitor/i.test(name as string)));
   const speakerName = tenant.source === "widget" ? conversation.customerName : "Manager";
   // Files the visitor attached to this message, when the worker allows it: the message says so, so the team, the
   // ticket and the worker all see it. The worker never opens a file.
