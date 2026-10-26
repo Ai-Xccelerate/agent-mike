@@ -378,6 +378,22 @@ export default function WorkerInbox() {
     }
   }
 
+  /** For a customer who could not finish the emailed code: the manager raises the helpdesk ticket from what was typed. */
+  async function raiseTicket() {
+    if (!selected) return;
+    setKebabOpen(false);
+    setUpdating(true);
+    try {
+      const result = await apiFetch<{ key: string }>(`/conversations/${selected.id}/raise-ticket`, { method: "POST" });
+      replaceConversation({ ...selected, externalTicketKey: result.key, status: "needs_human" });
+      setNotice(`Raised ${result.key}. The details are what the customer typed, not verified.`);
+    } catch (error) {
+      setNotice(error instanceof WorkerApiError ? error.message : "Could not raise the ticket.");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   async function setHumanControlled(humanControlled: boolean) {
     if (!selected) return;
     setUpdating(true);
@@ -625,6 +641,11 @@ export default function WorkerInbox() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {!selected.externalTicketKey && !isClosed && selected.status === "needs_human" ? (
+                  <button disabled={updating} onClick={raiseTicket} className={`${outlineControl} px-3`} title="Raise the helpdesk ticket from what the customer typed (not verified by an emailed code)">
+                    Raise ticket
+                  </button>
+                ) : null}
                 {selected.humanControlled && !isClosed ? (
                   <button disabled={updating} onClick={() => setHumanControlled(false)} className={`${outlineControl} px-3`}>
                     Hand back to {agentName}

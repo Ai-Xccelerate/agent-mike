@@ -404,6 +404,8 @@ export type HandoffTicketInput = {
   workerReply?: string;
   /** Set only for a customer whose email was verified by a code: the ticket may be raised on their behalf. */
   verifiedCustomer?: { email: string; name: string | null };
+  /** A manager raised this from the Inbox, rather than the worker handing over by itself. */
+  raisedByManager?: boolean;
 };
 
 export type HandoffTicketResult = {
@@ -451,9 +453,11 @@ export function handoffTicketDescription(input: HandoffTicketInput): string {
     .map((turn) => `**${turn.speaker}:** ${clip(turn.body, HANDOFF_MESSAGE_CHARS)}`)
     .join("\n\n");
   return [
-    `${workerName} handed this conversation to a person and raised this ticket automatically.`,
+    input.raisedByManager
+      ? `A manager raised this ticket from the Inbox for a conversation with ${workerName}.`
+      : `${workerName} handed this conversation to a person and raised this ticket automatically.`,
     "",
-    `**Customer:** ${customer || "unknown (not given)"}`,
+    `**Customer:** ${customer || "unknown (not given)"}${input.raisedByManager && customer && !input.verifiedCustomer ? " (typed in the chat, not verified by an emailed code)" : ""}`,
     `**Channel:** ${conversation.channel}`,
     `**Conversation:** #${conversation.ticketNumber}`,
     turns.some((turn) => turn.body.includes("[Attached:")) ? "**Files:** the customer attached files. They are kept in Mike for 30 days: open this conversation in the Inbox to download them." : "",

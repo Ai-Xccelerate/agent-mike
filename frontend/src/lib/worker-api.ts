@@ -276,6 +276,22 @@ export async function deleteCustomSkill(id: string): Promise<void> {
   await apiFetch<unknown>(`/skills/custom/${id}`, { method: "DELETE" });
 }
 
+export type CannedReply = { id: string; title: string; situation: string; reply: string; enabled: boolean };
+export type CannedReplyInput = { title: string; situation: string; reply: string; enabled?: boolean };
+export type CannedReplyList = {
+  replies: CannedReply[];
+  limits: { title: number; situation: number; reply: number; perOrganization: number; inPrompt: number };
+  canChange: boolean;
+};
+
+export const getCannedReplies = () => apiFetch<CannedReplyList>("/canned-replies");
+export const createCannedReply = (input: CannedReplyInput) => apiFetch<CannedReply>("/canned-replies", { method: "POST", body: JSON.stringify(input) });
+export const updateCannedReply = (id: string, input: Partial<CannedReplyInput>) =>
+  apiFetch<CannedReply>(`/canned-replies/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+export async function deleteCannedReply(id: string): Promise<void> {
+  await apiFetch<unknown>(`/canned-replies/${id}`, { method: "DELETE" });
+}
+
 export type KnowledgeDocument = {
   id: string;
   organizationId: string;
