@@ -4,6 +4,7 @@ import { conversations, messages } from "@/db/schema";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { publicAppUrl } from "@/lib/env";
 import { sendAsWorker } from "@/lib/outbound";
+import type { HandoverRoute } from "@/lib/managers";
 
 /**
  * The email a human gets when the worker hands a conversation over, on any
@@ -93,34 +94,52 @@ export async function notifyManager(
   reason: string,
   /** A handoff follows the manager's on/off switch; a problem (a reply that couldn't be sent) always goes out. */
   kind: "handoff" | "problem" = "handoff",
+  /** Who this handover was routed to (Settings > Human manager's list). Without it, the profile's single manager is told. */
+  route?: HandoverRoute | null,
 ) {
   const profile = await getOrCreateProfile(organizationId);
   if (kind === "handoff" && !profile.emailManagerOnHandoff) {
     console.info(`[handoff] handoff emails are off, so nobody was emailed about conversation ${conversation.id}`);
     return;
   }
-  if (!profile.managerEmail) {
+  const recipients =
+    route && kind === "handoff"
+      ? route.recipients.map((recipient) => ({ email: recipient.email, name: recipient.name }))
+      : profile.managerEmail
+        ? [{ email: profile.managerEmail, name: profile.managerName }]
+        : [];
+  if (recipients.length === 0) {
     console.info(`[handoff] no manager email set, so nobody was notified about conversation ${conversation.id}`);
     return;
   }
   const [fresh] = await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1);
+  const routing = route && kind === "handoff" ? routingLines(route) : "";
   const brief = await buildHandoffBrief({
     conversation: fresh ?? conversation,
     workerName: profile.displayName,
     ticketPrefix: profile.ticketPrefix,
-    reason,
+    reason: routing ? `${reason}\n${routing}` : reason,
     appUrl: publicAppUrl(),
   });
   try {
     await sendAsWorker({
       orgId: organizationId,
-      to: [{ email: profile.managerEmail, name: profile.managerName }],
-      subject: brief.subject,
+      to: recipients,
+      subject: route?.critical && kind === "handoff" ? `[Critical] ${brief.subject}` : brief.subject,
       body: brief.body,
     });
-    console.info(`[handoff] email sent to the manager for conversation ${conversation.id}`);
+    console.info(`[handoff] email sent to ${recipients.length} ${recipients.length === 1 ? "person" : "people"} for conversation ${conversation.id}`);
   } catch (error) {
     console.warn("[handoff] manager email failed", error);
   }
 }
 
+/** The lines at the top of a routed handoff email: why this person is getting it. */
+function routingLines(route: HandoverRoute): string {
+  const lines: string[] = [];
+  if (route.critical) lines.push("CRITICAL: the customer cannot work. Please pick this up now.");
+  if (route.chosen) {
+    lines.push(`Routed to ${route.chosen.name}${route.chosen.areas ? ` (covers: ${route.chosen.areas})` : ""}${route.chosen.away && route.assignee && route.assignee.name !== route.chosen.name ? `. ${route.chosen.name} is switched off, so ${route.assignee.name} has it` : ""}.`);
+  }
+  return lines.join("\n");
+}

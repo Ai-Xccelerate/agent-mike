@@ -672,6 +672,32 @@ async function commentOnHandoffTicket(
   return post(`/rest/api/2/issue/${key}/comment`, { body });
 }
 
+/**
+ * An internal note on a ticket this worker raised, for staff only: on a service desk request it is not shown to the
+ * customer and does not email them. Used for the suggested assignee. Never throws; false when it could not be added.
+ */
+export async function addInternalTicketNote(organizationId: string, key: string, text: string): Promise<boolean> {
+  try {
+    const connection = await getConnectionForOrg(organizationId, "helpdesk");
+    const connectedAccountId = activeAccount(connection, "jira");
+    if (!connection || !connectedAccountId) return false;
+    const body = toJiraWikiMarkup(text);
+    const note = await callJira(connectedAccountId, "POST", `/rest/servicedeskapi/request/${key}/comment`, { body, public: false });
+    await logToolCall({
+      organizationId,
+      toolId: HANDOFF_COMMENT_TOOL_ID,
+      calledBy: "system",
+      input: { key, internal: true },
+      output: note.ok ? toLogOutput(note.data) : null,
+      status: note.ok ? "success" : "error",
+      errorMessage: note.ok ? null : note.error,
+    });
+    return note.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** A later handoff on the same conversation: what the customer added, and what the worker passed on. */
 export function handoffComment(input: Pick<HandoffTicketInput, "latestMessage" | "workerReply" | "workerName">): string {
   return [

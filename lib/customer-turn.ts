@@ -6,7 +6,8 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
-import { handoffTicketNotice, helpdeskRaisesTickets, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { addInternalTicketNote, handoffTicketNotice, helpdeskRaisesTickets, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { routeHandover, suggestedAssigneeNote } from "@/lib/managers";
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
@@ -312,6 +313,23 @@ export async function runCustomerTurn(input: {
   const deferTicket = Boolean(input.deferTicket) && raisesTicket && showsCards;
   // The first time this conversation is handed over; later turns add to the same request.
   const firstHandoff = result.escalate && conversation.status !== "needs_human";
+  // Who the handover goes to, chosen from Settings > Human manager's list while the reply is being stored. It never
+  // throws and never takes long: when the list cannot say, the profile's single manager is told, as before the list.
+  const routing = firstHandoff
+    ? routeHandover({
+        organizationId,
+        fallback: { name: profile.managerName, email: profile.managerEmail },
+        transcript: [...toHistoryTurns([...priorMessages, userMessage]), { speaker: profile.displayName, body: result.answer }],
+        summary: conversation.ticketSummary ?? conversation.summary,
+      }).catch(() => null)
+    : null;
+  /** The suggested assignee goes on the new ticket as an internal note, never in front of the customer. */
+  const noteSuggestedAssignee = async (ticket: { key: string; created: boolean }) => {
+    if (!routing || !ticket.created) return;
+    const route = await routing;
+    const note = route ? suggestedAssigneeNote(route) : null;
+    if (note) await addInternalTicketNote(organizationId, ticket.key, note);
+  };
 
   if (raisesTicket && !deferTicket) {
     progress("ticket", "Logging this for the team…");
@@ -319,6 +337,7 @@ export async function runCustomerTurn(input: {
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
     if (isHandoffTicket(ticket)) {
+      void noteSuggestedAssignee(ticket).catch(() => undefined);
       result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket)}` };
       if (showsCards) {
         cards.push({
@@ -417,6 +436,7 @@ export async function runCustomerTurn(input: {
           .returning();
         return { message: note };
       }
+      void noteSuggestedAssignee(ticket).catch(() => undefined);
       const [message] = await db
         .insert(messages)
         .values({
@@ -461,12 +481,14 @@ export async function runCustomerTurn(input: {
     ),
   );
 
+  const route = routing ? await routing : null;
   await db
     .update(conversations)
     .set({
       status,
       confidence: result.confidence,
-      assignedTo: result.escalate ? profile.managerName : conversation.assignedTo,
+      assignedTo: result.escalate ? (route?.assignee?.name ?? profile.managerName) : conversation.assignedTo,
+      ...(route?.assignee ? { routedManagerId: route.assignee.id } : {}),
       summary: summaryState.summary,
       summarizedMessageCount: summaryState.summarizedMessageCount,
       updatedAt: new Date(),
@@ -487,7 +509,7 @@ export async function runCustomerTurn(input: {
   if (result.escalate && conversation.status !== "needs_human" && conversation.channel !== "email") {
     const where = conversation.channel === "widget" ? "website chat" : "chat";
     await timed("handoff.notify", () =>
-      notifyManager(conversation, organizationId, `${profile.displayName} handed a ${where} conversation to you.`),
+      notifyManager(conversation, organizationId, `${profile.displayName} handed a ${where} conversation to you.`, "handoff", route),
     ).catch(
       (error: unknown) => console.warn("[handoff] manager email failed:", error instanceof Error ? error.message : error),
     );
