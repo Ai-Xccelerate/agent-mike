@@ -41,6 +41,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       { href: "/settings/agent-configuration", label: "Agent configuration", icon: BoltIcon, available: true },
       { href: "/settings/knowledge", label: "Knowledge", icon: DocsIcon, available: true },
       { href: "/settings/skills", label: "Skills", icon: ShootingStarIcon, available: true },
+      { href: "/settings/canned-replies", label: "Canned replies", icon: ChatIcon, available: true },
       { href: "/settings/tickets", label: "Tickets", icon: TicketIcon, available: true },
     ],
   },
