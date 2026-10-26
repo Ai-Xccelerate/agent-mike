@@ -302,6 +302,13 @@
       "when": 1790660000023,
       "tag": "0042_canned_replies",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790660000024,
+      "tag": "0043_worker_managers",
+      "breakpoints": true
     }
   ]
 }

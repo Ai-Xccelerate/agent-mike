@@ -276,6 +276,30 @@ export async function deleteCustomSkill(id: string): Promise<void> {
   await apiFetch<unknown>(`/skills/custom/${id}`, { method: "DELETE" });
 }
 
+export type WorkerManagerEntry = {
+  id: string;
+  name: string;
+  email: string;
+  areas: string;
+  backupId: string | null;
+  notifyOnCritical: boolean;
+  enabled: boolean;
+};
+export type WorkerManagerInput = { name: string; email: string; areas: string; backupId: string | null; notifyOnCritical: boolean; enabled?: boolean };
+export type WorkerManagerList = {
+  managers: WorkerManagerEntry[];
+  limits: { name: number; email: number; areas: number; perOrganization: number };
+  canChange: boolean;
+};
+
+export const getWorkerManagers = () => apiFetch<WorkerManagerList>("/managers");
+export const createWorkerManager = (input: WorkerManagerInput) => apiFetch<WorkerManagerEntry>("/managers", { method: "POST", body: JSON.stringify(input) });
+export const updateWorkerManager = (id: string, input: Partial<WorkerManagerInput>) =>
+  apiFetch<WorkerManagerEntry>(`/managers/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+export async function deleteWorkerManager(id: string): Promise<void> {
+  await apiFetch<unknown>(`/managers/${id}`, { method: "DELETE" });
+}
+
 export type CannedReply = { id: string; title: string; situation: string; reply: string; enabled: boolean };
 export type CannedReplyInput = { title: string; situation: string; reply: string; enabled?: boolean };
 export type CannedReplyList = {
