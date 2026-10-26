@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { middleware } from "@/middleware";
 
 const forged = {
@@ -13,6 +13,7 @@ describe("middleware on public routes", () => {
   it.each([
     ["/api/v1/chat", { "x-mike-site-token": "anything" }],
     ["/api/v1/chat/agui", { "x-worker-site-token": "anything" }],
+    ["/api/v1/chat/attachments", { "x-worker-site-token": "anything" }],
     ["/api/v1/worker", { "x-worker-site-token": "anything" }],
     ["/api/v1/transcribe", { "x-worker-site-token": "anything" }],
     ["/api/health", {}],
@@ -31,5 +32,28 @@ describe("middleware on public routes", () => {
       expect(overridden!.split(",")).not.toContain(name);
       expect(res.headers.get(`x-middleware-request-${name}`)).toBeNull();
     }
+  });
+});
+
+describe("the file upload route, with sign-in required as on a deployed server", () => {
+  const previous = process.env.MIKE_PLATFORM_AUTH;
+  beforeEach(() => {
+    process.env.MIKE_PLATFORM_AUTH = "true";
+  });
+  afterEach(() => {
+    if (previous === undefined) delete process.env.MIKE_PLATFORM_AUTH;
+    else process.env.MIKE_PLATFORM_AUTH = previous;
+  });
+
+  it("is open to the website widget with its site token, and to nobody without one", async () => {
+    const withToken = await middleware(new NextRequest("http://localhost/api/v1/chat/attachments", { method: "POST", headers: { "x-worker-site-token": "anything" } }));
+    expect(withToken.status).toBe(200);
+    const without = await middleware(new NextRequest("http://localhost/api/v1/chat/attachments", { method: "POST" }));
+    expect(without.status).toBe(401);
+  });
+
+  it("keeps the manager's download route behind sign-in, even with a site token", async () => {
+    const res = await middleware(new NextRequest("http://localhost/api/v1/attachments/00000000-0000-0000-0000-000000000000", { headers: { "x-worker-site-token": "anything" } }));
+    expect(res.status).toBe(401);
   });
 });
