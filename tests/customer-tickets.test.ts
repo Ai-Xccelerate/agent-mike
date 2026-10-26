@@ -327,3 +327,13 @@ describe("chasing a request that is already in the verified customer's own list"
     expect(await chaseable(earlier.id, "SUP-30")).toEqual([]);
   });
 });
+
+describe("telling a chat's own request from an earlier one", () => {
+  it("marks the current conversation's request, and no other", async () => {
+    const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com", customerEmailVerifiedAt: new Date() });
+    const current = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "pat@example.com", customerEmailVerifiedAt: new Date() });
+    const list = await customerTickets(orgId, current.id, "EAP");
+    expect(list.find((t) => t.reference === `EAP-${current.ticketNumber}`)?.thisChat).toBe(true);
+    expect(list.find((t) => t.reference === `EAP-${earlier.ticketNumber}`)?.thisChat).toBeUndefined();
+  });
+});

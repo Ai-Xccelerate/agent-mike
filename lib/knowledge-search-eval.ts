@@ -81,7 +81,7 @@ export async function runSearchExperiment(
     const times: number[] = [];
     const search = async (q: string) => {
       const started = Date.now();
-      const { matches } = await searchKnowledgeIndex(organizationId, q, { tuning: { ...DEFAULT_TUNING, ...config.tuning, weights: { ...DEFAULT_TUNING.weights, ...config.tuning.weights } } });
+      const { matches } = await searchKnowledgeIndex(organizationId, q, { rewrite: false, tuning: { ...DEFAULT_TUNING, ...config.tuning, weights: { ...DEFAULT_TUNING.weights, ...config.tuning.weights } } });
       times.push(Date.now() - started);
       return distinctPages(matches.map((match) => match.documentId));
     };

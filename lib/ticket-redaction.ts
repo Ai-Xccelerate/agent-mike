@@ -56,6 +56,8 @@ const STREET =
   /\b\d{1,6}\s+(?:[A-Z][A-Za-z.'-]*\s+){1,3}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Crescent|Cres|Place|Pl|Terrace|Highway|Hwy)\b\.?/g;
 /** Case, file and account numbers: six or more digits, with or without letters around them. */
 const LONG_NUMBER = /\b[A-Za-z]{0,4}[-#]?\d{5,}\b/g;
+/** "client #8964", "file 1234", "case no. 77": a number that names a person's record is removed whatever its length. */
+const RECORD_NUMBER = /\b(client|patient|member|participant|employee|file|case|claim|record|account)s?\s*(?:#|no\.?|number|id)?\s*:?\s*#?\d{1,}\b/gi;
 const TITLED_NAME = /\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?/g;
 /** "Hi Dana", "Thanks, Dana Smith": the salutation stays, the name goes. */
 const SALUTATION = /\b(Hi|Hello|Hey|Dear|Thanks|Thank you|Regards|Best regards|Kind regards|Warm regards|Cheers|Sincerely|Best)\b([,\s]+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/g;
@@ -126,6 +128,10 @@ export function redactTicketText(input: string, knownNames: string[] = []): Reda
   text = replaceAll(text, STREET, "[address]", counts, "addresses");
   text = replaceAll(text, POSTAL_CA, "[postal code]", counts, "postalCodes");
   text = replaceAll(text, POSTAL_US, "[postal code]", counts, "postalCodes");
+  text = text.replace(RECORD_NUMBER, (_match: string, word: string) => {
+    bump(counts, "numbers");
+    return `${word} [number]`;
+  });
   text = replaceAll(text, LONG_NUMBER, "[number]", counts, "numbers");
   // What is left that mixes letters and digits at length looks like a generated password or key.
   text = replaceAll(text, GENERATED_SECRET, "[secret]", counts, "secrets");

@@ -15,6 +15,8 @@ export type CustomerTicket = {
   updated: string;
   /** A number the customer quoted that is theirs (checked email) and has a helpdesk key: a chase can go on it. */
   chaseable?: boolean;
+  /** The request being handled in this very conversation: not an earlier one. */
+  thisChat?: boolean;
 };
 
 /**
@@ -56,6 +58,7 @@ export async function customerTickets(
     about: row.ticketSummary ?? row.subject ?? null,
     status: customerStatusWord(row.status),
     updated: row.updatedAt.toISOString(),
+    ...(row.id === conversationId ? { thisChat: true } : {}),
     // An earlier request of this checked customer, quoted by its number: a chase can go on it.
     ...(email && asked && row.id !== conversationId && row.externalTicketKey && asked(row) ? { chaseable: true } : {}),
   }));
