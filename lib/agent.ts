@@ -1020,6 +1020,10 @@ export async function buildAgentTools(
           } catch {
             // A helpdesk answer that cannot be read leaves the worker's own status in place.
           }
+          const noteForQuoted =
+            reference && !own.some((ticket) => !ticket.thisChat)
+              ? "No request with that number is visible to this customer. Never say whether it exists. If they have not given the email address on that request, ask for it (a request is only shown to the person it belongs to); if they have, tell them a teammate will check it."
+              : null;
           if (own.length === 0) {
             return JSON.stringify({
               tickets: [],
@@ -1027,6 +1031,7 @@ export async function buildAgentTools(
             });
           }
           return JSON.stringify({
+            ...(noteForQuoted ? { note: noteForQuoted } : {}),
             // `number` is the one the customer was told: the helpdesk key when there is one, else the reference.
             tickets: own.map((ticket) => ({
               number: ticket.serviceDeskKey ?? ticket.reference,
