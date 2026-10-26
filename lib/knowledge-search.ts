@@ -24,6 +24,8 @@ import { traceSet } from "@/lib/timing";
  */
 export const MIN_MEANING_SCORE = Number(process.env.KNOWLEDGE_MIN_MEANING_SCORE) > 0 ? Number(process.env.KNOWLEDGE_MIN_MEANING_SCORE) : 0.3;
 const QUERY_VECTOR_CACHE = 2000;
+/** A word weighs this much or more (see stemWeights: about 1 for a rare word, 0.25 for one in most pages) to count as distinctive. */
+const DISTINCTIVE_WORD_WEIGHT = 0.3;
 
 /** Every setting of the search, so the admin experiment runner can try them and the defaults can be chosen from scores. */
 export type SearchTuning = {
@@ -245,9 +247,14 @@ export async function searchKnowledgeIndex(
   const perQuery = await Promise.all(
     queries.map(async (query) => {
       const [keyword, meaning] = await Promise.all([keywordSearch(query.words), meaningSearch(all, query.focus)]);
+      // The words that name this product or are in nearly every page ("EAP", "Expert") can outweigh the one that says
+      // what the question is about ("Parallels"). A second keyword pass on the distinctive words alone is merged in too.
+      const weights = stemWeights(all.pages, query.words);
+      const distinctive = query.words.filter((word) => (weights[wordStem(word)] ?? 1) >= DISTINCTIVE_WORD_WEIGHT);
+      const distinctiveKeyword = distinctive.length > 0 && distinctive.length < query.words.length ? await keywordSearch(distinctive) : [];
       // The page-title signal: the first sections of the pages named for the question.
       const title = tuning.weights.title > 0 ? pagesByTitle(all, query.words, tuning.titlePages).flatMap((page) => page.sectionIds.slice(0, tuning.titleSections)) : [];
-      return { keyword, meaning, title };
+      return { keyword, distinctiveKeyword, meaning, title };
     }),
   );
   const byKeyword = perQuery[0].keyword;
@@ -255,7 +262,7 @@ export async function searchKnowledgeIndex(
   // Reciprocal rank fusion: a section near the top of any list scores, one near the top of several scores most.
   const fused = new Map<string, number>();
   for (const lists of perQuery) {
-    for (const [list, weight] of [[lists.keyword, tuning.weights.keyword], [lists.meaning, tuning.weights.meaning], [lists.title, tuning.weights.title]] as const) {
+    for (const [list, weight] of [[lists.keyword, tuning.weights.keyword], [lists.distinctiveKeyword, tuning.weights.keyword], [lists.meaning, tuning.weights.meaning], [lists.title, tuning.weights.title]] as const) {
       list.forEach((id, index) => fused.set(id, (fused.get(id) ?? 0) + weight / (tuning.rrfK + index + 1)));
     }
   }
