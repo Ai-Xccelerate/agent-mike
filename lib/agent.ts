@@ -1022,7 +1022,7 @@ export async function buildAgentTools(
           }
           const noteForQuoted =
             reference && !own.some((ticket) => !ticket.thisChat)
-              ? "No request with that number is visible to this customer. Never say whether it exists. If they have not given the email address on that request, ask for it (a request is only shown to the person it belongs to); if they have, tell them a teammate will check it."
+              ? "No request with that number is visible to this customer. Never say whether it exists. If they have not given the email address on that request, ask for it by opening the details form (end your reply with [[NEED_IDENTITY]]), so it can be checked: a request is only shown to the person it belongs to. Once they have filled it in, look the number up again. If they already have, tell them a teammate will check it."
               : null;
           if (own.length === 0) {
             return JSON.stringify({
