@@ -46,6 +46,11 @@ export async function withTurnTimer<T>(label: Record<string, unknown>, fn: () =>
   }
 }
 
+/** One fact set earlier in this turn, read back (for example by the trace exporter). */
+export function traceGet(key: string): unknown {
+  return store.getStore()?.facts[key];
+}
+
 /** Sets one fact about this turn (route, instructions, checks...). No-op outside a turn. */
 export function traceSet(key: string, value: unknown): void {
   const turn = store.getStore();
