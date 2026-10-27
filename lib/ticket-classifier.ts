@@ -23,6 +23,14 @@ import type { HistoryTurn } from "@/lib/conversation-memory";
  * it never throws: a failed classification leaves the ticket as it was.
  */
 
+/**
+ * A many-part message is answered part by part, and only the part the worker could not cover goes to a person. The
+ * ticket must say so, or the team re-does the parts that are already done.
+ */
+export const ANSWERED_PARTS =
+  "The worker may already have answered some of what the customer asked. Then the ticket is only for what is still " +
+  "unanswered: write the summary about that part alone, and say in a few words what was already answered.";
+
 const TRANSCRIPT_TURNS = 12;
 const TURN_CHARS = 600;
 
@@ -95,7 +103,7 @@ export async function chooseClassification(args: {
       `Labels (pick every one that clearly applies, or none):\n${lines(schema.labels)}\n\n` +
       "Summary: one to three plain sentences for the person who picks this ticket up. Say who the customer is (if known), " +
       "what they need, the product, and anything already tried. No greeting, no field list, never write 'not given'; " +
-      "leave out what the customer did not say.\n\n" +
+      "leave out what the customer did not say. " + ANSWERED_PARTS + "\n\n" +
       (handedOver
         ? "The worker has handed this conversation to a person, so it needs more than a first-line answer."
         : "The worker is answering this itself so far."),
@@ -129,7 +137,7 @@ const SUMMARY_WAIT_MS = 8000;
 const SUMMARY_INSTRUCTIONS =
   "Write one to three plain sentences for the person who picks up this support ticket. Say who the customer is " +
   "(if known), what they need, the product, and anything already tried. No greeting, no field list, never write " +
-  "'not given'; leave out what the customer did not say.";
+  "'not given'; leave out what the customer did not say. " + ANSWERED_PARTS;
 
 /**
  * A short summary for a ticket that is about to be handed over, so it can go on
