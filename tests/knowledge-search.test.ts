@@ -227,6 +227,58 @@ describe("a question whose rare word is buried among 'get to EAP Expert' pages",
   });
 });
 
+describe("a message with several separate questions", () => {
+  // One axis of meaning per topic; text about several topics at once sits between the axes.
+  const TOPIC_AXES = [["provider", "add"], ["email"], ["reminder", "appointment"], ["export", "accounting"], ["close", "case"]];
+  const topicEmbed = vi.fn(async (texts: string[]) =>
+    texts.map((text) => {
+      const lower = text.toLowerCase();
+      const v = TOPIC_AXES.map((words) => words.filter((w) => lower.includes(w)).length);
+      return [...v, v.every((n) => n === 0) ? 1 : 0];
+    }),
+  );
+  const QUESTION = "How do I add a new provider, change a provider's email address, set up appointment reminders, export account data and close a case file?";
+  const TOPICS = ["add a new provider", "change a provider's email address", "set up appointment reminders", "export account data to accounting", "close a case file"];
+  const pages = [
+    { id: "t1", title: "Add a New Provider", text: `## Steps\nTo add a new provider, open Providers and choose New.${FILL}` },
+    { id: "t2", title: "Change a Provider's Email", text: `## Steps\nOpen the provider record and replace the email address.${FILL}` },
+    { id: "t3", title: "Appointment Reminders", text: `## Steps\nTurn on appointment reminders under Options.${FILL}` },
+    { id: "t4", title: "Accounting Export", text: `## Steps\nExport the accounting data to a file.${FILL}` },
+    { id: "t5", title: "Closing a Case File", text: `## Steps\nTo close a case file, open it and choose Close.${FILL}` },
+    // Pages that touch every topic a little: together they match the whole message better than any one topic's page does.
+    ...Array.from({ length: 14 }, (_, i) => ({
+      id: `m${i}`,
+      title: `Office overview ${i}`,
+      text: `## Overview\nThe office adds a provider, changes an email address, sets reminders for an appointment, runs an export for accounting data and can close a case.${FILL}`,
+    })),
+  ];
+  const noTitleSignal = { weights: { keyword: 1, meaning: 1, title: 0 } };
+
+  it("finds the page for every topic when the message is searched question by question", async () => {
+    await indexed(pages);
+    const { matches } = await searchKnowledgeIndex(orgId, QUESTION, { embed: topicEmbed, rewrite: false, topics: async () => TOPICS, tuning: noTitleSignal });
+    const titles = matches.map((m) => m.title);
+    for (const wanted of ["Add a New Provider", "Change a Provider's Email", "Appointment Reminders", "Accounting Export", "Closing a Case File"]) expect(titles, wanted).toContain(wanted);
+    expect(matches.length).toBeGreaterThan(8);
+  });
+
+  it("would miss some of them as one search, which is why it is split", async () => {
+    await indexed(pages);
+    const { matches } = await searchKnowledgeIndex(orgId, QUESTION, { embed: topicEmbed, rewrite: false, topics: false, tuning: noTitleSignal });
+    const found = ["Add a New Provider", "Change a Provider's Email", "Appointment Reminders", "Accounting Export", "Closing a Case File"].filter((wanted) => matches.some((m) => m.title === wanted));
+    expect(found.length).toBeLessThan(5);
+  });
+
+  it("changes nothing when the model finds no separate questions, or fails", async () => {
+    await indexed(pages);
+    const none = await searchKnowledgeIndex(orgId, QUESTION, { embed: topicEmbed, rewrite: false, topics: async () => [], tuning: noTitleSignal });
+    const off = await searchKnowledgeIndex(orgId, QUESTION, { embed: topicEmbed, rewrite: false, topics: false, tuning: noTitleSignal });
+    expect(none.matches.map((m) => m.title)).toEqual(off.matches.map((m) => m.title));
+    const failed = await searchKnowledgeIndex(orgId, QUESTION, { embed: topicEmbed, rewrite: false, topics: async () => { throw new Error("down"); }, tuning: noTitleSignal });
+    expect(failed.matches.map((m) => m.title)).toEqual(off.matches.map((m) => m.title));
+  });
+});
+
 describe("a word in nearly every page title", () => {
   it("does not bury the page for the word that says what the question is about", async () => {
     const common = Array.from({ length: 40 }, (_, i) => ({
