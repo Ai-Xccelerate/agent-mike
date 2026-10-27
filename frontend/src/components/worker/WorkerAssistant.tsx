@@ -131,7 +131,7 @@ function AssistantChat() {
     () => null,
   );
   // Opening Assistant with no chat in the URL (the sidebar link) reopens the
-  // last one, until the manager explicitly starts a new chat.
+  // last one if it was active in the last 30 minutes; otherwise a fresh chat.
   const restoreTarget = !conversationId && !startedNew ? storedLast : null;
   const [notice, setNotice] = useState<string | null>(null);
   // A reply that was still being written when the manager left and came back.
@@ -193,7 +193,7 @@ function AssistantChat() {
 
   useEffect(() => {
     if (conversationId) rememberLastConversation(lastKey, conversationId);
-  }, [conversationId, lastKey]);
+  }, [conversationId, lastKey, messages.length, awaitingReply]);
 
   useEffect(() => {
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
