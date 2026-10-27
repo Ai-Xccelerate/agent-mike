@@ -349,22 +349,22 @@ export async function searchKnowledgeIndex(
     const rest = [...own.entries()].sort((a, b) => b[1] - a[1]).filter(([id]) => !reservedForTopic.includes(id));
     return reservedForTopic.map((id) => [id, own.get(id) ?? 0] as [string, number]).concat(rest);
   });
-  const perTopicSections = 2;
-  const total = topicRanked.length > 0 ? Math.max(limit, Math.min(16, topicRanked.length * perTopicSections + 2)) : limit;
+  const perTopicSections = 3;
+  const total = topicRanked.length > 0 ? Math.max(limit, Math.min(20, topicRanked.length * perTopicSections + 2)) : limit;
 
   const perPage = new Map<string, number>();
-  const chosen: { section: Loaded["sections"][number]; score: number }[] = [];
+  const chosen: { section: Loaded["sections"][number]; score: number; topic?: string }[] = [];
   const taken = new Set<string>();
-  const take = (id: string, score: number): boolean => {
+  const take = (id: string, score: number, topic?: string): boolean => {
     const section = byId.get(id);
     if (!section || taken.has(id) || (perPage.get(section.pageId) ?? 0) >= tuning.perPage) return false;
     perPage.set(section.pageId, (perPage.get(section.pageId) ?? 0) + 1);
     taken.add(id);
-    chosen.push({ section, score });
+    chosen.push({ section, score, ...(topic ? { topic } : {}) });
     return true;
   };
   for (let round = 0; round < perTopicSections; round += 1) {
-    for (const ranking of topicRanked) {
+    for (const [topicIndex, ranking] of topicRanked.entries()) {
       let given = 0;
       let cursor = 0;
       // The round's section is this topic's best one not taken yet.
@@ -372,7 +372,7 @@ export async function searchKnowledgeIndex(
         const [id, score] = ranking[cursor];
         cursor += 1;
         if (taken.has(id)) continue;
-        if (take(id, score)) given += 1;
+        if (take(id, score, topicQuestions[topicIndex])) given += 1;
       }
     }
   }
@@ -392,6 +392,7 @@ export async function searchKnowledgeIndex(
     heading: entry.section.heading,
     content: entry.section.content,
     rank: 1 / (index + 1),
+    ...(entry.topic ? { topic: entry.topic } : {}),
   }));
   const details: IndexMatchDetail[] = chosen.map((entry) => ({
     title: entry.section.title,

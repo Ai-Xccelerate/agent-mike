@@ -260,6 +260,9 @@ describe("a message with several separate questions", () => {
     const titles = matches.map((m) => m.title);
     for (const wanted of ["Add a New Provider", "Change a Provider's Email", "Appointment Reminders", "Accounting Export", "Closing a Case File"]) expect(titles, wanted).toContain(wanted);
     expect(matches.length).toBeGreaterThan(8);
+    // Each section found for a question says which, so the worker can match each part of her answer to its pages.
+    expect(matches.find((m) => m.title === "Add a New Provider")?.topic).toBe("add a new provider");
+    expect(matches.find((m) => m.title === "Closing a Case File")?.topic).toBe("close a case file");
   });
 
   it("would miss some of them as one search, which is why it is split", async () => {

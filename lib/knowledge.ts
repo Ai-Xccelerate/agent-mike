@@ -218,6 +218,8 @@ export interface KnowledgeMatch {
   heading: string | null;
   content: string;
   rank: number;
+  /** For a message with several separate questions: the question this section was found for. */
+  topic?: string;
 }
 
 export async function retrieve(
