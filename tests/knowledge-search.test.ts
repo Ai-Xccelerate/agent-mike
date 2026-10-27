@@ -192,6 +192,25 @@ describe("a question whose rare word is buried among 'get to EAP Expert' pages",
     expect(matches.some((m) => /Parallels/.test(m.title))).toBe(true);
   });
 
+  it("ignores a word that is in few titles but in the text of most pages, as 'system' is", async () => {
+    // "How do I send an email or text to a member from the system?": the pages named for "system" must not take the slots.
+    const filler = Array.from({ length: 40 }, (_, i) => ({ id: `f${i}`, title: `Guide ${i}`, text: `## Steps\nIn the system you open the module and use the system menu.${FILL}` }));
+    const memberPages = Array.from({ length: 8 }, (_, i) => ({ id: `mp${i}`, title: `Member guide ${i}`, text: `## Steps\nHow to manage a member in the system.${FILL}` }));
+    const siblings = ["Providers", "Employer Contacts", "Clients", "Staff", "Counsellors", "Vendors", "Members"].map((who, i) => ({
+      id: `e${i}`,
+      title: `Emailing and Texting ${who} through the Communication Hub`,
+      text: `## Steps\nOpen the Communication Hub, choose the ${who.toLowerCase()} and send an email or a text.${FILL}`,
+    }));
+    const systemPages = [
+      { id: "s1", title: "System Customization", text: `## Options\nCustomize the colours.${FILL}` },
+      { id: "s2", title: "System Setup", text: `## Setup\nSet up the office.${FILL}` },
+    ];
+    await indexed([...filler, ...memberPages, ...siblings, ...systemPages]);
+    const { matches } = await searchKnowledgeIndex(orgId, "How do I send an email or text to a member from the system?", { embed, rewrite: false, tuning: { weights: { keyword: 1, meaning: 1, title: 0 } } });
+    expect(matches.filter((m) => /^System /.test(m.title))).toEqual([]);
+    expect(matches.map((m) => m.title)).toContain("Emailing and Texting Members through the Communication Hub");
+  });
+
   it("does not crowd out the ranking when the rare word is in no title, or in too many", async () => {
     await indexed([...Array.from({ length: 12 }, (_, i) => ({ id: `r${i}`, title: `Report guide ${i}`, text: `## Reports\nHow to run a report in the system.${FILL}` })), { id: "x", title: "Cooking", text: `## Pasta\nBoil water.${FILL}` }]);
     const { matches } = await searchKnowledgeIndex(orgId, "How do I run a report?", { embed, rewrite: false });
