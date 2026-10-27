@@ -1537,7 +1537,8 @@ describe("a handoff in chat", () => {
     const followUp = await turn.pendingTicket;
     expect(followUp?.message.body).toContain("SUP-12");
     expect(followUp?.message.cards).toEqual([expect.objectContaining({ kind: "helpdesk_ticket", data: expect.objectContaining({ key: "SUP-12" }) })]);
-    const stored = await db.select().from(messagesTable).where(eq(messagesTable.conversationId, conversation.id));
+    // In the order they were written: without a sort Postgres returns rows in whatever order the table holds them.
+    const stored = await db.select().from(messagesTable).where(eq(messagesTable.conversationId, conversation.id)).orderBy(messagesTable.createdAt);
     expect(stored.map((row) => row.senderType)).toEqual(["customer", "agent", "agent"]);
   });
 
