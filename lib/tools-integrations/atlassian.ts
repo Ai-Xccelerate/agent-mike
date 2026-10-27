@@ -724,6 +724,62 @@ export async function addInternalTicketNote(organizationId: string, key: string,
   }
 }
 
+const priorityCache = new Map<string, { names: string[]; at: number }>();
+const PRIORITY_CACHE_MS = 60 * 60 * 1000;
+
+/** The priority names the Jira site uses, highest first as Jira lists them; cached an hour. */
+async function jiraPriorityNames(connectedAccountId: string): Promise<string[]> {
+  const cached = priorityCache.get(connectedAccountId);
+  if (cached && Date.now() - cached.at < PRIORITY_CACHE_MS) return cached.names;
+  const found = await callJira(connectedAccountId, "GET", "/rest/api/3/priority");
+  const names = found.ok && Array.isArray(found.data) ? (found.data as { name?: unknown }[]).map((entry) => entry.name).filter((name): name is string => typeof name === "string") : [];
+  if (names.length > 0) priorityCache.set(connectedAccountId, { names, at: Date.now() });
+  return names;
+}
+
+/**
+ * The site's own name for the top priority, for a Critical conversation: "Critical", else "Highest", else a blocker or
+ * urgent one. Nothing is guessed from position: a site whose scheme has none of these gets no change, and the ticket
+ * keeps its default.
+ */
+export function pickCriticalPriority(names: string[]): string | null {
+  for (const rule of [/^critical$/i, /^highest$/i, /blocker/i, /critical|highest|urgent|immediate/i]) {
+    const found = names.find((name) => rule.test(name));
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Raises a ticket this worker made to the site's top priority, because the customer cannot work. Needs the connected
+ * account to be allowed to edit the issue; a refusal leaves the default priority and is logged. Never throws.
+ */
+export async function setCriticalTicketPriority(organizationId: string, key: string): Promise<string | null> {
+  try {
+    const connection = await getConnectionForOrg(organizationId, "helpdesk");
+    const connectedAccountId = activeAccount(connection, "jira");
+    if (!connection || !connectedAccountId) return null;
+    const name = pickCriticalPriority(await jiraPriorityNames(connectedAccountId));
+    if (!name) return null;
+    const changed = await callJira(connectedAccountId, "PUT", `/rest/api/3/issue/${key}`, { fields: { priority: { name } } });
+    await logToolCall({
+      organizationId,
+      toolId: HANDOFF_COMMENT_TOOL_ID,
+      calledBy: "system",
+      input: { key, priority: name },
+      output: changed.ok ? toLogOutput(changed.data) : null,
+      status: changed.ok ? "success" : "error",
+      errorMessage: changed.ok ? null : changed.error,
+    });
+    if (!changed.ok) return null;
+    // The Overview breaks tickets down by this, so what Jira now says is what Mike shows.
+    await db.update(conversations).set({ externalTicketPriority: name }).where(and(eq(conversations.organizationId, organizationId), eq(conversations.externalTicketKey, key)));
+    return name;
+  } catch {
+    return null;
+  }
+}
+
 /** A later handoff on the same conversation: what the customer added, and what the worker passed on. */
 export function handoffComment(input: Pick<HandoffTicketInput, "latestMessage" | "workerReply" | "workerName">): string {
   return [
@@ -1924,6 +1980,7 @@ export function clearRequestTypeCatalogCache(): void {
   catalogs.clear();
   catalogLoads.clear();
   warmDesks.clear();
+  priorityCache.clear();
 }
 
 /**

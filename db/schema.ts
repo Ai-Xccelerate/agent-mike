@@ -594,6 +594,89 @@ export const workerManagers = pgTable(
   }),
 );
 
+/**
+ * A saved question with what a good answer looks like, made from something that went wrong or was answered by the team
+ * (a review item). Replayed through the worker to score it before and after a change. Customer details are removed
+ * before it is saved; it belongs to one organization and is never shared.
+ */
+export const evalCases = pgTable(
+  "eval_cases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** The customer's question, with personal details removed. */
+    question: text("question").notNull(),
+    /** What a good answer says (a correction, or what the team said), with personal details removed. */
+    reference: text("reference"),
+    /** true: she should hand over; false: she should answer; null: not part of the test. */
+    expectHandover: boolean("expect_handover"),
+    /** The review item it came from, and its kind, for the manager's own trail. */
+    sourceItem: text("source_item"),
+    sourceKind: text("source_kind").notNull().default("manual"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("eval_cases_org_idx").on(table.organizationId),
+  }),
+);
+
+/** One replay of an organization's test cases: the score, and each case's reply and verdict. */
+/**
+ * What the Assistant changed after a manager confirmed it: the profile fields, knowledge articles and custom skills
+ * that differ, with their text before and after, so a change can be undone and its effect on the test score read.
+ */
+export const changeLog = pgTable(
+  "change_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    summary: text("summary").notNull(),
+    appliedBy: text("applied_by").notNull(),
+    diff: jsonb("diff").$type<Record<string, unknown>>().notNull(),
+    /** Set once the change has been undone. */
+    revertedAt: timestamp("reverted_at", { withTimezone: true }),
+    revertedBy: text("reverted_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("change_log_org_idx").on(table.organizationId, table.createdAt),
+  }),
+);
+
+export const evalRuns = pgTable(
+  "eval_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("running"), // running | done | failed
+    total: integer("total").notNull().default(0),
+    passed: integer("passed").notNull().default(0),
+    /** passed / total, 0 to 1. */
+    score: real("score"),
+    /** What the worker was running: model and the like, so two scores can be compared fairly. */
+    context: jsonb("context").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    results: jsonb("results").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    /** A change that was applied just before this run, when the run was made to measure it. */
+    changeId: uuid("change_id"),
+    error: text("error"),
+    triggeredBy: text("triggered_by").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => ({
+    orgIdx: index("eval_runs_org_idx").on(table.organizationId, table.startedAt),
+  }),
+);
+
 export const cannedReplies = pgTable(
   "canned_replies",
   {

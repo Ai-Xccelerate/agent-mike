@@ -300,6 +300,60 @@ export async function deleteWorkerManager(id: string): Promise<void> {
   await apiFetch<unknown>(`/managers/${id}`, { method: "DELETE" });
 }
 
+export type EvalCaseEntry = {
+  id: string;
+  question: string;
+  reference: string | null;
+  expectHandover: boolean | null;
+  sourceKind: string;
+  enabled: boolean;
+  createdAt: string;
+};
+export type EvalCaseInput = {
+  question: string;
+  reference: string | null;
+  expectHandover: boolean | null;
+  sourceItem?: string | null;
+  sourceKind?: "bad_rating" | "no_article" | "team_answer" | "manual";
+};
+export type EvalCaseList = { cases: EvalCaseEntry[]; limits: { question: number; reference: number; perOrganization: number }; canChange: boolean };
+export type EvalCaseResult = { caseId: string; question: string; pass: boolean; handedOver: boolean; score: number | null; reason: string; reply: string; ms: number };
+export type EvalRunEntry = {
+  id: string;
+  status: "running" | "done" | "failed";
+  total: number;
+  passed: number;
+  score: number | null;
+  context: { model?: string; release?: string | null };
+  results: EvalCaseResult[];
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+};
+
+export const getEvalCases = () => apiFetch<EvalCaseList>("/eval-cases");
+export const createEvalCase = (input: EvalCaseInput) => apiFetch<EvalCaseEntry>("/eval-cases", { method: "POST", body: JSON.stringify(input) });
+export const updateEvalCase = (id: string, input: Partial<Pick<EvalCaseEntry, "reference" | "expectHandover" | "enabled">>) =>
+  apiFetch<EvalCaseEntry>(`/eval-cases/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+export async function deleteEvalCase(id: string): Promise<void> {
+  await apiFetch<unknown>(`/eval-cases/${id}`, { method: "DELETE" });
+}
+export const getEvalRuns = () => apiFetch<{ runs: EvalRunEntry[]; canChange: boolean }>("/eval-runs");
+export const startEvalRun = () => apiFetch<{ runId: string }>("/eval-runs", { method: "POST" });
+
+export type ChangeEntry = {
+  id: string;
+  summary: string;
+  appliedBy: string;
+  createdAt: string;
+  revertedAt: string | null;
+  scoreBefore: number | null;
+  scoreAfter: number | null;
+  runStatus: string | null;
+};
+export const getChanges = () => apiFetch<{ changes: ChangeEntry[]; canChange: boolean }>("/changes");
+export const revertChange = (id: string) => apiFetch<{ ok: true }>(`/changes/${id}/revert`, { method: "POST" });
+
 export type CannedReply = { id: string; title: string; situation: string; reply: string; enabled: boolean };
 export type CannedReplyInput = { title: string; situation: string; reply: string; enabled?: boolean };
 export type CannedReplyList = {

@@ -10,7 +10,7 @@ import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-tu
 import { getIdentityAdapter, setIdentityAdapter } from "@/lib/identity";
 import { MANAGER_LIMITS, createManager, listManagers, resolveRecipients, suggestedAssigneeNote, validateManagerChoice } from "@/lib/managers";
 import { sendAsWorker } from "@/lib/outbound";
-import { addInternalTicketNote, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { addInternalTicketNote, recordHandoffInJira, setCriticalTicketPriority } from "@/lib/tools-integrations/atlassian";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 const choiceMock = vi.hoisted(() => vi.fn());
@@ -32,6 +32,7 @@ vi.mock("@/lib/tools-integrations/atlassian", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tools-integrations/atlassian")>()),
   recordHandoffInJira: vi.fn(async () => ({ key: "SUP-9", created: true, title: "Printing broken" })),
   addInternalTicketNote: vi.fn(async () => true),
+  setCriticalTicketPriority: vi.fn(async () => "Highest"),
 }));
 vi.mock("@/lib/conversation-memory", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/conversation-memory")>()),
@@ -56,6 +57,7 @@ beforeEach(async () => {
   setIdentityAdapter({ resolveManagerRequest: async () => ({ orgId, userId: "m", role, source: "test" }), resolveWidgetRequest: async () => null });
   vi.mocked(sendAsWorker).mockClear();
   vi.mocked(addInternalTicketNote).mockClear();
+  vi.mocked(setCriticalTicketPriority).mockClear();
   runAgentMock.mockReset();
   choiceMock.mockReset();
 });
@@ -178,6 +180,23 @@ describe("routing a real handover", () => {
     expect(sent.to.map((r) => r.email).sort()).toEqual(["asif@eapexpert.example", "lead@eapexpert.example"]);
     expect(sent.subject).toContain("[Critical]");
     expect(sent.body).toContain("CRITICAL");
+  });
+
+  it("sets the Jira priority of a Critical handover, even with no list of people, and not of an ordinary one", async () => {
+    runAgentMock.mockResolvedValue(handoff);
+    choiceMock.mockResolvedValue({ managerId: null, critical: true });
+    await handOver("Nobody in the whole office can log in");
+    expect(setCriticalTicketPriority).toHaveBeenCalledWith(orgId, "SUP-9");
+    const sent = vi.mocked(sendAsWorker).mock.calls[0][0];
+    expect(sent.subject).toContain("[Critical]");
+    expect(sent.to).toEqual([{ email: "team@eapexpert.example", name: "Support Team" }]);
+    // Without a Critical group the ticket note does not claim one was emailed.
+    expect(vi.mocked(addInternalTicketNote).mock.calls[0][2]).toBe("Marked Critical: the customer cannot work.");
+
+    vi.mocked(setCriticalTicketPriority).mockClear();
+    choiceMock.mockResolvedValue({ managerId: null, critical: false });
+    await handOver("One report is slow for me");
+    expect(setCriticalTicketPriority).not.toHaveBeenCalled();
   });
 
   it("tells the profile's single manager when the list is empty or the worker cannot choose", async () => {

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { conversations, messages, workerProfiles } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
-import { classifyConversation, validateClassification } from "@/lib/ticket-classifier";
+import { classifyConversation, summarizeForHandoff, validateClassification } from "@/lib/ticket-classifier";
 import { DEFAULT_TICKET_SCHEMA, resolveTicketSchema, ticketSchemaPatch } from "@/lib/ticket-schema";
 import { helpdeskBreakdownSource } from "@/lib/tools-integrations/atlassian";
 import { applyWorkerPatch } from "@/lib/worker-settings";
@@ -244,6 +244,25 @@ describe("classifyConversation", () => {
     const row = await conversation({ tier: "Tier 2" });
     await classify(row, true);
     expect((await reload(row.id)).tier).toBe("Tier 2");
+  });
+});
+
+describe("a many-part message handed over for one part", () => {
+  const turns = [
+    { speaker: "Ana", body: "How do I add a provider, run a report and get a quote for 50 users?" },
+    { speaker: "Eva", body: "Here are the steps for the first two. I can't confirm pricing, a teammate will." },
+  ];
+
+  it("tells the summary writer and the classifier that the ticket is only for what is still unanswered", async () => {
+    runMock.mockResolvedValue({ finalOutput: "Ana needs a quote for 50 users. Adding a provider and running a report were already answered." });
+    process.env.OPENAI_API_KEY ||= "test-key";
+    expect(await summarizeForHandoff(turns)).toContain("quote for 50 users");
+    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("only for what is still unanswered");
+
+    runMock.mockClear();
+    chosen({ requestType: "Request", tier: "Tier 1", labels: [] });
+    await classify(await conversation());
+    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("only for what is still unanswered");
   });
 });
 
