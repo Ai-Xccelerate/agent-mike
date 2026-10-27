@@ -157,7 +157,11 @@ export async function indexedPages(organizationId: string): Promise<{ pageId: st
 function pagesByTitle(all: Loaded, words: string[], count: number): Loaded["pages"] {
   if (words.length === 0) return [];
   const weights = stemWeights(all.pages, words);
-  const stems = [...new Set(words.map(wordStem))];
+  const allStems = [...new Set(words.map(wordStem))];
+  // Words in nearly every title ("EAP", "Expert") count for nothing when the question has a distinctive word: two of
+  // them would otherwise outscore the one rare word ("Parallels") and push the page named for it out.
+  const distinctiveStems = allStems.filter((stem) => (weights[stem] ?? 1) >= DISTINCTIVE_WORD_WEIGHT);
+  const stems = distinctiveStems.length > 0 ? distinctiveStems : allStems;
   return all.pages
     .map((page) => {
       const lower = page.title.toLowerCase();
