@@ -106,7 +106,8 @@ export { REPLAY_MESSAGE_LIMIT };
  * excluding Playground's test conversations, just applied to a second
  * internal-only channel.
  */
-export const INTERNAL_CONVERSATION_CHANNELS = ["chat", "assistant"] as const;
+/** Not customers: the Playground, the Assistant, and the replays of saved test questions. */
+export const INTERNAL_CONVERSATION_CHANNELS = ["chat", "assistant", "eval"] as const;
 
 type Profile = typeof workerProfiles.$inferSelect;
 

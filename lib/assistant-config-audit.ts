@@ -35,7 +35,7 @@ const DEFAULT_ROLE = "Configure this worker's role and responsibilities.";
 const DEFAULT_DISPLAY_NAME = "AI Worker";
 const DEFAULT_MANAGER_NAME = "Manager";
 const ALLOWED_MODELS = new Set(["gpt-5.6-luna", "gpt-5.6-sol"]);
-const INTERNAL_CHANNELS = ["chat", "assistant"];
+const INTERNAL_CHANNELS = ["chat", "assistant", "eval"];
 
 export async function loadConfigurationSnapshot(organizationId: string): Promise<ConfigurationSnapshot | null> {
   const [profile] = await db.select().from(workerProfiles).where(eq(workerProfiles.organizationId, organizationId)).limit(1);

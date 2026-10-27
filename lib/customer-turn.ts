@@ -127,8 +127,14 @@ export async function runCustomerTurn(input: {
   deferTicket?: boolean;
   /** Told what the turn is really doing (chat panel progress); never states an outcome. */
   onStatus?: (stage: string, label: string) => void;
+  /**
+   * A replay of a saved test question: the reply is made exactly as for a customer, but nothing leaves the building. No
+   * ticket is raised, no manager is emailed or routed, no conversation is classified or summarized for a ticket.
+   */
+  dryRun?: boolean;
 }): Promise<CustomerTurn> {
   const { organizationId, profile, conversation, priorMessages, userMessage, speakerName } = input;
+  const dry = Boolean(input.dryRun);
   const progress = (stage: string, label: string) => {
     try {
       input.onStatus?.(stage, label);
@@ -308,7 +314,7 @@ export async function runCustomerTurn(input: {
     !ticketsInFlight.has(conversation.id) &&
     !widgetNeedsIdentity &&
     (await helpdeskRaisesTickets(organizationId));
-  const raisesTicket = (result.escalate && !holdForIdentity) || missingTicket;
+  const raisesTicket = !dry && ((result.escalate && !holdForIdentity) || missingTicket);
 
   // "Ticket for every conversation" (Settings > Integrations > Jira): a conversation the worker answers by itself also
   // gets a ticket, marked as answered, for the desk's reporting. It never notifies a manager and says nothing to the
@@ -316,6 +322,7 @@ export async function runCustomerTurn(input: {
   // out of scope) is not logged. Like a handover it needs to know who the customer is: a widget visitor who has not
   // given their details is asked once, and the ticket is raised when they have.
   const answeredDue =
+    !dry &&
     !result.escalate &&
     conversation.status !== "needs_human" &&
     !conversation.externalTicketKey &&
@@ -347,7 +354,7 @@ export async function runCustomerTurn(input: {
   const firstHandoff = result.escalate && conversation.status !== "needs_human";
   // Who the handover goes to, chosen from Settings > Human manager's list while the reply is being stored. It never
   // throws and never takes long: when the list cannot say, the profile's single manager is told, as before the list.
-  const routing = firstHandoff
+  const routing = firstHandoff && !dry
     ? routeHandover({
         organizationId,
         fallback: { name: profile.managerName, email: profile.managerEmail },
@@ -554,14 +561,16 @@ export async function runCustomerTurn(input: {
   // runs after the answer is stored and is not awaited, so it never slows the
   // customer's reply; a failure just leaves the ticket unclassified.
   const handedOverNow = result.escalate && conversation.status !== "needs_human";
-  void classifyConversation({ organizationId, profile, conversation, transcript: allTurns, handedOverNow }).catch((error: unknown) =>
-    console.warn("[tickets] classification failed:", error instanceof Error ? error.message : error),
-  );
+  if (!dry) {
+    void classifyConversation({ organizationId, profile, conversation, transcript: allTurns, handedOverNow }).catch((error: unknown) =>
+      console.warn("[tickets] classification failed:", error instanceof Error ? error.message : error),
+    );
+  }
 
   // A person is told the moment a conversation first needs them, whatever
   // the channel, not on every message while it waits. The email channel
   // sends its own (it also covers replies that couldn't be sent).
-  if (result.escalate && conversation.status !== "needs_human" && conversation.channel !== "email") {
+  if (!dry && result.escalate && conversation.status !== "needs_human" && conversation.channel !== "email") {
     const where = conversation.channel === "widget" ? "website chat" : "chat";
     await timed("handoff.notify", () =>
       notifyManager(conversation, organizationId, `${profile.displayName} handed a ${where} conversation to you.`, "handoff", route),

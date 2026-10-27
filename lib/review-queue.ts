@@ -99,7 +99,7 @@ export async function loadReviewItems(organizationId: string, now = new Date()):
   const handedOver = await db
     .select({ id: conversations.id, ticketNumber: conversations.ticketNumber, status: conversations.status, ticket: conversations.externalTicketKey })
     .from(conversations)
-    .where(and(eq(conversations.organizationId, organizationId), ne(conversations.channel, "assistant"), gte(conversations.updatedAt, since)))
+    .where(and(eq(conversations.organizationId, organizationId), ne(conversations.channel, "assistant"), ne(conversations.channel, "eval"), gte(conversations.updatedAt, since)))
     .orderBy(desc(conversations.updatedAt))
     .limit(CONVERSATION_CAP);
 
