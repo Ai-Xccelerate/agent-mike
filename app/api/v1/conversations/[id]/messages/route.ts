@@ -36,6 +36,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const profile = await getOrCreateProfile(tenant.orgId);
 
+  // A reply sent from the Assistant's draft card needs "Let the Assistant take actions" (Settings > Guardrails).
+  if (body?.fromAssistant === true && !profile.assistantActionsEnabled) {
+    return NextResponse.json({ error: "Turn on \"Let the Assistant take actions\" in Settings > Guardrails to send from the Assistant." }, { status: 403 });
+  }
+
   let externalMessageId: string | null = null;
   if (conversation.channel === "email") {
     try {

@@ -283,6 +283,30 @@ describe("a manager replying from the Inbox", () => {
     expect(conversation.humanControlled).toBe(true);
   });
 
+  it("sends from the Assistant's draft card only when Assistant actions are on", async () => {
+    const stored = (await receive(delivery())) as Extract<InboundOutcome, { kind: "stored" }>;
+    setIdentityAdapter({
+      resolveManagerRequest: async () => ({ orgId, userId: "manager-1", role: "admin", source: "test" }),
+      resolveWidgetRequest: async () => null,
+    });
+    const fromCard = () =>
+      postManagerReply(
+        new NextRequest(`http://localhost/api/v1/conversations/${stored.conversationId}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ body: "Sent from the draft card.", fromAssistant: true }),
+        }),
+        { params: { id: stored.conversationId } },
+      );
+    await db.update(workerProfiles).set({ assistantActionsEnabled: false }).where(eq(workerProfiles.organizationId, orgId));
+    const refused = await fromCard();
+    expect(refused.status).toBe(403);
+    expect(sendMock).not.toHaveBeenCalled();
+    await db.update(workerProfiles).set({ assistantActionsEnabled: true }).where(eq(workerProfiles.organizationId, orgId));
+    expect((await fromCard()).status).toBe(200);
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ body: "Sent from the draft card." }));
+  });
+
   it("saves nothing and says why when the email can't be sent", async () => {
     const stored = (await receive(delivery())) as Extract<InboundOutcome, { kind: "stored" }>;
     sendMock.mockRejectedValueOnce(new Error("Nylas down"));
