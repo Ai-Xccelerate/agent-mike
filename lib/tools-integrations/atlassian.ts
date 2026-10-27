@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { isPlaceholderCustomerName } from "@/lib/customer-name";
 import { NO_HELPDESK, type HelpdeskCapabilities } from "@/lib/widget-defaults";
 import { trustedCustomerEmail } from "@/lib/customer-identity";
-import { conversations } from "@/db/schema";
+import { conversations, integrationConnections } from "@/db/schema";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { executeTool, getAccountSite, proxyRequest } from "@/lib/tools-integrations/composio-client";
 import { getConnectionForOrg, type IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
@@ -1923,6 +1923,65 @@ const catalogLoads = new Map<string, Promise<RequestTypeCatalog | { problem: str
 export function clearRequestTypeCatalogCache(): void {
   catalogs.clear();
   catalogLoads.clear();
+  warmDesks.clear();
+}
+
+/**
+ * Keeping the list warm. Without this a customer who writes after a deploy, or after the list has sat unused for an
+ * hour, waits for every Jira call (6 to 8 seconds) before getting an answer. Every desk read once is reloaded in the
+ * background halfway through its freshness, so a turn always finds a current copy; and prewarmRequestTypeCatalogs
+ * loads every desk that needs one when the server starts.
+ */
+const CATALOG_REFRESH_MS = CATALOG_TTL_MS / 2;
+const warmDesks = new Map<string, { connectedAccountId: string; projectKey: string }>();
+let refresher: ReturnType<typeof setInterval> | null = null;
+
+/** Reloads every desk read so far; a failure keeps the old copy and the next round tries again. */
+export async function refreshWarmCatalogs(): Promise<number> {
+  const desks = [...warmDesks.entries()];
+  await Promise.all(desks.map(([key, desk]) => loadCatalogOnce(key, desk.connectedAccountId, desk.projectKey).catch(() => undefined)));
+  return desks.length;
+}
+
+function keepWarm(cacheKey: string, connectedAccountId: string, projectKey: string): void {
+  warmDesks.set(cacheKey, { connectedAccountId, projectKey });
+  // Not in tests: a timer left running would hold the test process open.
+  if (refresher || process.env.VITEST || process.env.NODE_ENV === "test") return;
+  refresher = setInterval(() => void refreshWarmCatalogs(), CATALOG_REFRESH_MS);
+  refresher.unref?.();
+}
+
+let prewarmed = false;
+
+/**
+ * Loads the request types of every desk whose worker chooses them, once per server start. Called from the health check
+ * Railway makes on each deploy, so the first customer after a deploy finds the list ready. Never throws.
+ */
+export async function prewarmRequestTypeCatalogs(): Promise<number> {
+  if (prewarmed) return 0;
+  prewarmed = true;
+  try {
+    const rows = await db
+      .select({ account: integrationConnections.composioConnectedAccountId, metadata: integrationConnections.metadata })
+      .from(integrationConnections)
+      .where(and(eq(integrationConnections.integrationType, "helpdesk"), eq(integrationConnections.system, "jira"), eq(integrationConnections.status, "active")));
+    let loaded = 0;
+    for (const row of rows) {
+      const settings = readJiraSettings(row.metadata);
+      if (!row.account || !settings.workerChoosesRequestType || !settings.projectKey) continue;
+      await getRequestTypeCatalog(row.account, settings.projectKey);
+      loaded += 1;
+    }
+    return loaded;
+  } catch (error) {
+    console.warn("[atlassian] could not warm the request types:", error instanceof Error ? error.message : error);
+    return 0;
+  }
+}
+
+/** Test hook: lets prewarmRequestTypeCatalogs run again. */
+export function resetPrewarmForTests(): void {
+  prewarmed = false;
 }
 
 /**
@@ -1939,6 +1998,7 @@ export async function getRequestTypeCatalog(
   projectKey: string,
 ): Promise<RequestTypeCatalog | { problem: string }> {
   const cacheKey = `${connectedAccountId}:${projectKey}`;
+  keepWarm(cacheKey, connectedAccountId, projectKey);
   const cached = catalogs.get(cacheKey);
   const age = cached ? Date.now() - cached.at : Infinity;
   if (cached && age < CATALOG_TTL_MS) return cached.catalog;
