@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { conversations, organizations } from "@/db/schema";
+import { conversations, integrationConnections, organizations } from "@/db/schema";
 import { ensureOrganization } from "@/lib/bootstrap";
 import { insertConversationWithTicket } from "@/lib/customer-turn";
 import { getIdentityAdapter, setIdentityAdapter, type IdentityAdapter } from "@/lib/identity";
@@ -30,6 +30,9 @@ import {
   lookupJiraCustomerByEmail,
   HANDOFF_TICKET_LABEL,
   ANSWERED_TICKET_LABEL,
+  prewarmRequestTypeCatalogs,
+  refreshWarmCatalogs,
+  resetPrewarmForTests,
   helpdeskTicketsEveryConversation,
   handoffTicketSummary,
   issueKeyFrom,
@@ -727,6 +730,32 @@ describe("raising a Jira ticket on handoff", () => {
 
       releaseJira();
       clock.mockRestore();
+    });
+
+    it("reloads a desk it has read in the background, so a turn always finds a current list", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      deskAnswers();
+      await requestTypeGuidance(orgId);
+      const callsAfterFirstLoad = proxyRequestMock.mock.calls.length;
+      expect(await refreshWarmCatalogs()).toBeGreaterThanOrEqual(1);
+      expect(proxyRequestMock.mock.calls.length).toBeGreaterThan(callsAfterFirstLoad);
+    });
+
+    it("loads the request types of every desk that needs them when the server starts, once", async () => {
+      deskAnswers();
+      resetPrewarmForTests();
+      await db.insert(integrationConnections).values({
+        organizationId: orgId,
+        integrationType: "helpdesk",
+        system: "jira",
+        composioAuthConfigId: "ac_jira",
+        composioConnectedAccountId: "ca_jira",
+        status: "active",
+        metadata: { settings: { projectKey: "SUP", issueType: null, createTicketOnHandoff: true, workerChoosesRequestType: true } },
+      });
+      expect(await prewarmRequestTypeCatalogs()).toBeGreaterThanOrEqual(1);
+      expect(proxyRequestMock.mock.calls.some(([call]) => String(call.endpoint).includes("/servicedeskapi/servicedesk"))).toBe(true);
+      expect(await prewarmRequestTypeCatalogs()).toBe(0);
     });
 
     it("raises no ticket rather than a wrong one, even with a default request type saved", async () => {
