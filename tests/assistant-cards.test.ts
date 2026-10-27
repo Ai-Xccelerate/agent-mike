@@ -79,6 +79,27 @@ describe("read tools show a card only when asked to", () => {
   });
 });
 
+describe("what a draft says about sending", () => {
+  const draft = { format: "chat", ticketNumber: null, subject: null, body: "Thanks for waiting." };
+  const toolsFor = (assistantActionsEnabled: boolean) => {
+    const profile = { organizationId: "org-x", displayName: "Eva", managerName: "Charan", assistantActionsEnabled } as Profile;
+    return buildAssistantTools(profile, "org-x", crypto.randomUUID(), { readOnly: true, onCard: () => undefined });
+  };
+
+  it("tells the manager where to turn sending on when Assistant actions are off", async () => {
+    const text = await invokeTool(toolsFor(false), SHOW_DRAFT_TOOL_NAME, draft);
+    expect(text).toContain("Sending is off");
+    expect(text).toContain("Let the Assistant take actions");
+    expect(text).toContain("Settings > Guardrails");
+  });
+
+  it("offers to send it, with a confirmation, when Assistant actions are on", async () => {
+    const text = await invokeTool(toolsFor(true), SHOW_DRAFT_TOOL_NAME, draft);
+    expect(text).toContain("you can send it for them");
+    expect(text).not.toContain("Sending is off");
+  });
+});
+
 describe("card helpers", () => {
   it("takes internal tool names out of audit fixes", () => {
     const card = configAuditCard([
