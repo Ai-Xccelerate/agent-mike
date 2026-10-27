@@ -33,6 +33,7 @@ import {
   type ConversationReadMap,
 } from "@/lib/conversation-read-state";
 import { customerLabel, isPlaceholderName } from "@/lib/tickets";
+import { plainPreview } from "@/lib/plain-preview";
 import { apiFetch, Conversation, WorkerApiError, WorkerProfile } from "@/lib/worker-api";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -91,9 +92,10 @@ function initials(name: string) {
 function lastMessagePreview(conversation: Conversation) {
   const last = conversation.messages[conversation.messages.length - 1];
   if (!last) return conversation.subject ?? "No messages yet";
-  if (last.senderType === "manager") return `You: ${last.body}`;
-  if (last.senderType === "agent") return `${last.senderName}: ${last.body}`;
-  return last.body;
+  const text = plainPreview(last.body);
+  if (last.senderType === "manager") return `You: ${text}`;
+  if (last.senderType === "agent") return `${last.senderName}: ${text}`;
+  return text;
 }
 
 /** The one status chip a row or thread shows, if any. */
