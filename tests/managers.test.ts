@@ -10,7 +10,7 @@ import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-tu
 import { getIdentityAdapter, setIdentityAdapter } from "@/lib/identity";
 import { MANAGER_LIMITS, createManager, listManagers, resolveRecipients, suggestedAssigneeNote, validateManagerChoice } from "@/lib/managers";
 import { sendAsWorker } from "@/lib/outbound";
-import { addInternalTicketNote } from "@/lib/tools-integrations/atlassian";
+import { addInternalTicketNote, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 const choiceMock = vi.hoisted(() => vi.fn());
@@ -155,6 +155,16 @@ describe("routing a real handover", () => {
     expect(sent.subject).not.toContain("[Critical]");
     expect(conversation).toMatchObject({ assignedTo: "Asif", routedManagerId: asif.manager.id, status: "needs_human" });
     expect(addInternalTicketNote).toHaveBeenCalledWith(orgId, "SUP-9", expect.stringContaining("Suggested assignee: Asif"));
+  });
+
+  it("leaves the note on a ticket that already existed, such as one logged earlier as answered", async () => {
+    const asif = await createManager(orgId, person("Asif"));
+    if (!asif.ok) throw new Error("setup");
+    runAgentMock.mockResolvedValue(handoff);
+    choiceMock.mockResolvedValue({ managerId: asif.manager.id, critical: false });
+    vi.mocked(recordHandoffInJira).mockResolvedValueOnce({ key: "SUP-5", created: false });
+    await handOver("That did not work, I need a person");
+    expect(addInternalTicketNote).toHaveBeenCalledWith(orgId, "SUP-5", expect.stringContaining("Suggested assignee: Asif"));
   });
 
   it("emails the Critical group as well on a Critical handover, and flags it", async () => {

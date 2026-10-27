@@ -356,8 +356,9 @@ export async function runCustomerTurn(input: {
       }).catch(() => null)
     : null;
   /** The suggested assignee goes on the new ticket as an internal note, never in front of the customer. */
-  const noteSuggestedAssignee = async (ticket: { key: string; created: boolean }) => {
-    if (!routing || !ticket.created) return;
+  const noteSuggestedAssignee = async (ticket: { key: string }) => {
+    // Also on a ticket logged earlier as answered by the worker: the first handover is when it needs a person.
+    if (!routing) return;
     const route = await routing;
     const note = route ? suggestedAssigneeNote(route) : null;
     if (note) await addInternalTicketNote(organizationId, ticket.key, note);
