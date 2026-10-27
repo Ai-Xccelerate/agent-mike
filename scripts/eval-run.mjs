@@ -83,11 +83,13 @@ function generalChecks(body, ms) {
 function caseChecks(c, reply) {
   const failures = [];
   const body = reply.body;
-  const lower = body.toLowerCase();
+  // The model writes either kind of apostrophe and quote: a check for "don't send" must match "don’t send" too.
+  const straight = (text) => String(text).replace(/[\u2018\u2019\u02bc]/g, "'").replace(/[\u201c\u201d]/g, '"');
+  const lower = straight(body).toLowerCase();
   const e = c.expect || {};
-  for (const word of e.includes ?? []) if (!lower.includes(String(word).toLowerCase())) failures.push(`missing "${word}"`);
-  if (e.includesAny && !e.includesAny.some((word) => lower.includes(String(word).toLowerCase()))) failures.push(`none of: ${e.includesAny.join(" | ")}`);
-  for (const word of e.excludes ?? []) if (lower.includes(String(word).toLowerCase())) failures.push(`should not contain "${word}"`);
+  for (const word of e.includes ?? []) if (!lower.includes(straight(word).toLowerCase())) failures.push(`missing "${word}"`);
+  if (e.includesAny && !e.includesAny.some((word) => lower.includes(straight(word).toLowerCase()))) failures.push(`none of: ${e.includesAny.join(" | ")}`);
+  for (const word of e.excludes ?? []) if (lower.includes(straight(word).toLowerCase())) failures.push(`should not contain "${word}"`);
   for (const pattern of e.excludesPattern ?? []) if (new RegExp(pattern, "i").test(body)) failures.push(`matches forbidden pattern ${pattern}`);
   const questions = (body.match(/\?/g) || []).length;
   if (typeof e.maxQuestions === "number" && questions > e.maxQuestions) failures.push(`${questions} question marks (max ${e.maxQuestions})`);
