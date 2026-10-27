@@ -31,6 +31,8 @@ import {
   HANDOFF_TICKET_LABEL,
   ANSWERED_TICKET_LABEL,
   prewarmRequestTypeCatalogs,
+  pickCriticalPriority,
+  setCriticalTicketPriority,
   refreshWarmCatalogs,
   resetPrewarmForTests,
   helpdeskTicketsEveryConversation,
@@ -756,6 +758,39 @@ describe("raising a Jira ticket on handoff", () => {
       expect(await prewarmRequestTypeCatalogs()).toBeGreaterThanOrEqual(1);
       expect(proxyRequestMock.mock.calls.some(([call]) => String(call.endpoint).includes("/servicedeskapi/servicedesk"))).toBe(true);
       expect(await prewarmRequestTypeCatalogs()).toBe(0);
+    });
+
+    it("picks the site's own top priority for a Critical conversation, and never guesses one", () => {
+      expect(pickCriticalPriority(["Highest", "High", "Medium", "Low", "Lowest"])).toBe("Highest");
+      expect(pickCriticalPriority(["Critical", "Major", "Minor"])).toBe("Critical");
+      expect(pickCriticalPriority(["P1 Blocker", "P2", "P3"])).toBe("P1 Blocker");
+      expect(pickCriticalPriority(["Sev 1", "Sev 2", "Sev 3"])).toBeNull();
+      expect(pickCriticalPriority([])).toBeNull();
+    });
+
+    it("sets the priority on the ticket, records it, and leaves it alone when the site has no top priority or refuses", async () => {
+      connectionsFor({ helpdesk: workerChooses() });
+      const row = await newConversation({ externalTicketKey: "SUP-12" });
+      proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+        if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+        if (endpoint.endsWith("/rest/api/3/priority")) return { status: 200, data: [{ name: "Highest" }, { name: "High" }, { name: "Medium" }] };
+        if (method === "PUT") return { status: 204, data: null };
+        return { status: 200, data: {} };
+      });
+      expect(await setCriticalTicketPriority(orgId, "SUP-12")).toBe("Highest");
+      const put = proxyRequestMock.mock.calls.map(([call]) => call).find((call) => call.method === "PUT")!;
+      expect(put.endpoint).toBe(`${API}/rest/api/3/issue/SUP-12`);
+      expect(put.body).toEqual({ fields: { priority: { name: "Highest" } } });
+      const [stored] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+      expect(stored.externalTicketPriority).toBe("Highest");
+
+      proxyRequestMock.mockClear();
+      proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+        if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+        if (method === "PUT") return { status: 403, data: { errorMessages: ["No permission"] } };
+        return { status: 200, data: [{ name: "Highest" }] };
+      });
+      expect(await setCriticalTicketPriority(orgId, "SUP-12")).toBeNull();
     });
 
     it("raises no ticket rather than a wrong one, even with a default request type saved", async () => {

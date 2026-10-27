@@ -154,8 +154,8 @@ export async function chooseManager(args: {
   summary?: string | null;
 }): Promise<ManagerChoice | null> {
   const { managers, transcript, summary } = args;
-  if (managers.length === 0 || modelUnavailabilityReason()) return null;
-  const list = managers.map((manager) => `- id ${manager.id}: ${manager.name}. Covers: ${manager.areas.trim() || "(anything not covered by someone else)"}${manager.enabled ? "" : " (away: choose them anyway, the system uses their backup)"}`).join("\n");
+  if (modelUnavailabilityReason()) return null;
+  const list = managers.length === 0 ? "(nobody: return null for the id)" : managers.map((manager) => `- id ${manager.id}: ${manager.name}. Covers: ${manager.areas.trim() || "(anything not covered by someone else)"}${manager.enabled ? "" : " (away: choose them anyway, the system uses their backup)"}`).join("\n");
   const chooser = new Agent({
     name: "Manager router",
     instructions:
@@ -223,6 +223,6 @@ export function suggestedAssigneeNote(route: HandoverRoute): string | null {
     if (route.chosen.away && route.assignee && route.assignee.name !== route.chosen.name) lines.push(`${route.chosen.name} is switched off, so ${route.assignee.name} was told instead.`);
     else if (route.chosen.backupName) lines.push(`Backup: ${route.chosen.backupName}.`);
   }
-  if (route.critical) lines.push("Marked Critical: the customer cannot work. The Critical group was emailed.");
+  if (route.critical) lines.push(`Marked Critical: the customer cannot work.${route.recipients.some((recipient) => recipient.why === "critical") ? " The Critical group was emailed." : ""}`);
   return lines.join("\n");
 }

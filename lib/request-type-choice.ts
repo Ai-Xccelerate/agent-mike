@@ -37,7 +37,8 @@ export async function chooseRequestType(args: {
       "yourself from the impact the customer describes. For text fields, write what the customer asked for in " +
       "your own words, from what the conversation says (why someone needs something is usually clear from what " +
       "they asked for). Never invent facts the conversation doesn't contain. Set requestTypeId to null only if " +
-      "no type fits at all.\n" +
+      "no type fits at all. The worker may already have answered some of what the customer asked: choose the type, " +
+      "and write the title, for the part that is still unanswered, not for the whole message.\n" +
       "Also write the ticket's title: one line, under 80 characters, saying what's wrong or what's wanted and " +
       "where, so the team knows the issue from the title alone (for example \"Login fails with server error for " +
       "whole office since 9am\" or \"Add optional Pronouns field to Online Intake form\"). Never use the " +

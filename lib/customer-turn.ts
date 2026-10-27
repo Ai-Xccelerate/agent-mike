@@ -6,7 +6,7 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent, withOneFollowUp, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
-import { addInternalTicketNote, handoffTicketNotice, helpdeskRaisesTickets, helpdeskTicketsEveryConversation, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { addInternalTicketNote, setCriticalTicketPriority, handoffTicketNotice, helpdeskRaisesTickets, helpdeskTicketsEveryConversation, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import { routeHandover, suggestedAssigneeNote } from "@/lib/managers";
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
@@ -362,6 +362,8 @@ export async function runCustomerTurn(input: {
     const route = await routing;
     const note = route ? suggestedAssigneeNote(route) : null;
     if (note) await addInternalTicketNote(organizationId, ticket.key, note);
+    // A Critical handover (the customer cannot work) goes to the site's top priority instead of arriving as Medium.
+    if (route?.critical) await setCriticalTicketPriority(organizationId, ticket.key);
   };
 
   if (raisesTicket && !deferTicket) {
