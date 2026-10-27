@@ -28,7 +28,8 @@ const baseSchema = z.object({
   enabled: z.boolean().optional(),
 });
 export const managerCreateSchema = baseSchema;
-export const managerPatchSchema = baseSchema.partial();
+// A patch changes only what it names: "areas" must not fall back to its empty default and wipe what the person covers.
+export const managerPatchSchema = baseSchema.extend({ areas: z.string().trim().max(MANAGER_LIMITS.areas) }).partial();
 
 export async function listManagers(organizationId: string): Promise<WorkerManager[]> {
   return db.select().from(workerManagers).where(eq(workerManagers.organizationId, organizationId)).orderBy(asc(workerManagers.createdAt));

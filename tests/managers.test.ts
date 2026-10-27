@@ -68,7 +68,8 @@ describe("the manager list", () => {
     const created = (await (await POST(json("POST", person("Asif", { areas: "V3, MyAPP" })))).json()) as { id: string };
     const backup = (await (await POST(json("POST", person("Alex", { backupId: created.id })))).json()) as { id: string; backupId: string };
     expect(backup.backupId).toBe(created.id);
-    expect(await (await PATCH(json("PATCH", { enabled: false }), { params: { id: created.id } })).json()).toMatchObject({ enabled: false });
+    // Switching someone off must not wipe what they cover.
+    expect(await (await PATCH(json("PATCH", { enabled: false }), { params: { id: created.id } })).json()).toMatchObject({ enabled: false, areas: "V3, MyAPP" });
     role = "member";
     expect(await (await GET(json("GET"))).json()).toMatchObject({ canChange: false });
     expect((await POST(json("POST", person("Mia")))).status).toBe(403);
