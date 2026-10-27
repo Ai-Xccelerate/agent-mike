@@ -178,18 +178,45 @@ function pagesByTitle(all: Loaded, words: string[], count: number): Loaded["page
 const RARE_TITLE_PAGES = 6;
 /** The most sections kept for such pages, so the rest of the answer still comes from the ranking. */
 const RARE_TITLE_SECTIONS = 5;
+/** How rare the word must be in the pages' text too (textRarity: about 0.5 for 'Parallels', well under that for 'system'). */
+const RARE_WORD_WEIGHT = 0.35;
 
 /**
  * The pages named for the rarest word of the question, when that word is in only a few page titles. Their opening
  * sections are always handed to the worker: a question that also says "EAP Expert" otherwise pulls every "EAP Expert"
  * page ahead of "Installing Parallels", however the words are weighed.
  */
+const pageTexts = new WeakMap<Loaded, Map<string, string>>();
+/** Each page's whole text (its sections, lower-cased), built once per saved copy. `Loaded.pages` holds only titles. */
+function textsOf(all: Loaded): Map<string, string> {
+  let texts = pageTexts.get(all);
+  if (!texts) {
+    texts = new Map();
+    for (const section of all.sections) texts.set(section.pageId, `${texts.get(section.pageId) ?? ""}\n${section.title}\n${section.heading ?? ""}\n${section.content}`.toLowerCase());
+    pageTexts.set(all, texts);
+  }
+  return texts;
+}
+
+/** How few pages contain the word anywhere in their text, 0 to 1 (about 0.5 for "Parallels"; "system" is in most pages). */
+function textRarity(all: Loaded, stem: string): number {
+  const total = all.pages.length;
+  if (total === 0) return 0;
+  let containing = 0;
+  for (const text of textsOf(all).values()) if (text.includes(stem)) containing += 1;
+  return Math.log((total + 1) / (containing + 1)) / Math.log(total + 1);
+}
+
 function rareTitlePages(all: Loaded, words: string[], titleSections: number): string[] {
   const stems = [...new Set(words.map(wordStem))].filter((stem) => stem.length >= 4);
-  let best: { pages: Loaded["pages"]; stem: string } | null = null;
+  // The word must be rare in the pages' text as well as in their titles: "system" is in few titles but in the text of
+  // most pages, so reserving "System Customization" for it crowds out the page that answers the question.
+  let best: { pages: Loaded["pages"]; rarity: number } | null = null;
   for (const stem of stems) {
     const pages = all.pages.filter((page) => page.title.toLowerCase().includes(stem));
-    if (pages.length >= 1 && pages.length <= RARE_TITLE_PAGES && (!best || pages.length < best.pages.length)) best = { pages, stem };
+    if (pages.length < 1 || pages.length > RARE_TITLE_PAGES) continue;
+    const rarity = textRarity(all, stem);
+    if (rarity >= RARE_WORD_WEIGHT && (!best || rarity > best.rarity)) best = { pages, rarity };
   }
   if (!best) return [];
   const ids: string[] = [];
