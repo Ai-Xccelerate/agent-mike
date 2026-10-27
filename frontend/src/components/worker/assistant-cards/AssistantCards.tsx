@@ -16,9 +16,9 @@ import type {
   TicketListCard,
   TicketSummary,
 } from "@/lib/assistant-cards";
-import type { AssistantPanelAction, AssistantPanelItem } from "@/lib/worker-api";
+import { apiFetch, type AssistantPanelAction, type AssistantPanelItem, type WorkerProfile } from "@/lib/worker-api";
 import Link from "next/link";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 /**
  * The cards an admin Assistant reply can show (see lib/assistant-cards.ts).
@@ -413,6 +413,19 @@ const DRAFT_TITLE: Record<DraftCard["format"], string> = {
 
 export function DraftView({ data, streaming }: { data: Partial<DraftCard>; streaming?: boolean }) {
   const [copied, setCopied] = useState(false);
+  // Sending from the card needs "Let the Assistant take actions" (Settings > Guardrails); the server checks it too.
+  const [actionsOn, setActionsOn] = useState(false);
+  const [sendState, setSendState] = useState<"idle" | "confirm" | "sending" | "sent">("idle");
+  const [sendError, setSendError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<WorkerProfile>("/worker")
+      .then((profile) => !cancelled && setActionsOn(Boolean(profile.assistantActionsEnabled)))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const format = data.format ?? "chat";
   const title = data.ticketNumber ? `${DRAFT_TITLE[format]} for #${data.ticketNumber}` : DRAFT_TITLE[format];
   const copy = async () => {
@@ -426,11 +439,24 @@ export function DraftView({ data, streaming }: { data: Partial<DraftCard>; strea
       /* clipboard blocked: the text is still selectable */
     }
   };
+  const canSend = actionsOn && format !== "article" && Boolean(data.conversationId) && Boolean(data.body) && !streaming;
+  async function send() {
+    if (!data.conversationId || !data.body) return;
+    setSendState("sending");
+    setSendError("");
+    try {
+      await apiFetch(`/conversations/${data.conversationId}/messages`, { method: "POST", body: JSON.stringify({ body: data.body, fromAssistant: true }) });
+      setSendState("sent");
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Could not send the reply.");
+      setSendState("confirm");
+    }
+  }
   return (
     <CardShell
       label={title}
       title={title}
-      meta={data.subject ? (format === "article" ? data.subject : `Subject: ${data.subject}`) : "Nothing is sent until you send it."}
+      meta={sendState === "sent" ? "Sent to the customer." : data.subject ? (format === "article" ? data.subject : `Subject: ${data.subject}`) : "Nothing is sent until you send it."}
       action={
         <div className="flex items-center gap-2">
           {data.conversationId && <HeaderLink href={inboxHref(data.conversationId)}>Open ticket</HeaderLink>}
@@ -443,12 +469,33 @@ export function DraftView({ data, streaming }: { data: Partial<DraftCard>; strea
             {copied ? <CheckLineIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
             {copied ? "Copied" : "Copy"}
           </button>
+          {canSend && sendState === "idle" && (
+            <button type="button" onClick={() => setSendState("confirm")} className="rounded-lg bg-brand-500 px-2 py-1 text-xs font-medium text-white hover:bg-brand-600">
+              Send
+            </button>
+          )}
         </div>
       }
     >
       <div className="max-h-96 overflow-auto px-4 py-3 text-gray-700 dark:text-gray-200">
         <Markdown>{data.body ?? ""}</Markdown>
       </div>
+      {canSend && (sendState === "confirm" || sendState === "sending") && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 px-4 py-2.5 text-xs dark:border-gray-800">
+          <span className="text-gray-600 dark:text-gray-300">
+            Send this to the customer on ticket #{data.ticketNumber}? They get it now, and the worker stops answering this conversation.
+            {sendError && <span className="ml-1 text-error-600 dark:text-error-400">{sendError}</span>}
+          </span>
+          <span className="flex gap-2">
+            <button type="button" disabled={sendState === "sending"} onClick={() => setSendState("idle")} className="rounded-lg border border-gray-300 px-2 py-1 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-300">
+              Cancel
+            </button>
+            <button type="button" disabled={sendState === "sending"} onClick={() => void send()} className="rounded-lg bg-brand-500 px-2 py-1 font-medium text-white hover:bg-brand-600 disabled:opacity-60">
+              {sendState === "sending" ? "Sending…" : "Confirm and send"}
+            </button>
+          </span>
+        </div>
+      )}
     </CardShell>
   );
 }
