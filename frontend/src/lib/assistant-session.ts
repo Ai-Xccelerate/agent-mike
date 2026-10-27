@@ -3,7 +3,8 @@
  * Chrome discarding a background tab. The chat's id lives in the URL
  * (/assistant?c=<id>); this module remembers the last one per signed-in
  * person and workspace, so opening Assistant from the sidebar brings it back
- * until they explicitly start a new chat.
+ * for 30 minutes after it was last active; after that, or after "New chat", it opens a fresh one
+ * (earlier chats stay in History).
  *
  * Browser storage is a convenience here, never the record: every read is
  * wrapped, and a blocked or empty store just means a fresh chat.
@@ -45,15 +46,36 @@ export function subscribeToLastConversation(listener: () => void) {
   };
 }
 
-export function readLastConversation(key: string | null): string | null {
-  return key ? read("local", key) : null;
+/** How long after the last activity the Assistant still reopens the same chat; after that it opens a fresh one. */
+export const RESUME_WINDOW_MS = 30 * 60 * 1000;
+
+function parseLast(raw: string | null): { id: string; at: number } | null {
+  if (!raw) return null;
+  const [id, at] = raw.split("|");
+  const stamp = Number(at);
+  return id && Number.isFinite(stamp) ? { id, at: stamp } : null;
 }
 
-export function rememberLastConversation(key: string | null, conversationId: string | null) {
+/** The chat to reopen from the sidebar link: the last one, if it was active within the resume window. */
+export function readLastConversation(key: string | null, now: number = Date.now()): string | null {
+  const last = key ? parseLast(read("local", key)) : null;
+  return last && now - last.at <= RESUME_WINDOW_MS ? last.id : null;
+}
+
+/** Remembers the open chat and when it was last active (called again on each message to keep it fresh). */
+export function rememberLastConversation(key: string | null, conversationId: string | null, now: number = Date.now()) {
   if (!key) return;
-  if (read("local", key) === conversationId) return;
-  write("local", key, conversationId);
-  listeners.forEach((listener) => listener());
+  const current = parseLast(read("local", key));
+  if (conversationId === null) {
+    if (current === null && read("local", key) === null) return;
+    write("local", key, null);
+    listeners.forEach((listener) => listener());
+    return;
+  }
+  // Stamp refreshes are quiet (no listeners) and rate-limited; only a different chat notifies.
+  if (current?.id === conversationId && now - current.at < 10_000) return;
+  write("local", key, `${conversationId}|${now}`);
+  if (current?.id !== conversationId) listeners.forEach((listener) => listener());
 }
 
 export type ChatDraft = {
