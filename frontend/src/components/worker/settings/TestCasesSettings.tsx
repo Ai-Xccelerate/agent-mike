@@ -9,9 +9,12 @@ import { TrashBinIcon } from "@/icons";
 import {
   deleteEvalCase,
   getEvalCases,
+  getChanges,
   getEvalRuns,
+  revertChange,
   startEvalRun,
   updateEvalCase,
+  type ChangeEntry,
   type EvalCaseEntry,
   type EvalCaseList,
   type EvalRunEntry,
@@ -38,10 +41,12 @@ export default function TestCasesSettings() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [openRun, setOpenRun] = useState<string | null>(null);
+  const [changes, setChanges] = useState<ChangeEntry[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [caseList, runList] = await Promise.all([getEvalCases(), getEvalRuns()]);
+      const [caseList, runList, changeList] = await Promise.all([getEvalCases(), getEvalRuns(), getChanges()]);
+      setChanges(changeList.changes);
       setCases(caseList);
       setRuns(runList.runs);
       setCanRun(runList.canChange);
@@ -130,6 +135,40 @@ export default function TestCasesSettings() {
                       </li>
                     ))}
                   </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className={`${cardClass} mt-4 p-5`}>
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-white/90">Changes the Assistant made</h2>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Each change you confirmed in the Assistant, with the score before it and the score of the replay that ran after. Undo puts the old text back.
+        </p>
+        {changes.length === 0 ? (
+          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Nothing yet.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-gray-100 dark:divide-gray-800">
+            {changes.map((change) => (
+              <li key={change.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5 text-sm">
+                <div className="min-w-0">
+                  <p className="text-gray-800 dark:text-white/90">{change.summary}</p>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {new Date(change.createdAt).toLocaleString()} ·{" "}
+                    {change.scoreAfter !== null
+                      ? `score ${percent(change.scoreBefore)} → ${percent(change.scoreAfter)}`
+                      : change.runStatus === "running"
+                        ? "measuring…"
+                        : "no score for this change"}
+                    {change.revertedAt ? " · undone" : ""}
+                  </p>
+                </div>
+                {canRun && !change.revertedAt && (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => revertChange(change.id), "Could not undo that change.")}>
+                    Undo
+                  </Button>
                 )}
               </li>
             ))}
