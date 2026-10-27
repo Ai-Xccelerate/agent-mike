@@ -2107,7 +2107,14 @@ export function buildAssistantTools(
           conversationId = row?.id ?? null;
         }
         options.onCard?.(makeCard("draft", { format, ticketNumber, conversationId, subject, body }));
-        return "The draft is shown to the manager as a card. Don't repeat it in your reply.";
+        // What to say about sending depends on whether the manager has let the Assistant take actions.
+        return (
+          "The draft is shown to the manager as a card. Don't repeat it in your reply. " +
+          (profile.assistantActionsEnabled
+            ? "Say in one line that you can send it for them (they confirm before it goes), or they can send it from the Inbox."
+            : "Sending is off: you cannot send it. Say in one line that they can send it from the Inbox, or that you can send replies " +
+              "for them once they turn on \"Let the Assistant take actions\" in Settings > Guardrails (they would still confirm each one).")
+        );
       },
     }),
 
