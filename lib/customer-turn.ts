@@ -4,7 +4,7 @@ import { conversations, messages, replyTraces } from "@/db/schema";
 import { getOrganizationName } from "@/lib/bootstrap";
 import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
-import { handoffToManager, runAgent, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
+import { handoffToManager, runAgent, withOneFollowUp, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
 import { addInternalTicketNote, handoffTicketNotice, helpdeskRaisesTickets, helpdeskTicketsEveryConversation, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import { routeHandover, suggestedAssigneeNote } from "@/lib/managers";
@@ -205,7 +205,7 @@ export async function runCustomerTurn(input: {
   }
 
   // Before the ticket is raised, so the reply quoted on it matches what the customer saw.
-  result = { ...result, answer: withoutEmDashes(result.answer) };
+  result = { ...result, answer: withOneFollowUp(withoutEmDashes(result.answer)) };
   // The agent returns no citations of its own; record the retrieved articles the reply names.
   if (result.citations.length === 0) result = { ...result, citations: citedTitles(result.answer, knowledgeMatches) };
   // The reply did not name its source ("From: ..."): credit the page whose button and menu names it follows, if one clearly does.
