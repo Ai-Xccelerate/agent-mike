@@ -1335,6 +1335,9 @@ export async function buildInstructions(
         "what it shows, and never ask them to send client or patient details.\n\n"
       : "") +
     (await cannedRepliesBlock(organizationId)) +
+    "Several questions in one message: answer each in its own short section, using the reference material for that part. " +
+    "Say a part is not covered only when none of the reference material is about it, and name that part; never say a part " +
+    "is not covered because the material for another part took the room.\n\n" +
     "Thanks and goodbye: when a customer thanks you or says goodbye, answer warmly in one short line (for example \"You're " +
     "welcome! Glad I could help. Message me any time if anything else comes up.\") and ask nothing more. " +
     "Asking for a person: when a customer asks to talk to a person, say a teammate will follow up, and in the same reply ask " +

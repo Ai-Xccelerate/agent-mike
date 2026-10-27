@@ -107,7 +107,7 @@ export function withoutSourceLine(answer: string, titles: string[]): string {
   const one = known.map(escapeForPattern).join("|");
   // A title the worker bolded or italicised ("From: **Document a Critical Incident**") is still a source line.
   const title = `[*_]{0,2}(?:${one})[*_]{0,2}`;
-  const sourceBody = `From:[ \\t]*${title}(?:[ \\t]*[;,][ \\t]*${title})*(?:[ \\t]*[;,][^\\n]*(?=\\n|$))?[ \\t]*\\.?`;
+  const sourceBody = `From:[ \\t]*${title}(?:(?:[ \\t]*[;,]|\\s{0,3}\\band\\b)[ \\t]*${title})*(?:[ \\t]*[;,][^\\n]*(?=\\n|$))?[ \\t]*\\.?`;
   // A source on a line of its own goes with its line break, so no blank line is left behind.
   const withoutOwnLines = answer.replace(new RegExp(`(^|\\n)[ \\t]*\\b${sourceBody}[ \\t]*(?=\\n|$)\\n?`, "gi"), "$1");
   const sources = new RegExp(`[ \\t]*\\b${sourceBody}`, "gi");

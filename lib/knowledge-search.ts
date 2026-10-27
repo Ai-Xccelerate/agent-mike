@@ -6,6 +6,7 @@ import { INDEX_SOURCE } from "@/lib/knowledge-index";
 import { expandKeywords, focusOnQuestion, searchKeywords, stemWeights, wordStem } from "@/lib/tools-integrations/atlassian";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { rewriteForSearch } from "@/lib/query-rewrite";
+import { topicsForSearch } from "@/lib/query-topics";
 import { traceSet } from "@/lib/timing";
 
 /**
@@ -237,6 +238,8 @@ export async function searchKnowledgeIndex(
     tuning?: Partial<SearchTuning>;
     /** Makes a clean English query from the message; false turns it off (the experiment runner). Defaults to the model-backed one. */
     rewrite?: false | ((question: string) => Promise<string | null>);
+    /** The separate questions inside a long message, searched one by one; false turns it off (the experiment runner). */
+    topics?: false | ((question: string) => Promise<string[]>);
   } = {},
 ): Promise<{ matches: KnowledgeMatch[]; timings: IndexSearchTimings; details: IndexMatchDetail[] }> {
   const started = Date.now();
@@ -254,7 +257,11 @@ export async function searchKnowledgeIndex(
   };
   const primary = buildQuery(question);
   // A clean English version of a long or non-English message is searched too, and the two result lists are merged.
-  const rewritten = options.rewrite === false ? null : await (options.rewrite ?? rewriteForSearch)(question).catch(() => null);
+  // The rewrite and the split of a many-part message run side by side, so neither waits for the other.
+  const [rewritten, topicQuestions] = await Promise.all([
+    options.rewrite === false ? null : (options.rewrite ?? rewriteForSearch)(question).catch(() => null),
+    options.topics === false ? [] : (options.topics ?? topicsForSearch)(question).catch(() => [] as string[]),
+  ]);
   const queries = [primary];
   if (rewritten && normalizeQuestion(rewritten) !== normalizeQuestion(primary.focus)) {
     queries.push(buildQuery(rewritten));
@@ -298,28 +305,35 @@ export async function searchKnowledgeIndex(
 
   const all = await sectionsFor(organizationId);
   if (all.sections.length === 0) return { matches: [], timings: { ...timings, totalMs: Date.now() - started }, details: [] };
-  const perQuery = await Promise.all(
-    queries.map(async (query) => {
-      const [keyword, meaning] = await Promise.all([keywordSearch(query.words), meaningSearch(all, query.focus)]);
-      // The words that name this product or are in nearly every page ("EAP", "Expert") can outweigh the one that says
-      // what the question is about ("Parallels"). A second keyword pass on the distinctive words alone is merged in too.
-      const weights = stemWeights(all.pages, query.words);
-      const distinctive = query.words.filter((word) => (weights[wordStem(word)] ?? 1) >= DISTINCTIVE_WORD_WEIGHT);
-      const distinctiveKeyword = distinctive.length > 0 && distinctive.length < query.words.length ? await keywordSearch(distinctive) : [];
-      // The page-title signal: the first sections of the pages named for the question.
-      const title = tuning.weights.title > 0 ? pagesByTitle(all, query.words, tuning.titlePages).flatMap((page) => page.sectionIds.slice(0, tuning.titleSections)) : [];
-      return { keyword, distinctiveKeyword, meaning, title };
-    }),
-  );
+  const listsFor = async (query: { focus: string; words: string[] }) => {
+    const [keyword, meaning] = await Promise.all([keywordSearch(query.words), meaningSearch(all, query.focus)]);
+    // The words that name this product or are in nearly every page ("EAP", "Expert") can outweigh the one that says
+    // what the question is about ("Parallels"). A second keyword pass on the distinctive words alone is merged in too.
+    const weights = stemWeights(all.pages, query.words);
+    const distinctive = query.words.filter((word) => (weights[wordStem(word)] ?? 1) >= DISTINCTIVE_WORD_WEIGHT);
+    const distinctiveKeyword = distinctive.length > 0 && distinctive.length < query.words.length ? await keywordSearch(distinctive) : [];
+    // The page-title signal: the first sections of the pages named for the question.
+    const title = tuning.weights.title > 0 ? pagesByTitle(all, query.words, tuning.titlePages).flatMap((page) => page.sectionIds.slice(0, tuning.titleSections)) : [];
+    return { keyword, distinctiveKeyword, meaning, title };
+  };
+  type QueryLists = Awaited<ReturnType<typeof listsFor>>;
+  const fuse = (lists: QueryLists[]) => {
+    const scores = new Map<string, number>();
+    for (const one of lists) {
+      for (const [list, weight] of [[one.keyword, tuning.weights.keyword], [one.distinctiveKeyword, tuning.weights.keyword], [one.meaning, tuning.weights.meaning], [one.title, tuning.weights.title]] as const) {
+        list.forEach((id, index) => scores.set(id, (scores.get(id) ?? 0) + weight / (tuning.rrfK + index + 1)));
+      }
+    }
+    return scores;
+  };
+  // A message with several separate questions is also searched question by question (see lib/query-topics.ts).
+  const topicQueries = topicQuestions.map(buildQuery);
+  if (topicQuestions.length > 0) traceSet("searchTopics", topicQuestions);
+  const [perQuery, perTopic] = await Promise.all([Promise.all(queries.map(listsFor)), Promise.all(topicQueries.map(listsFor))]);
   const byKeyword = perQuery[0].keyword;
 
   // Reciprocal rank fusion: a section near the top of any list scores, one near the top of several scores most.
-  const fused = new Map<string, number>();
-  for (const lists of perQuery) {
-    for (const [list, weight] of [[lists.keyword, tuning.weights.keyword], [lists.distinctiveKeyword, tuning.weights.keyword], [lists.meaning, tuning.weights.meaning], [lists.title, tuning.weights.title]] as const) {
-      list.forEach((id, index) => fused.set(id, (fused.get(id) ?? 0) + weight / (tuning.rrfK + index + 1)));
-    }
-  }
+  const fused = fuse(perQuery);
   const byId = new Map(all.sections.map((section) => [section.id, section]));
   const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]);
 
@@ -327,15 +341,44 @@ export async function searchKnowledgeIndex(
   const reserved = new Set(queries.flatMap((query) => rareTitlePages(all, query.words, tuning.titleSections)));
   const ordered = [...reserved.values()].map((id) => [id, fused.get(id) ?? 0] as [string, number]).concat(ranked.filter(([id]) => !reserved.has(id)));
 
+  // Each separate question of a many-part message gets its own share of the sections, best first, before the ranking of
+  // the whole message fills what is left.
+  const topicRanked = perTopic.map((lists, index) => {
+    const own = fuse([lists]);
+    const reservedForTopic = rareTitlePages(all, topicQueries[index].words, tuning.titleSections);
+    const rest = [...own.entries()].sort((a, b) => b[1] - a[1]).filter(([id]) => !reservedForTopic.includes(id));
+    return reservedForTopic.map((id) => [id, own.get(id) ?? 0] as [string, number]).concat(rest);
+  });
+  const perTopicSections = 2;
+  const total = topicRanked.length > 0 ? Math.max(limit, Math.min(16, topicRanked.length * perTopicSections + 2)) : limit;
+
   const perPage = new Map<string, number>();
   const chosen: { section: Loaded["sections"][number]; score: number }[] = [];
-  for (const [id, score] of ordered) {
+  const taken = new Set<string>();
+  const take = (id: string, score: number): boolean => {
     const section = byId.get(id);
-    if (!section) continue;
-    if ((perPage.get(section.pageId) ?? 0) >= tuning.perPage) continue;
+    if (!section || taken.has(id) || (perPage.get(section.pageId) ?? 0) >= tuning.perPage) return false;
     perPage.set(section.pageId, (perPage.get(section.pageId) ?? 0) + 1);
+    taken.add(id);
     chosen.push({ section, score });
-    if (chosen.length >= limit) break;
+    return true;
+  };
+  for (let round = 0; round < perTopicSections; round += 1) {
+    for (const ranking of topicRanked) {
+      let given = 0;
+      let cursor = 0;
+      // The round's section is this topic's best one not taken yet.
+      while (given < 1 && cursor < ranking.length && chosen.length < total) {
+        const [id, score] = ranking[cursor];
+        cursor += 1;
+        if (taken.has(id)) continue;
+        if (take(id, score)) given += 1;
+      }
+    }
+  }
+  for (const [id, score] of ordered) {
+    if (chosen.length >= total) break;
+    take(id, score);
   }
 
   // Pages in order of their best section, and a page's sections in page order.

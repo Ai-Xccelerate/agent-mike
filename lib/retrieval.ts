@@ -197,7 +197,8 @@ async function retrieveKnowledgeUncached(
   // instead of sorting by `rank`, which would let whichever scale runs largest
   // crowd the others out entirely.
   // The saved copy was tuned to hand over this many sections; the combined cap of five would cut it short.
-  const cap = confluenceResult && "fromIndex" in confluenceResult && confluenceResult.fromIndex ? Math.max(limit, DEFAULT_TUNING.limit) : limit;
+  // A message with several separate questions comes back with more sections (each question has its own share).
+  const cap = confluenceResult && "fromIndex" in confluenceResult && confluenceResult.fromIndex ? Math.max(limit, DEFAULT_TUNING.limit, confluenceResult.matches.length) : limit;
   return { matches: interleaveAll(lists, cap), sources };
 }
 

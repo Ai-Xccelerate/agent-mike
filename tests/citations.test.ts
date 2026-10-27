@@ -124,6 +124,11 @@ describe("withoutSourceLine", () => {
     expect(withoutSourceLine("Steps.\n\nFrom: _Add a New Provider_; **Accounting Export Module**", titles)).toBe("Steps.");
   });
 
+  it("removes two sources joined by 'and', even across a line break, as in a many-part answer", () => {
+    expect(withoutSourceLine("Steps.\n\nFrom: **Add a New Provider** and **Accounting Export Module**", titles)).toBe("Steps.");
+    expect(withoutSourceLine("Steps.\n\nFrom: Add a New Provider\nand **Accounting Export Module**\nDid that solve it?", titles)).toBe("Steps.\n\nDid that solve it?");
+  });
+
   it("matches the title whatever its case, and titles with punctuation", () => {
     expect(withoutSourceLine("Done.\n\nFrom: priority levels (and what each means)", ["Priority levels (and what each means)"])).toBe("Done.");
   });
