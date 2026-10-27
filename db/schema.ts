@@ -625,6 +625,31 @@ export const evalCases = pgTable(
 );
 
 /** One replay of an organization's test cases: the score, and each case's reply and verdict. */
+/**
+ * What the Assistant changed after a manager confirmed it: the profile fields, knowledge articles and custom skills
+ * that differ, with their text before and after, so a change can be undone and its effect on the test score read.
+ */
+export const changeLog = pgTable(
+  "change_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    toolId: text("tool_id").notNull(),
+    summary: text("summary").notNull(),
+    appliedBy: text("applied_by").notNull(),
+    diff: jsonb("diff").$type<Record<string, unknown>>().notNull(),
+    /** Set once the change has been undone. */
+    revertedAt: timestamp("reverted_at", { withTimezone: true }),
+    revertedBy: text("reverted_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("change_log_org_idx").on(table.organizationId, table.createdAt),
+  }),
+);
+
 export const evalRuns = pgTable(
   "eval_runs",
   {

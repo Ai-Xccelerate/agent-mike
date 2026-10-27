@@ -341,6 +341,19 @@ export async function deleteEvalCase(id: string): Promise<void> {
 export const getEvalRuns = () => apiFetch<{ runs: EvalRunEntry[]; canChange: boolean }>("/eval-runs");
 export const startEvalRun = () => apiFetch<{ runId: string }>("/eval-runs", { method: "POST" });
 
+export type ChangeEntry = {
+  id: string;
+  summary: string;
+  appliedBy: string;
+  createdAt: string;
+  revertedAt: string | null;
+  scoreBefore: number | null;
+  scoreAfter: number | null;
+  runStatus: string | null;
+};
+export const getChanges = () => apiFetch<{ changes: ChangeEntry[]; canChange: boolean }>("/changes");
+export const revertChange = (id: string) => apiFetch<{ ok: true }>(`/changes/${id}/revert`, { method: "POST" });
+
 export type CannedReply = { id: string; title: string; situation: string; reply: string; enabled: boolean };
 export type CannedReplyInput = { title: string; situation: string; reply: string; enabled?: boolean };
 export type CannedReplyList = {

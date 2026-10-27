@@ -1,4 +1,6 @@
 import { Agent, run, tool } from "@openai/agents";
+import { recordChange, takeSnapshot } from "@/lib/change-log";
+import { startReplay } from "@/lib/eval-replay";
 import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import { and, desc, eq, gte, inArray, notInArray } from "drizzle-orm";
@@ -446,7 +448,33 @@ export type ApplyContext = {
 };
 export type ConnectLink = { url: string; label: string; kind: "integration" | "mailbox"; integrationType?: string };
 
+/**
+ * Applies a confirmed change and keeps a record of what it altered (settings, articles, skills) so it can be undone
+ * from Settings > Test cases, then replays the saved test cases to measure it. Actions (replies, ticket changes) are
+ * not settings changes and are not logged here.
+ */
 async function applyPendingChange(
+  organizationId: string,
+  toolId: string,
+  input: Record<string, unknown>,
+  ctx?: ApplyContext,
+): Promise<Record<string, unknown>> {
+  if (ACTION_TOOL_IDS.has(toolId)) return applyPendingChangeUnlogged(organizationId, toolId, input, ctx);
+  const before = await takeSnapshot(organizationId).catch(() => null);
+  const result = await applyPendingChangeUnlogged(organizationId, toolId, input, ctx);
+  if (before && !result.error) {
+    try {
+      const after = await takeSnapshot(organizationId);
+      const change = await recordChange({ organizationId, toolId, appliedBy: ctx?.userId ?? "assistant", before, after });
+      if (change) void startReplay({ organizationId, triggeredBy: ctx?.userId ?? "assistant", changeId: change.id }).catch(() => undefined);
+    } catch {
+      // The change itself went through; a missing history entry must not make it look as if it failed.
+    }
+  }
+  return result;
+}
+
+async function applyPendingChangeUnlogged(
   organizationId: string,
   toolId: string,
   input: Record<string, unknown>,
