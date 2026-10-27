@@ -176,6 +176,29 @@ describe("a question whose rare word is buried among 'get to EAP Expert' pages",
     { id: "p3", title: "Setting Up a Parallels Connection", text: `## Connection\nChoose Remote Application Server in Parallels and enter the server details to connect to EAP Expert.${FILL}` },
   ];
 
+  it("returns them even when the question names the product, as 'Parallels EAP Expert' does on prod", async () => {
+    await indexed([...Array.from({ length: 45 }, (_, i) => login(i)), ...parallels]);
+    for (const question of ["Parallels EAP Expert", "Parallels to get to EAP Expert", "How do I use Parallels to log in to EAP Expert?"]) {
+      const { matches } = await searchKnowledgeIndex(orgId, question, { embed, rewrite: false });
+      expect(matches.some((m) => /Parallels/.test(m.title)), question).toBe(true);
+    }
+  });
+
+  it("brings them in on the strength of the title alone, even if every ranking prefers the product's pages", async () => {
+    // Title signal off and the Parallels text never saying "Parallels": only the rule for a rare title word can find them.
+    const quiet = parallels.map((page) => ({ ...page, text: `## Overview\nSteps for reaching EAP Expert from a Mac or a remote computer.${FILL}` }));
+    await indexed([...Array.from({ length: 45 }, (_, i) => login(i)), ...quiet]);
+    const { matches } = await searchKnowledgeIndex(orgId, "Parallels EAP Expert", { embed, rewrite: false, tuning: { weights: { keyword: 1, meaning: 1, title: 0 } } });
+    expect(matches.some((m) => /Parallels/.test(m.title))).toBe(true);
+  });
+
+  it("does not crowd out the ranking when the rare word is in no title, or in too many", async () => {
+    await indexed([...Array.from({ length: 12 }, (_, i) => ({ id: `r${i}`, title: `Report guide ${i}`, text: `## Reports\nHow to run a report in the system.${FILL}` })), { id: "x", title: "Cooking", text: `## Pasta\nBoil water.${FILL}` }]);
+    const { matches } = await searchKnowledgeIndex(orgId, "How do I run a report?", { embed, rewrite: false });
+    expect(matches.length).toBeGreaterThan(3);
+    expect(matches.every((m) => /Report guide/.test(m.title))).toBe(true);
+  });
+
   it("still returns the Parallels pages for 'How do I use Parallels to get to EAP Expert?'", async () => {
     await indexed([...Array.from({ length: 45 }, (_, i) => login(i)), ...parallels]);
     const { matches } = await searchKnowledgeIndex(orgId, "How do I use Parallels to get to EAP Expert?", { embed, rewrite: false });

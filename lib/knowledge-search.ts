@@ -174,6 +174,29 @@ function pagesByTitle(all: Loaded, words: string[], count: number): Loaded["page
     .map((entry) => entry.page);
 }
 
+/** A word in this few titles or fewer names its topic: "Parallels" is in five of 495. */
+const RARE_TITLE_PAGES = 6;
+/** The most sections kept for such pages, so the rest of the answer still comes from the ranking. */
+const RARE_TITLE_SECTIONS = 5;
+
+/**
+ * The pages named for the rarest word of the question, when that word is in only a few page titles. Their opening
+ * sections are always handed to the worker: a question that also says "EAP Expert" otherwise pulls every "EAP Expert"
+ * page ahead of "Installing Parallels", however the words are weighed.
+ */
+function rareTitlePages(all: Loaded, words: string[], titleSections: number): string[] {
+  const stems = [...new Set(words.map(wordStem))].filter((stem) => stem.length >= 4);
+  let best: { pages: Loaded["pages"]; stem: string } | null = null;
+  for (const stem of stems) {
+    const pages = all.pages.filter((page) => page.title.toLowerCase().includes(stem));
+    if (pages.length >= 1 && pages.length <= RARE_TITLE_PAGES && (!best || pages.length < best.pages.length)) best = { pages, stem };
+  }
+  if (!best) return [];
+  const ids: string[] = [];
+  for (const page of best.pages) for (const id of page.sectionIds.slice(0, titleSections)) if (ids.length < RARE_TITLE_SECTIONS) ids.push(id);
+  return ids;
+}
+
 export type IndexSearchTimings = { keywordMs: number; meaningMs: number; totalMs: number; meaning: "used" | "failed" | "none" };
 /** Why a section was returned, for tuning: its meaning score, its place in the keyword list, and the merged score. */
 export type IndexMatchDetail = { title: string; heading: string | null; meaning: number | null; keywordPlace: number | null; fused: number };
@@ -273,9 +296,13 @@ export async function searchKnowledgeIndex(
   const byId = new Map(all.sections.map((section) => [section.id, section]));
   const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]);
 
+  // Sections of the pages named for the question's rarest word come first, then the ranking fills the rest.
+  const reserved = new Set(queries.flatMap((query) => rareTitlePages(all, query.words, tuning.titleSections)));
+  const ordered = [...reserved.values()].map((id) => [id, fused.get(id) ?? 0] as [string, number]).concat(ranked.filter(([id]) => !reserved.has(id)));
+
   const perPage = new Map<string, number>();
   const chosen: { section: Loaded["sections"][number]; score: number }[] = [];
-  for (const [id, score] of ranked) {
+  for (const [id, score] of ordered) {
     const section = byId.get(id);
     if (!section) continue;
     if ((perPage.get(section.pageId) ?? 0) >= tuning.perPage) continue;
