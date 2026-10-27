@@ -207,6 +207,8 @@ export const conversations = pgTable(
     // person (e.g. Jira "SUP-12"). Also what the customer agent may look up:
     // a customer sees only tickets recorded on their own conversations.
     externalTicketKey: text("external_ticket_key"),
+    // The person from Settings > Human manager the worker routed this conversation to when it was handed over.
+    routedManagerId: uuid("routed_manager_id"),
     // What the ticket went in as, for the Overview's breakdowns.
     externalTicketType: text("external_ticket_type"),
     externalTicketPriority: text("external_ticket_priority"),
@@ -561,6 +563,34 @@ export const toolApprovals = pgTable(
   (table) => ({
     orgStatusIdx: index("tool_approvals_org_status_idx").on(table.organizationId, table.status),
     conversationIdx: index("tool_approvals_conversation_idx").on(table.conversationId),
+  }),
+);
+
+/**
+ * The people a handover can be routed to. Each covers some areas, has an optional backup, and may also be told about
+ * every Critical handover. The single manager on the worker profile stays as the fallback when this list is empty or
+ * nobody matches.
+ */
+export const workerManagers = pgTable(
+  "worker_managers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    /** When to route to this person, in a manager's words: "EAP Expert V3, MyAPP, utilization reports". */
+    areas: text("areas").notNull().default(""),
+    /** Who is told instead while this person is switched off. */
+    backupId: uuid("backup_id"),
+    notifyOnCritical: boolean("notify_on_critical").notNull().default(false),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("worker_managers_org_idx").on(table.organizationId),
   }),
 );
 

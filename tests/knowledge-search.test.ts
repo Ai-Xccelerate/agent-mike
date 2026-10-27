@@ -164,6 +164,27 @@ Boil water.${FILL}` },
   });
 });
 
+describe("a question whose rare word is buried among 'get to EAP Expert' pages", () => {
+  const login = (i: number) => ({
+    id: `l${i}`,
+    title: i % 3 === 0 ? `Logging into EAP Expert ${i}` : `EAP Expert V3 access and sign in ${i}`,
+    text: `## How to log in\nTo get to EAP Expert, open the sign-in page, log in to EAP Expert with your EAP Expert user name, and access EAP Expert from your computer.${FILL}`,
+  });
+  const parallels = [
+    { id: "p1", title: "Parallels Support Guide", text: `## Overview\nParallels lets you reach EAP Expert from a Mac or a remote computer.${FILL}` },
+    { id: "p2", title: "Installing Parallels", text: `## Install\nDownload the Parallels Client and install it.${FILL}` },
+    { id: "p3", title: "Setting Up a Parallels Connection", text: `## Connection\nChoose Remote Application Server in Parallels and enter the server details to connect to EAP Expert.${FILL}` },
+  ];
+
+  it("still returns the Parallels pages for 'How do I use Parallels to get to EAP Expert?'", async () => {
+    await indexed([...Array.from({ length: 45 }, (_, i) => login(i)), ...parallels]);
+    const { matches } = await searchKnowledgeIndex(orgId, "How do I use Parallels to get to EAP Expert?", { embed, rewrite: false });
+    const titles = matches.map((m) => m.title);
+    expect(titles.some((title) => /Parallels/.test(title))).toBe(true);
+    expect(matches.slice(0, 3).some((m) => /Parallels/.test(m.title))).toBe(true);
+  });
+});
+
 describe("a word in nearly every page title", () => {
   it("does not bury the page for the word that says what the question is about", async () => {
     const common = Array.from({ length: 40 }, (_, i) => ({

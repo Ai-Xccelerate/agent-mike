@@ -6,7 +6,8 @@ import { evaluateMessage } from "@/lib/guardrails";
 import { retrieveKnowledge } from "@/lib/retrieval";
 import { handoffToManager, runAgent, withoutEmDashes, type RunAgentResult } from "@/lib/agent";
 import { maybeRefreshConversationSummary, REPLAY_MESSAGE_LIMIT, type HistoryTurn } from "@/lib/conversation-memory";
-import { handoffTicketNotice, helpdeskRaisesTickets, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { addInternalTicketNote, handoffTicketNotice, helpdeskRaisesTickets, helpdeskTicketsEveryConversation, isHandoffTicket, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { routeHandover, suggestedAssigneeNote } from "@/lib/managers";
 import type { CustomerCard } from "@/lib/customer-cards";
 import { notifyManager } from "@/lib/handoff-notify";
 import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifier";
@@ -243,7 +244,7 @@ export async function runCustomerTurn(input: {
     });
   }
 
-  const raiseTicket = (fromConversation: ConversationRow) =>
+  const raiseTicket = (fromConversation: ConversationRow, answeredByWorker = false) =>
     recordHandoffInJira({
       organizationId,
       workerName: profile.displayName,
@@ -251,6 +252,7 @@ export async function runCustomerTurn(input: {
       transcript: toHistoryTurns([...priorMessages, userMessage]),
       latestMessage: message,
       workerReply: result.answer,
+      ...(answeredByWorker ? { answeredByWorker: true } : {}),
       // Only an email a code was typed back for may be raised on behalf of.
       ...(verified && conversation.customerEmail
         ? { verifiedCustomer: { email: conversation.customerEmail, name: isPlaceholderCustomerName(conversation.customerName) ? null : conversation.customerName } }
@@ -308,10 +310,59 @@ export async function runCustomerTurn(input: {
     (await helpdeskRaisesTickets(organizationId));
   const raisesTicket = (result.escalate && !holdForIdentity) || missingTicket;
 
+  // "Ticket for every conversation" (Settings > Integrations > Jira): a conversation the worker answers by itself also
+  // gets a ticket, marked as answered, for the desk's reporting. It never notifies a manager and says nothing to the
+  // customer. A real exchange only: a first message with no answer from the knowledge base ("hi", "thanks", something
+  // out of scope) is not logged. Like a handover it needs to know who the customer is: a widget visitor who has not
+  // given their details is asked once, and the ticket is raised when they have.
+  const answeredDue =
+    !result.escalate &&
+    conversation.status !== "needs_human" &&
+    !conversation.externalTicketKey &&
+    !conversation.externalTicketError &&
+    !ticketsInFlight.has(conversation.id) &&
+    (result.citations.length > 0 || priorMessages.some((row) => row.senderType === "customer")) &&
+    (await helpdeskTicketsEveryConversation(organizationId));
+  const holdAnsweredForIdentity = answeredDue && showsCards && widgetNeedsIdentity;
+  if (holdAnsweredForIdentity) {
+    const asked = priorMessages.some((row) => Array.isArray(row.cards) && (row.cards as { kind?: string }[]).some((card) => card.kind === "identity_request"));
+    if (!asked && !cards.some((card) => card.kind === "identity_request")) {
+      cards.push({
+        id: crypto.randomUUID(),
+        kind: "identity_request",
+        data: {
+          mode: identityMode,
+          ...(isPlaceholderCustomerName(conversation.customerName) ? {} : { name: conversation.customerName }),
+          ...(conversation.customerEmail ? { email: conversation.customerEmail } : {}),
+        },
+      });
+      result = { ...result, answer: `${result.answer}\n\nTo log this request for the team I need your name and email.` };
+    }
+  }
+  const logsAnswered = answeredDue && !holdAnsweredForIdentity;
+
   // The ticket is raised after the reply is stored when the caller asked for that.
   const deferTicket = Boolean(input.deferTicket) && raisesTicket && showsCards;
   // The first time this conversation is handed over; later turns add to the same request.
   const firstHandoff = result.escalate && conversation.status !== "needs_human";
+  // Who the handover goes to, chosen from Settings > Human manager's list while the reply is being stored. It never
+  // throws and never takes long: when the list cannot say, the profile's single manager is told, as before the list.
+  const routing = firstHandoff
+    ? routeHandover({
+        organizationId,
+        fallback: { name: profile.managerName, email: profile.managerEmail },
+        transcript: [...toHistoryTurns([...priorMessages, userMessage]), { speaker: profile.displayName, body: result.answer }],
+        summary: conversation.ticketSummary ?? conversation.summary,
+      }).catch(() => null)
+    : null;
+  /** The suggested assignee goes on the new ticket as an internal note, never in front of the customer. */
+  const noteSuggestedAssignee = async (ticket: { key: string }) => {
+    // Also on a ticket logged earlier as answered by the worker: the first handover is when it needs a person.
+    if (!routing) return;
+    const route = await routing;
+    const note = route ? suggestedAssigneeNote(route) : null;
+    if (note) await addInternalTicketNote(organizationId, ticket.key, note);
+  };
 
   if (raisesTicket && !deferTicket) {
     progress("ticket", "Logging this for the team…");
@@ -319,6 +370,7 @@ export async function runCustomerTurn(input: {
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
     if (isHandoffTicket(ticket)) {
+      void noteSuggestedAssignee(ticket).catch(() => undefined);
       result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket)}` };
       if (showsCards) {
         cards.push({
@@ -417,6 +469,7 @@ export async function runCustomerTurn(input: {
           .returning();
         return { message: note };
       }
+      void noteSuggestedAssignee(ticket).catch(() => undefined);
       const [message] = await db
         .insert(messages)
         .values({
@@ -444,6 +497,26 @@ export async function runCustomerTurn(input: {
     });
   }
 
+  // The ticket for an answered conversation: started once the reply is stored, never awaited by the customer's turn.
+  if (logsAnswered) {
+    const job = (async () => {
+      const current = (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation;
+      const ticketSummary =
+        current.ticketSummary ??
+        (await summarizeForHandoff([...toHistoryTurns([...priorMessages, userMessage]), { speaker: profile.displayName, body: result.answer }]));
+      if (ticketSummary && ticketSummary !== current.ticketSummary) {
+        await db.update(conversations).set({ ticketSummary }).where(eq(conversations.id, conversation.id));
+      }
+      await raiseTicket({ ...current, ticketSummary: ticketSummary ?? current.ticketSummary }, true);
+    })().catch((error: unknown) => {
+      console.warn("[tickets] ticket for an answered conversation failed:", error instanceof Error ? error.message : error);
+    });
+    ticketsInFlight.set(conversation.id, job);
+    void job.finally(() => {
+      if (ticketsInFlight.get(conversation.id) === job) ticketsInFlight.delete(conversation.id);
+    });
+  }
+
   // A conversation already waiting for a person stays that way when the
   // customer writes again ("thanks", more details). Only a person moves it on;
   // otherwise one polite reply would drop it out of the team's queue.
@@ -461,12 +534,14 @@ export async function runCustomerTurn(input: {
     ),
   );
 
+  const route = routing ? await routing : null;
   await db
     .update(conversations)
     .set({
       status,
       confidence: result.confidence,
-      assignedTo: result.escalate ? profile.managerName : conversation.assignedTo,
+      assignedTo: result.escalate ? (route?.assignee?.name ?? profile.managerName) : conversation.assignedTo,
+      ...(route?.assignee ? { routedManagerId: route.assignee.id } : {}),
       summary: summaryState.summary,
       summarizedMessageCount: summaryState.summarizedMessageCount,
       updatedAt: new Date(),
@@ -487,7 +562,7 @@ export async function runCustomerTurn(input: {
   if (result.escalate && conversation.status !== "needs_human" && conversation.channel !== "email") {
     const where = conversation.channel === "widget" ? "website chat" : "chat";
     await timed("handoff.notify", () =>
-      notifyManager(conversation, organizationId, `${profile.displayName} handed a ${where} conversation to you.`),
+      notifyManager(conversation, organizationId, `${profile.displayName} handed a ${where} conversation to you.`, "handoff", route),
     ).catch(
       (error: unknown) => console.warn("[handoff] manager email failed:", error instanceof Error ? error.message : error),
     );

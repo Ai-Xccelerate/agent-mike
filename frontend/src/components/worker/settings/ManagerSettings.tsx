@@ -1,5 +1,6 @@
 "use client";
 
+import ManagersList from "@/components/worker/settings/ManagersList";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import { cardClass, fieldClass } from "@/components/worker/settings/ui";
@@ -13,7 +14,7 @@ export default function ManagerSettings() {
     <>
       <SettingsPageHeader
         title="Human manager"
-        description="This worker routes sensitive or unsupported conversations to this person."
+        description="This worker routes sensitive or unsupported conversations to this person. Add people below to route by area."
         onSave={() => save(["managerName", "managerEmail", "emailManagerOnHandoff", "firstReplyTargetHours"])}
         onDiscard={discard}
         dirty={dirty}
@@ -68,6 +69,7 @@ export default function ManagerSettings() {
           />
         </div>
       </section>
+      <ManagersList />
     </>
   );
 }

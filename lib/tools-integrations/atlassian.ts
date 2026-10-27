@@ -261,6 +261,11 @@ export const jiraSettingsSchema = z.object({
    * they have none, and raise the ticket on their behalf. Off by default.
    */
   createCustomers: z.boolean(),
+  /**
+   * Also raise a ticket for a conversation the worker answers by itself, for the desk's reporting. Marked as answered by
+   * the worker, never emails a manager, and a person closes it as they do any ticket. Off by default.
+   */
+  ticketEveryConversation: z.boolean().default(false),
 });
 
 export type JiraSettings = z.infer<typeof jiraSettingsSchema>;
@@ -296,6 +301,7 @@ export function jiraSettingsDefaults(): JiraSettings {
     createTicketOnHandoff: true,
     workerChoosesRequestType: false,
     createCustomers: false,
+    ticketEveryConversation: false,
   };
 }
 
@@ -375,6 +381,8 @@ export const JIRA_GET_ISSUE_SLUG = "JIRA_GET_ISSUE";
 export const HANDOFF_TICKET_TOOL_ID = "create_handoff_ticket";
 export const HANDOFF_COMMENT_TOOL_ID = "comment_on_handoff_ticket";
 export const HANDOFF_TICKET_LABEL = "ai-worker-handoff";
+/** On a ticket for a conversation the worker answered by itself: nothing is needed unless the customer writes again. */
+export const ANSWERED_TICKET_LABEL = "ai-worker-answered";
 /** How much of the conversation goes into the ticket. */
 const HANDOFF_TRANSCRIPT_MESSAGES = 20;
 const HANDOFF_MESSAGE_CHARS = 1500;
@@ -406,6 +414,8 @@ export type HandoffTicketInput = {
   verifiedCustomer?: { email: string; name: string | null };
   /** A manager raised this from the Inbox, rather than the worker handing over by itself. */
   raisedByManager?: boolean;
+  /** The worker answered this conversation itself and the ticket is only for the desk's records. */
+  answeredByWorker?: boolean;
 };
 
 export type HandoffTicketResult = {
@@ -453,9 +463,11 @@ export function handoffTicketDescription(input: HandoffTicketInput): string {
     .map((turn) => `**${turn.speaker}:** ${clip(turn.body, HANDOFF_MESSAGE_CHARS)}`)
     .join("\n\n");
   return [
-    input.raisedByManager
-      ? `A manager raised this ticket from the Inbox for a conversation with ${workerName}.`
-      : `${workerName} handed this conversation to a person and raised this ticket automatically.`,
+    input.answeredByWorker
+      ? `${workerName} answered this conversation herself and logged it here for the desk's records. Nothing is needed unless the customer writes again.`
+      : input.raisedByManager
+        ? `A manager raised this ticket from the Inbox for a conversation with ${workerName}.`
+        : `${workerName} handed this conversation to a person and raised this ticket automatically.`,
     "",
     `**Customer:** ${customer || "unknown (not given)"}${input.raisedByManager && customer && !input.verifiedCustomer ? " (typed in the chat, not verified by an emailed code)" : ""}`,
     `**Channel:** ${conversation.channel}`,
@@ -577,6 +589,14 @@ export async function helpdeskRaisesTickets(organizationId: string): Promise<boo
   return settings.createTicketOnHandoff && Boolean(settings.projectKey);
 }
 
+/** Whether every conversation the worker answers by itself also gets a ticket (needs ticket raising on, with a project). */
+export async function helpdeskTicketsEveryConversation(organizationId: string): Promise<boolean> {
+  const connection = await getConnectionForOrg(organizationId, "helpdesk");
+  if (!connection || !activeAccount(connection, "jira")) return false;
+  const settings = readJiraSettings(connection.metadata);
+  return settings.createTicketOnHandoff && Boolean(settings.projectKey) && settings.ticketEveryConversation;
+}
+
 export async function recordHandoffInJira(
   input: HandoffTicketInput,
 ): Promise<HandoffTicketResult | HandoffTicketFailure | null> {
@@ -597,6 +617,12 @@ export async function recordHandoffInJira(
       const error = `Couldn't add to ${conversation.externalTicketKey}: ${commented.error}`;
       await recordTicketOutcome(organizationId, conversation.id, { error });
       return { failed: error };
+    }
+    // A ticket logged as answered by the worker now needs a person: swap the label so the team's queue shows it.
+    if (!input.answeredByWorker) {
+      await callJira(connectedAccountId, "PUT", `/rest/api/3/issue/${conversation.externalTicketKey}`, {
+        update: { labels: [{ add: HANDOFF_TICKET_LABEL }, { remove: ANSWERED_TICKET_LABEL }] },
+      }).catch(() => undefined);
     }
     return { key: conversation.externalTicketKey, created: false };
   }
@@ -619,7 +645,7 @@ export async function recordHandoffInJira(
       issue_type: settings.issueType,
       summary: handoffTicketSummary(input),
       description: handoffTicketDescription(input),
-      labels: [HANDOFF_TICKET_LABEL],
+      labels: [input.answeredByWorker ? ANSWERED_TICKET_LABEL : HANDOFF_TICKET_LABEL],
     },
     organizationId,
     connectedAccountId,
@@ -670,6 +696,32 @@ async function commentOnHandoffTicket(
     if (note.ok) return note;
   }
   return post(`/rest/api/2/issue/${key}/comment`, { body });
+}
+
+/**
+ * An internal note on a ticket this worker raised, for staff only: on a service desk request it is not shown to the
+ * customer and does not email them. Used for the suggested assignee. Never throws; false when it could not be added.
+ */
+export async function addInternalTicketNote(organizationId: string, key: string, text: string): Promise<boolean> {
+  try {
+    const connection = await getConnectionForOrg(organizationId, "helpdesk");
+    const connectedAccountId = activeAccount(connection, "jira");
+    if (!connection || !connectedAccountId) return false;
+    const body = toJiraWikiMarkup(text);
+    const note = await callJira(connectedAccountId, "POST", `/rest/servicedeskapi/request/${key}/comment`, { body, public: false });
+    await logToolCall({
+      organizationId,
+      toolId: HANDOFF_COMMENT_TOOL_ID,
+      calledBy: "system",
+      input: { key, internal: true },
+      output: note.ok ? toLogOutput(note.data) : null,
+      status: note.ok ? "success" : "error",
+      errorMessage: note.ok ? null : note.error,
+    });
+    return note.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** A later handoff on the same conversation: what the customer added, and what the worker passed on. */
@@ -2236,7 +2288,7 @@ async function raiseServiceRequest(
   // The request API can't set labels, so the label that marks the worker's
   // tickets goes on afterwards. A ticket without it is still a good ticket.
   await callJira(connectedAccountId, "PUT", `/rest/api/3/issue/${key}`, {
-    update: { labels: [{ add: HANDOFF_TICKET_LABEL }] },
+    update: { labels: [{ add: input.answeredByWorker ? ANSWERED_TICKET_LABEL : HANDOFF_TICKET_LABEL }] },
   });
   await recordTicketOutcome(organizationId, conversation.id, {
     key,

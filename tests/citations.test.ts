@@ -119,6 +119,11 @@ describe("withoutSourceLine", () => {
     expect(withoutSourceLine("Nothing to remove.", [])).toBe("Nothing to remove.");
   });
 
+  it("removes it when the worker bolded or italicised the title, as it did on prod", () => {
+    expect(withoutSourceLine("1. Click New.\n2. Select CISD/Trauma.\nFrom: **Add a New Provider**   \nDid that solve it?", titles)).toBe("1. Click New.\n2. Select CISD/Trauma.\nDid that solve it?");
+    expect(withoutSourceLine("Steps.\n\nFrom: _Add a New Provider_; **Accounting Export Module**", titles)).toBe("Steps.");
+  });
+
   it("matches the title whatever its case, and titles with punctuation", () => {
     expect(withoutSourceLine("Done.\n\nFrom: priority levels (and what each means)", ["Priority levels (and what each means)"])).toBe("Done.");
   });

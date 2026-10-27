@@ -105,9 +105,14 @@ export function withoutSourceLine(answer: string, titles: string[]): string {
   const known = [...new Set(titles.map((title) => title.trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
   if (known.length === 0) return answer;
   const one = known.map(escapeForPattern).join("|");
-  const sources = new RegExp(`[ \\t]*\\bFrom:[ \\t]*(?:${one})(?:[ \\t]*[;,][ \\t]*(?:${one}))*(?:[ \\t]*[;,][^\\n]*(?=\\n|$))?[ \\t]*\\.?`, "gi");
+  // A title the worker bolded or italicised ("From: **Document a Critical Incident**") is still a source line.
+  const title = `[*_]{0,2}(?:${one})[*_]{0,2}`;
+  const sourceBody = `From:[ \\t]*${title}(?:[ \\t]*[;,][ \\t]*${title})*(?:[ \\t]*[;,][^\\n]*(?=\\n|$))?[ \\t]*\\.?`;
+  // A source on a line of its own goes with its line break, so no blank line is left behind.
+  const withoutOwnLines = answer.replace(new RegExp(`(^|\\n)[ \\t]*\\b${sourceBody}[ \\t]*(?=\\n|$)\\n?`, "gi"), "$1");
+  const sources = new RegExp(`[ \\t]*\\b${sourceBody}`, "gi");
   // Mid-line, the words on either side keep one space between them; at a line's start or end nothing is left behind.
-  const stripped = answer.replace(sources, (match, offset: number, whole: string) => {
+  const stripped = withoutOwnLines.replace(sources, (match, offset: number, whole: string) => {
     const before = whole[offset - 1];
     const after = whole[offset + match.length];
     return before && after && before !== "\n" && after !== "\n" ? " " : "";
