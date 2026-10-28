@@ -1584,6 +1584,7 @@ describe("agent instructions — email signature is channel-specific", () => {
     confidenceThreshold: 0.72,
     managerName: "Manager",
     emailSignature: "Best,\nMike\nAI Xccelerate Technical Support",
+    title: "",
     timezone: "UTC",
   };
 

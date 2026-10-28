@@ -49,6 +49,7 @@ export const workerProfiles = pgTable(
     // CLAUDE.md's "never blue/indigo" rule, so an org with no chosen color
     // yet doesn't get a favicon/avatar mismatch out of the box.
     accentColor: text("accent_color").notNull().default("#F47920"),
+    title: text("title").notNull().default(""),
     bio: text("bio").notNull().default(""),
     timezone: text("timezone").notNull().default("UTC"),
     locale: text("locale").notNull().default("en-US"),

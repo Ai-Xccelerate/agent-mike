@@ -6,6 +6,7 @@ type Profile = typeof workerProfiles.$inferSelect;
 export function publicWorkerIdentity(profile: Profile, defaultQuickActions?: string[]) {
   return {
     displayName: profile.displayName,
+    title: profile.title,
     avatarInitials: profile.avatarInitials,
     avatarUrl: profile.avatarUrl,
     accentColor: profile.accentColor,

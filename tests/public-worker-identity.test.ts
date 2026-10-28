@@ -20,6 +20,7 @@ function profile(overrides: Partial<Profile> = {}): Profile {
     locale: "en-US",
     email: "mike@example.com",
     emailSignature: "secret signature",
+    title: "",
     tone: "Warm",
     role: "Customer support for Acme.",
     jobDescription: "Do not leak this.",
@@ -50,6 +51,7 @@ describe("publicWorkerIdentity", () => {
   it("returns the Identity fields a widget header needs", () => {
     expect(publicWorkerIdentity(profile())).toEqual({
       displayName: "Mike",
+      title: "",
       avatarInitials: "M",
       avatarUrl: "/api/v1/uploads/avatars/mike.png",
       accentColor: "#4F46E5",

@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error: "Image too large",
-        errors: { file: `Images must be 1 MB or smaller — this one is ${formatBytes(file.size)}.` },
+        errors: { file: `Images must be 5 MB or smaller. This one is ${formatBytes(file.size)}.` },
       },
       { status: 422 },
     );
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error: "Image too large",
-        errors: { file: `Images must be 1 MB or smaller — this one is ${formatBytes(bytes.byteLength)}.` },
+        errors: { file: `Images must be 5 MB or smaller. This one is ${formatBytes(bytes.byteLength)}.` },
       },
       { status: 422 },
     );

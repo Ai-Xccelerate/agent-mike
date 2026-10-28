@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
-import Badge from "@/components/ui/badge/Badge";
 import Button, { buttonClassName } from "@/components/ui/button/Button";
+import MailboxStatusLine from "@/components/worker/settings/MailboxStatusLine";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import SettingsSection from "@/components/worker/settings/SettingsSection";
 import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import { counterClass, dividerClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
-import { ChatIcon, CopyIcon, EnvelopeIcon } from "@/icons";
+import { ChatIcon, CopyIcon } from "@/icons";
 import {
   defaultWelcomeMessage,
   QUICK_ACTION_MAX_LENGTH,
@@ -17,13 +17,12 @@ import {
   quickActionsFor,
   WELCOME_MESSAGE_MAX_LENGTH,
 } from "@/lib/widget-defaults";
-import { apiFetch, MailboxStatus, WidgetSite, WorkerProfile } from "@/lib/worker-api";
+import { apiFetch, WidgetSite, WorkerProfile } from "@/lib/worker-api";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
-const SIGNATURE_MAX_LENGTH = 300;
 
 /** Everything on this page that the header's Save writes. */
-const CHANNEL_FIELDS: (keyof WorkerProfile)[] = ["channelsConfig", "email", "emailSignature", "welcomeMessage", "quickActions", "chatAttachments"];
+const CHANNEL_FIELDS: (keyof WorkerProfile)[] = ["channelsConfig", "welcomeMessage", "quickActions", "chatAttachments"];
 
 type Update = <K extends keyof WorkerProfile>(key: K, value: WorkerProfile[K]) => void;
 
@@ -197,98 +196,18 @@ function ChatChannelSettings({
   );
 }
 
-/** Whether the worker has a mailbox to send and receive from, with the way to connect one. */
-function MailboxStatusLine() {
-  const [status, setStatus] = useState<MailboxStatus | null | "failed">(null);
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch<MailboxStatus>("/mailbox")
-      .then((next) => !cancelled && setStatus(next))
-      .catch(() => !cancelled && setStatus("failed"));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const badge =
-    status === null
-      ? null
-      : status === "failed"
-        ? { color: "light" as const, label: "Status unavailable" }
-        : !status.available
-          ? { color: "light" as const, label: "Not configured" }
-          : !status.mailbox
-            ? { color: "light" as const, label: "Not connected" }
-            : status.mailbox.status === "invalid" || !status.connected
-              ? { color: "warning" as const, label: "Reconnect needed" }
-              : { color: "success" as const, label: "Connected" };
-
+/** Email channel panel: mailbox status only. The address and signature are edited under Settings > Identity. */
+function EmailChannelSettings() {
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-      <span className="font-medium text-gray-700 dark:text-gray-300">Mailbox</span>
-      {badge && (
-        <Badge size="sm" color={badge.color}>
-          {badge.label}
-        </Badge>
-      )}
-      {status && status !== "failed" && status.mailbox?.email && <span className="text-xs text-gray-500">{status.mailbox.email}</span>}
-      <Link href="/settings/tools" className="text-xs underline hover:text-brand-600 dark:hover:text-brand-400">
-        {status && status !== "failed" && status.mailbox ? "Manage mailbox" : "Connect a mailbox"}
-      </Link>
-    </div>
-  );
-}
-
-/** The address customers write to and how an email reply ends. Shown only while Email is on, like the Chat block. */
-function EmailChannelSettings({
-  profile,
-  update,
-  fieldErrors,
-}: {
-  profile: WorkerProfile;
-  update: Update;
-  fieldErrors: Record<string, string>;
-}) {
-  const signature = profile.emailSignature ?? "";
-  return (
-    <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-white/[0.02] space-y-4">
+    <div className="mb-6 space-y-2 rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
       <MailboxStatusLine />
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-        Support email address
-        <div className="relative mt-2">
-          <EnvelopeIcon className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="email"
-            value={profile.email ?? ""}
-            onChange={(event) => update("email", event.target.value || null)}
-            placeholder="support@yourcompany.com"
-            className={`${fieldClass} pl-10`}
-          />
-        </div>
-        <span className="mt-1.5 block text-xs font-normal text-gray-500 dark:text-gray-400">
-          The address customers write to. The worker also uses it to recognise its own mail, so it never replies to itself, and
-          it is the login hint when you connect the mailbox.
-        </span>
-        <FieldError message={fieldErrors.email} />
-      </label>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-        Email signature
-        <AutoGrowTextarea
-          minRows={3}
-          maxRows={8}
-          maxLength={SIGNATURE_MAX_LENGTH}
-          value={signature}
-          onChange={(event) => update("emailSignature", event.target.value)}
-          className={`${textareaClass} mt-2`}
-        />
-        <span className="mt-1.5 block text-xs font-normal text-gray-500 dark:text-gray-400">
-          Added to outbound email only, never to chat or the website widget.
-        </span>
-        <span className={counterClass}>
-          {signature.length}/{SIGNATURE_MAX_LENGTH}
-        </span>
-        <FieldError message={fieldErrors.emailSignature} />
-      </label>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        The support address and email signature are set under{" "}
+        <Link href="/settings/identity" className="underline hover:text-brand-600 dark:hover:text-brand-400">
+          Settings &gt; Identity
+        </Link>
+        .
+      </p>
     </div>
   );
 }
@@ -339,7 +258,7 @@ export default function ChannelsSettings() {
               checked={profile.channelsConfig.email}
               onChange={() => toggle("email")}
             />
-            {profile.channelsConfig.email && <EmailChannelSettings profile={profile} update={update} fieldErrors={fieldErrors} />}
+            {profile.channelsConfig.email && <EmailChannelSettings />}
           </div>
           <SettingsToggleRow
             title="Voice"
