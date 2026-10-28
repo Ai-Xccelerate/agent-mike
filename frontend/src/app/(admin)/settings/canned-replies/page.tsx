@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Approved wording | AI Worker" };
+export const metadata: Metadata = { title: "Canned replies | AI Worker" };
 
 export default function CannedRepliesSettingsPage() {
   return <CannedRepliesSettings />;

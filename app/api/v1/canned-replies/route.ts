@@ -18,6 +18,6 @@ export async function POST(req: NextRequest) {
   const parsed = cannedReplyCreateSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload", errors: fieldErrors(parsed.error) }, { status: 422 });
   const created = await createCannedReply(tenant.orgId, parsed.data);
-  if (!created) return NextResponse.json({ error: `You can keep at most ${CANNED_LIMITS.perOrganization} approved replies.` }, { status: 409 });
+  if (!created) return NextResponse.json({ error: `You can keep at most ${CANNED_LIMITS.perOrganization} canned replies.` }, { status: 409 });
   return NextResponse.json(created, { status: 201 });
 }

@@ -31,7 +31,7 @@ export default function CannedRepliesSettings() {
       setData(await getCannedReplies());
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the approved wording.");
+      setError(err instanceof Error ? err.message : "Could not load canned replies.");
     }
   }
   useEffect(() => {
@@ -69,7 +69,7 @@ export default function CannedRepliesSettings() {
   return (
     <>
       <SettingsPageHeader
-        title="Approved wording"
+        title="Canned replies"
         description="Wording your team has approved for questions that come up again and again. The worker leads with it when a customer's message matches, and it shapes the suggested replies in the Inbox. Changes save immediately."
       />
 
@@ -98,7 +98,7 @@ export default function CannedRepliesSettings() {
       {!data && !error && <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading…</p>}
       {data && data.replies.length === 0 && editingId === null && (
         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-          Nothing here yet. Good wording comes from real conversations: how your team actually answered the same question, written the way you would say it in a chat. Avoid a generic "we have received your request" line.
+          No canned replies yet. Good ones come from real conversations: how your team actually answered the same question, written the way you would say it in a chat. Avoid a generic "we have received your request" line.
         </p>
       )}
 

@@ -142,6 +142,12 @@ describe("the draft prompt and its parsing", () => {
     expect(text).toContain("none matched");
   });
 
+  it("never names the AI worker, and checks in when the worker already covered the question", () => {
+    const text = draftInstructions(base);
+    expect(text).toContain("Never name Eva");
+    expect(text).toMatch(/short, friendly check-in/);
+  });
+
   it("asks for an email's greeting and sign-off only on email", () => {
     expect(draftInstructions({ ...base, channel: "email" })).toMatch(/greeting/);
     expect(draftInstructions(base)).toMatch(/no greeting block/);

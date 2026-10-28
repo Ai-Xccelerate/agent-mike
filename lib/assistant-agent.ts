@@ -451,7 +451,7 @@ export type ConnectLink = { url: string; label: string; kind: "integration" | "m
 
 /**
  * Applies a confirmed change and keeps a record of what it altered (settings, articles, skills) so it can be undone
- * from Settings > Test questions, then replays the saved test questions to measure it. Actions (replies, ticket changes) are
+ * from Settings > Test cases, then replays the saved test cases to measure it. Actions (replies, ticket changes) are
  * not settings changes and are not logged here.
  */
 async function applyPendingChange(
