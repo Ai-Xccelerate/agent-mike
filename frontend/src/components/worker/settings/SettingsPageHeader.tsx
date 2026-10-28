@@ -192,10 +192,10 @@ export default function SettingsPageHeader({
         </div>
 
         {onSave && (
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-3 sm:max-w-[50%] sm:shrink-0">
             {notice && (
               <span
-                className={`text-xs font-medium ${
+                className={`min-w-0 max-w-full break-words text-xs font-medium [overflow-wrap:anywhere] ${
                   noticeError
                     ? "text-error-600 dark:text-error-400"
                     : "text-success-600 dark:text-success-400"
