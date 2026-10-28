@@ -719,6 +719,59 @@ export const customSkills = pgTable(
 );
 
 /**
+ * A remote MCP server an org admin plugged in themselves (Settings >
+ * Connectors). Unlike the integrations above, nothing about it is known in
+ * advance: the tool list is discovered from the server and stored here, so
+ * the agent never needs a network round trip just to know what it can call.
+ *
+ * `secret` is the auth header's value, AES-256-GCM ciphertext (lib/crypto.ts),
+ * and is never serialized back out of a route. `toolPermissions` maps a tool
+ * name to `auto | approval | off`; a tool missing from it is treated as
+ * `approval`, so a tool the server adds later can never run unreviewed.
+ */
+export type McpConnectorTool = {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  /** From the server's own annotations; a hint, not a guarantee. */
+  readOnly: boolean;
+  destructive: boolean;
+};
+
+export type McpToolPermission = "auto" | "approval" | "off";
+
+export const mcpConnectors = pgTable(
+  "mcp_connectors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    authType: text("auth_type").notNull().default("none"), // none | bearer | header
+    authHeaderName: text("auth_header_name"),
+    secret: text("secret"),
+    enabled: boolean("enabled").notNull().default(true),
+    status: text("status").notNull().default("connected"), // connected | failed
+    lastError: text("last_error"),
+    serverName: text("server_name"),
+    tools: jsonb("tools").$type<McpConnectorTool[]>().notNull().default(sql`'[]'::jsonb`),
+    toolPermissions: jsonb("tool_permissions")
+      .$type<Record<string, McpToolPermission>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdBy: text("created_by"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    orgIdx: index("mcp_connectors_org_idx").on(table.organizationId),
+  }),
+);
+
+/**
  * Per-agent credentials for a provider that has no broker in front of it.
  *
  * Composio-backed integrations do not appear here — Composio holds those

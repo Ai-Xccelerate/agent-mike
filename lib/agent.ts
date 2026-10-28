@@ -35,6 +35,7 @@ import {
   SEARCH_ACTIONS_TOOL_NAME,
 } from "@/lib/tools-integrations/composio-actions";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
+import { buildConnectorTools } from "@/lib/mcp-connectors/agent-tools";
 import { customerTickets } from "@/lib/customer-tickets";
 import {
   CONFLUENCE_READ_TOOL_NAME,
@@ -1125,6 +1126,15 @@ export async function buildAgentTools(
           ),
       }),
     );
+  }
+
+  // Custom MCP connectors an admin added (Settings > Connectors). A broken
+  // connector table must not take chat down with it, so a failure here
+  // drops the connector tools for this turn rather than throwing.
+  try {
+    tools.push(...(await buildConnectorTools(organizationId, conversationId, tools.map((entry) => entry.name))));
+  } catch (error) {
+    console.error("[agent] could not load custom connectors", error);
   }
 
   return tools;
