@@ -1234,3 +1234,91 @@ export function unrateReply(messageId: string) {
 export function getReplyTrace(messageId: string): Promise<{ trace: import("@/lib/reply-trace").ReplyTrace; text: string }> {
   return apiFetch<{ trace: import("@/lib/reply-trace").ReplyTrace; text: string }>(`/messages/${encodeURIComponent(messageId)}/trace`);
 }
+
+// ── Custom connectors (Settings > Connectors): remote MCP servers an admin adds ──
+
+/** auto = runs on its own; approval = waits for a person; off = the worker never sees it. */
+export type ConnectorToolPermission = "auto" | "approval" | "off";
+export type ConnectorAuthType = "none" | "bearer" | "header";
+
+export type ConnectorTool = {
+  name: string;
+  description: string;
+  /** The server's own hints. Used for the default permission only. */
+  readOnly: boolean;
+  destructive: boolean;
+  permission: ConnectorToolPermission;
+};
+
+export type Connector = {
+  id: string;
+  name: string;
+  url: string;
+  host: string;
+  authType: ConnectorAuthType;
+  authHeaderName: string | null;
+  /** Whether a token/key is saved. The value itself never leaves the server. */
+  hasSecret: boolean;
+  enabled: boolean;
+  status: "connected" | "failed";
+  lastError: string | null;
+  serverName: string | null;
+  tools: ConnectorTool[];
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConnectorPendingApproval = {
+  id: string;
+  connectorId: string;
+  connectorName: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  conversationId: string | null;
+  createdAt: string;
+};
+
+export type ConnectorInput = {
+  name: string;
+  url: string;
+  authType: ConnectorAuthType;
+  headerName?: string;
+  secret?: string;
+};
+
+export function getConnectors(): Promise<{ connectors: Connector[]; pendingApprovals: ConnectorPendingApproval[] }> {
+  return apiFetch("/connectors");
+}
+
+export function createConnector(input: ConnectorInput): Promise<Connector> {
+  return apiFetch<Connector>("/connectors", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateConnector(
+  id: string,
+  patch: {
+    name?: string;
+    enabled?: boolean;
+    toolPermissions?: Record<string, ConnectorToolPermission>;
+    auth?: { authType: ConnectorAuthType; headerName?: string; secret?: string };
+  },
+): Promise<Connector> {
+  return apiFetch<Connector>(`/connectors/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export function refreshConnector(id: string): Promise<Connector> {
+  return apiFetch<Connector>(`/connectors/${id}/refresh`, { method: "POST" });
+}
+
+export async function deleteConnector(id: string): Promise<void> {
+  await apiFetch<unknown>(`/connectors/${id}`, { method: "DELETE" });
+}
+
+export function decideApproval(
+  id: string,
+  decision: "approved" | "rejected",
+): Promise<{ status: string; applied?: { ok: boolean; output: string } }> {
+  return apiFetch(`/approvals/${id}`, { method: "PATCH", body: JSON.stringify({ decision }) });
+}
+

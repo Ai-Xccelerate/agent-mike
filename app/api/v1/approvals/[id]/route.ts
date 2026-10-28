@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { applyEmailWriteApproval, GMAIL_REPLY_TO_THREAD_APPROVAL_TOOL_ID, GMAIL_SEND_EMAIL_APPROVAL_TOOL_ID } from "@/lib/agent";
 import { getIdentityAdapter } from "@/lib/identity";
+import { applyConnectorApproval, parseConnectorApprovalToolId } from "@/lib/mcp-connectors/agent-tools";
 import { isOrgAdmin } from "@/lib/org-roles";
 import { applyComposioActionApproval, COMPOSIO_ACTION_APPROVAL_TOOL_ID } from "@/lib/tools-integrations/composio-actions";
 import {
@@ -60,6 +61,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (decision === "approved" && approval.toolId === COMPOSIO_ACTION_APPROVAL_TOOL_ID) {
     const applied = await applyComposioActionApproval(approval.input, tenant.orgId, tenant.userId);
+    await recordApprovalResult(approval.id, applied.ok ? { output: applied.output } : null, applied.ok ? null : applied.output);
+    return NextResponse.json({ ...decided, applied });
+  }
+
+  // A custom connector call that was waiting for a person (Settings >
+  // Connectors). Same contract as email: what gets stored is the real run's
+  // outcome, and a connector changed since the call was queued refuses to run.
+  if (decision === "approved" && parseConnectorApprovalToolId(approval.toolId)) {
+    const applied = await applyConnectorApproval(approval.toolId, approval.input, tenant.orgId);
     await recordApprovalResult(approval.id, applied.ok ? { output: applied.output } : null, applied.ok ? null : applied.output);
     return NextResponse.json({ ...decided, applied });
   }

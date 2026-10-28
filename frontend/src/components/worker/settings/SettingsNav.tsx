@@ -12,6 +12,7 @@ import {
   EnvelopeIcon,
   GroupIcon,
   LockIcon,
+  LinkIcon,
   PlugInIcon,
   ShootingStarIcon,
   TicketIcon,
@@ -51,6 +52,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     items: [
       { href: "/settings/tools", label: "Tools", icon: BoxCubeIcon, available: true },
       { href: "/settings/integrations", label: "Integrations", icon: PlugInIcon, available: true },
+      { href: "/settings/connectors", label: "Connectors", icon: LinkIcon, available: true },
       { href: "/settings/channels", label: "Channels", icon: ChatIcon, available: true },
     ],
   },
