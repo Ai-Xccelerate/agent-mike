@@ -10,6 +10,7 @@ import {
 import { listSkillsForOrg } from "@/lib/tools-integrations/skills-catalog";
 import type { SkillDefinition } from "@/lib/tools-integrations/skills-loader";
 import { workerPatchSchema } from "@/lib/worker-patch";
+import { applyWorkerPatch } from "@/lib/worker-settings";
 
 const stayOnTopic: SkillDefinition = {
   id: "stay-on-topic",
@@ -111,5 +112,22 @@ describe("PATCH enabledSkills persistence", () => {
       requirementsMet: true,
       enabled: true,
     });
+  });
+});
+
+describe("applyWorkerPatch with dead skill ids", () => {
+  it("drops a stored id that matches nothing instead of failing the save, but still rejects a new unknown id", async () => {
+    const orgId = `org-${crypto.randomUUID()}`;
+    await ensureOrganization(orgId, "Dead skill org");
+    await db
+      .insert(workerProfiles)
+      .values({ organizationId: orgId, slug: `worker-${crypto.randomUUID()}`, enabledSkills: ["stay-on-topic", "deleted-skill-id"] });
+
+    const saved = await applyWorkerPatch(orgId, { enabledSkills: ["stay-on-topic", "deleted-skill-id"] });
+    expect(saved.ok).toBe(true);
+    if (saved.ok) expect(saved.profile.enabledSkills).toEqual(["stay-on-topic"]);
+
+    const rejected = await applyWorkerPatch(orgId, { enabledSkills: ["stay-on-topic", "never-existed"] });
+    expect(rejected.ok).toBe(false);
   });
 });

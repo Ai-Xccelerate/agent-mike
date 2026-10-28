@@ -36,7 +36,11 @@ export async function applyWorkerPatch(organizationId: string, body: unknown): P
   const updates: typeof parsed.data = { ...parsed.data };
 
   if (parsed.data.enabledSkills) {
-    const unknown = parsed.data.enabledSkills.filter((id) => !byId.has(id));
+    // An id that is already stored but matches nothing now (its custom skill was deleted) is dropped, not
+    // rejected: the Skills screen sends the whole saved list back, so rejecting it would make every save fail
+    // until someone found the dead id by hand.
+    const unknown = parsed.data.enabledSkills.filter((id) => !byId.has(id) && !alreadyEnabled.has(id));
+    updates.enabledSkills = parsed.data.enabledSkills.filter((id) => byId.has(id) || !alreadyEnabled.has(id));
     if (unknown.length > 0) {
       return {
         ok: false,
@@ -88,7 +92,7 @@ export async function applyWorkerPatch(organizationId: string, body: unknown): P
         },
       };
     }
-    const next = parsed.data.enabledSkills ?? profile.enabledSkills ?? [];
+    const next = updates.enabledSkills ?? profile.enabledSkills ?? [];
     if (!next.includes(VERIFY_CUSTOMER_SKILL_ID)) {
       updates.enabledSkills = [...next, VERIFY_CUSTOMER_SKILL_ID];
     }
