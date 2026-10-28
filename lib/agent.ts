@@ -35,7 +35,7 @@ import {
   SEARCH_ACTIONS_TOOL_NAME,
 } from "@/lib/tools-integrations/composio-actions";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
-import { buildConnectorTools } from "@/lib/mcp-connectors/agent-tools";
+import { buildConnectorTools, connectorGuidance } from "@/lib/mcp-connectors/agent-tools";
 import { customerTickets } from "@/lib/customer-tickets";
 import {
   CONFLUENCE_READ_TOOL_NAME,
@@ -1132,7 +1132,7 @@ export async function buildAgentTools(
   // connector table must not take chat down with it, so a failure here
   // drops the connector tools for this turn rather than throwing.
   try {
-    tools.push(...(await buildConnectorTools(organizationId, conversationId, tools.map((entry) => entry.name))));
+    tools.push(...(await buildConnectorTools(organizationId, conversationId, tools.map((entry) => entry.name), onReferenceMaterial)));
   } catch (error) {
     console.error("[agent] could not load custom connectors", error);
   }
@@ -1325,6 +1325,7 @@ export async function buildInstructions(
     aboutYou +
     // The desk's kinds of request and what each needs, read from Jira, so the
     // worker collects that before it hands over. Empty unless it chooses them.
+    (await connectorGuidance(organizationId)) +
     (await requestTypeGuidance(organizationId)) +
     (await buildSkillsBlock(
       profile.enabledSkills,

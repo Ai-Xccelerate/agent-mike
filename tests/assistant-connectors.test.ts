@@ -10,7 +10,9 @@ import { POST as createConnectorRoute } from "@/app/api/v1/connectors/route";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { getIdentityAdapter, setIdentityAdapter, type IdentityAdapter } from "@/lib/identity";
 import { formatConfigurationSnapshot, loadConfigurationSnapshot } from "@/lib/assistant-config-audit";
-import { checkConnector } from "@/lib/mcp-connectors/agent-tools";
+import type { FunctionTool } from "@openai/agents";
+import { RunContext } from "@openai/agents";
+import { buildConnectorTools, checkConnector, connectorGuidance } from "@/lib/mcp-connectors/agent-tools";
 
 // The admin Assistant must see custom connectors and be able to check them,
 // without ever running a tool that could change data.
@@ -134,5 +136,73 @@ describe("the admin Assistant and custom connectors", () => {
     // Unknown names get a helpful answer rather than an error.
     expect(await checkConnector(orgId, "Nope")).toBe('No connector named "Nope". Connectors: Knowledge.');
     expect(await checkConnector(orgId, "Knowledge", "missing")).toMatch(/no saved tool named "missing"/);
+  });
+});
+
+describe("the customer worker and custom connectors", () => {
+  async function orgWithConnector(label: string): Promise<string> {
+    const orgId = `${label}-${randomUUID()}`;
+    await ensureOrganization(orgId, "Customer org");
+    await getOrCreateProfile(orgId);
+    setIdentityAdapter(adapterFor(orgId));
+    const res = await createConnectorRoute(
+      new NextRequest("http://localhost/api/v1/connectors", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Knowledge", url: serverUrl, authType: "bearer", secret: TOKEN }),
+        duplex: "half" as const,
+      }),
+    );
+    expect(res.status).toBe(201);
+    return orgId;
+  }
+
+  const invoke = async (tool: FunctionTool, args: Record<string, unknown>) =>
+    String(await tool.invoke(new RunContext(), JSON.stringify(args)));
+
+  it("marks a read-only result as approved reference material, so the reply check lets an answer built from it through", async () => {
+    const orgId = await orgWithConnector("cust-ref");
+    let marked = 0;
+    const tools = (await buildConnectorTools(orgId, null, [], () => {
+      marked += 1;
+    })) as FunctionTool[];
+    const search = tools.find((tool) => tool.name === "knowledge__search_docs")!;
+    const write = tools.find((tool) => tool.name === "knowledge__create_page")!;
+
+    expect(await invoke(search, { query: "start" })).toContain('2 pages match "start"');
+    expect(marked).toBe(1);
+
+    // A tool that needs approval only queues: nothing was read, so nothing is marked and nothing ran.
+    expect(await invoke(write, { title: "x" })).toMatch(/Queued for manager approval/);
+    expect(marked).toBe(1);
+    expect(created).toEqual([]);
+  });
+
+  it("does not mark an answer as grounded when the connector could not be reached", async () => {
+    const orgId = await orgWithConnector("cust-down");
+    let marked = 0;
+    const tools = (await buildConnectorTools(orgId, null, [], () => {
+      marked += 1;
+    })) as FunctionTool[];
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    try {
+      const out = await invoke(tools.find((tool) => tool.name === "knowledge__search_docs")!, { query: "start" });
+      expect(out).toMatch(/^Could not reach Knowledge/);
+      expect(marked).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => server.listen(Number(new URL(serverUrl).port), "127.0.0.1", resolve));
+    }
+  });
+
+  it("tells the worker which sources it has, and leaves tools that are off out", async () => {
+    const empty = `cust-empty-${randomUUID()}`;
+    await ensureOrganization(empty, "No connectors");
+    expect(await connectorGuidance(empty)).toBe("");
+
+    const orgId = await orgWithConnector("cust-guide");
+    const text = await connectorGuidance(orgId);
+    expect(text).toContain("Connected sources");
+    expect(text).toContain("- Knowledge: search_docs, create_page");
+    expect(text).toMatch(/Before you hand a support question over/);
   });
 });
