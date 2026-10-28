@@ -37,14 +37,14 @@ const GUIDE: Record<ProductGuideTopic, string> = {
 
   identity: [
     "Settings > Identity (/settings/identity).",
-    "- Customer-facing name: used in the worker's prompt ('You are …') and as the sender name on its replies.",
-    "- Internal name: admin-only label; not used by the worker.",
-    "- Slug: 2-32 lowercase letters/numbers/dashes, unique in the org; also used as the Parchment agent id.",
+    "- Name: used in the worker's prompt ('You are …') and as the sender name on its replies. Saved as both the customer-facing and the internal name.",
+    "- Title: a short one-line title (for example 'Customer support specialist'). Display only.",
     "- Tone: goes straight into the worker's prompt and shapes every reply.",
     "- Timezone: added to the prompt so the worker reasons about local time.",
-    "- Avatar image, initials, accent colour: display only (sidebar, favicon, widget).",
+    "- Photo: PNG, JPEG or WebP up to 5 MB, uploaded straight away. Initials follow the name and are the fallback when there is no photo. Display only (sidebar, favicon, widget).",
     "- Stored but NOT yet used at runtime: Status (active/paused: pausing does not stop replies yet), Short bio, Locale.",
-    "- The support email address and email signature moved to Settings > Channels > Email.",
+    "- Support email address and email signature live here too. The signature is appended to outbound email only, never to chat or the widget. The phone number field is shown disabled as coming soon.",
+    "- Time zone and language are dropdowns.",
   ].join("\n"),
 
   role: [
@@ -82,7 +82,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "Settings > Channels (/settings/channels).",
     "- Chat: Playground and the embeddable website widget. When on, the page offers 'Open playground' and 'Copy widget snippet'. Note: turning it off does not currently stop the widget from answering.",
     "- Email (off by default): the worker answers email sent to its connected mailbox (Settings > Tools > External tools > Mailbox). Each email thread becomes one Inbox conversation, the worker replies in the same thread, and it emails the human manager when it hands over. Once a manager replies from the Inbox (or clicks Take over), the worker stops replying on that conversation until it's handed back. With Role > Automatic replies off, the worker drafts replies in the Inbox without sending them. Receiving needs a Nylas webhook for message.created pointing at the webhook URL shown on the Mailbox card, with its secret saved there. Emails sent through the Gmail integration are separate and go through the approval queue.",
-    "- Email settings (under the Email switch): the support email address (the login hint when connecting the mailbox, and how the worker recognises its own mail) and the email signature (appended to outbound email only, never to chat or the widget).",
+    "- Email settings (under the Email switch): the mailbox status, with a link to Settings > Identity where the support email address and email signature are now edited.",
     "- Chat settings (under the Chat switch): the widget's welcome message (up to 300 characters, '{name}' becomes the worker's customer-facing name; empty keeps the built-in greeting) and up to six quick actions, the tap-to-send buttons under it (empty keeps the built-in four).",
     "- Voice: coming soon; the switch is disabled.",
   ].join("\n"),
