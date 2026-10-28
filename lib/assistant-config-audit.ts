@@ -7,6 +7,7 @@ import { getConnectionForOrg } from "@/lib/tools-integrations/connection-reposit
 import { readConfluenceSettings, readJiraSettings } from "@/lib/tools-integrations/atlassian";
 import { listSkillsForOrg, type SkillCatalogItem } from "@/lib/tools-integrations/skills-catalog";
 import { INTEGRATION_TYPES } from "@/lib/tools-integrations/registry";
+import { listConnectors, permissionFor } from "@/lib/mcp-connectors/repository";
 
 type Profile = typeof workerProfiles.$inferSelect;
 
@@ -25,6 +26,14 @@ export type ConfigurationSnapshot = {
   atlassian?: { jira: string | null; confluence: string | null };
   /** Handoff tickets Jira refused in the last week: how many, and the latest reason. */
   ticketFailures?: { count: number; latest: string | null };
+  /** Remote MCP servers an admin added under Settings > Connectors, with each tool's permission. */
+  connectors?: {
+    name: string;
+    enabled: boolean;
+    status: string;
+    lastError: string | null;
+    tools: { name: string; permission: string; readOnly: boolean }[];
+  }[];
   internalIntegrations: IntegrationStatus[];
   skills: SkillCatalogItem[];
   emailDomains: { approved: number; pending: number };
@@ -72,8 +81,23 @@ export async function loadConfigurationSnapshot(organizationId: string): Promise
         .limit(50),
     ]);
 
+  // Custom connectors are separate from the integrations above. A failure to read
+  // them must not blank the whole snapshot.
+  const connectors = await listConnectors(organizationId)
+    .then((rows) =>
+      rows.map((row) => ({
+        name: row.name,
+        enabled: row.enabled,
+        status: row.status,
+        lastError: row.lastError,
+        tools: row.tools.map((entry) => ({ name: entry.name, permission: permissionFor(row, entry.name), readOnly: entry.readOnly })),
+      })),
+    )
+    .catch(() => []);
+
   return {
     profile,
+    connectors,
     knowledgeCount: Number(knowledgeRows[0]?.n ?? 0),
     mailbox: mailbox ? { connected: mailbox.status === "connected", email: mailbox.email ?? null } : null,
     integrationConnections: Object.fromEntries(connections.map(([type, status]) => [type, status])),
@@ -141,6 +165,16 @@ export function formatConfigurationSnapshot(snapshot: ConfigurationSnapshot): st
         .filter(([, status]) => status)
         .map(([type, status]) => `${type}=${status}`)
         .join(", ") || "(none connected)"
+    }`,
+    `Custom connectors (Settings > Connectors): ${
+      (snapshot.connectors ?? [])
+        .map(
+          (connector) =>
+            `${connector.name} ${connector.enabled ? connector.status : "switched off"}${connector.lastError && connector.status !== "connected" ? ` (${connector.lastError})` : ""}, ${connector.tools.length} tool${connector.tools.length === 1 ? "" : "s"} [${
+              connector.tools.map((entry) => `${entry.name}: ${entry.permission === "auto" ? "always allowed" : entry.permission === "approval" ? "needs approval" : "off"}`).join("; ") || "none"
+            }]`,
+        )
+        .join(" | ") || "(none added)"
     }`,
     ...(snapshot.atlassian?.jira ? [`Jira: ${snapshot.atlassian.jira}`] : []),
     ...(snapshot.atlassian?.confluence ? [`Confluence: ${snapshot.atlassian.confluence}`] : []),
