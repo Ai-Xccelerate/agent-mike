@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { beforeEach, describe, expect, it } from "vitest";
 import { RESUME_WINDOW_MS, readLastConversation, rememberLastConversation } from "../frontend/src/lib/assistant-session";
 
