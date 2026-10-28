@@ -1,6 +1,9 @@
 "use client";
 
+import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
+import Button from "@/components/ui/button/Button";
 import Markdown from "@/components/worker/Markdown";
+import SuggestedReplyCard from "@/components/worker/SuggestedReplyCard";
 import { PriorityPill, StatusPill } from "@/components/worker/WorkerTickets";
 import { AlertIcon, ChevronLeftIcon, ChevronDownIcon, ChevronUpIcon, DocsIcon, JiraIcon } from "@/icons";
 import {
@@ -79,6 +82,8 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [labelDraft, setLabelDraft] = useState("");
+  const [reply, setReply] = useState("");
+  const [replying, setReplying] = useState(false);
 
   useEffect(() => {
     apiFetch<WorkerProfile>("/worker").then(setProfile).catch(() => undefined);
@@ -120,6 +125,40 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
       setNotice(error instanceof WorkerApiError ? error.message : failure);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Replying takes the conversation over (the API does that with the message), and an email goes out in its thread.
+  async function sendReply(text: string) {
+    const body = text.trim();
+    if (!ticket || !body) return;
+    setReplying(true);
+    setNotice("");
+    try {
+      const result = await apiFetch<{ conversation: Conversation }>(`/conversations/${ticket.id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+      setTicket((current) =>
+        current
+          ? {
+              ...current,
+              status: result.conversation.status,
+              humanControlled: result.conversation.humanControlled,
+              assignedTo: result.conversation.assignedTo,
+              updatedAt: result.conversation.updatedAt,
+              messages: result.conversation.messages.map(
+                (message) => ({ ...message, customerFiles: current.messages.find((known) => known.id === message.id)?.customerFiles }),
+              ),
+            }
+          : current,
+      );
+      setReply("");
+    } catch (error) {
+      setNotice(error instanceof WorkerApiError ? error.message : "Could not send the reply. Try again.");
+      throw error;
+    } finally {
+      setReplying(false);
     }
   }
 
@@ -327,6 +366,40 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
               );
             })}
           </Section>
+
+          {!closed && (
+            <Section title="Reply to the customer">
+              {ticket.messages.some((message) => message.senderType === "customer") && (
+                <SuggestedReplyCard
+                  conversationId={ticket.id}
+                  lastMessageKey={ticket.messages[ticket.messages.length - 1]?.id ?? "none"}
+                  autoStart={ticket.status === "needs_human" && !ticket.humanControlled}
+                  sending={replying}
+                  onSend={sendReply}
+                />
+              )}
+              <AutoGrowTextarea
+                value={reply}
+                onChange={(event) => setReply(event.target.value)}
+                minRows={3}
+                maxRows={10}
+                maxLength={4000}
+                aria-label="Reply"
+                placeholder="Write a reply…"
+                className="block w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-6 text-gray-800 outline-none placeholder:text-gray-400 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 dark:border-white/[0.12] dark:bg-gray-900 dark:text-white/90"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {ticket.humanControlled
+                    ? `You're handling this. ${workerName} won't reply until you hand it back.`
+                    : `Sending a reply takes over from ${workerName}.`}
+                </span>
+                <Button size="sm" loading={replying} disabled={!reply.trim()} onClick={() => void sendReply(reply).catch(() => undefined)}>
+                  Send
+                </Button>
+              </div>
+            </Section>
+          )}
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4">

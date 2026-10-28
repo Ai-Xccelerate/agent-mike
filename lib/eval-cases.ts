@@ -58,7 +58,7 @@ export async function createEvalCase(
   input: z.infer<typeof evalCaseCreateSchema>,
 ): Promise<{ ok: true; evalCase: EvalCase } | { ok: false; status: number; error: string }> {
   if ((await listEvalCases(organizationId)).length >= EVAL_CASE_LIMITS.perOrganization) {
-    return { ok: false, status: 409, error: `You can keep at most ${EVAL_CASE_LIMITS.perOrganization} test cases.` };
+    return { ok: false, status: 409, error: `You can keep at most ${EVAL_CASE_LIMITS.perOrganization} test questions.` };
   }
   const question = redactForCase(input.question);
   const reference = input.reference ? redactForCase(input.reference) : null;

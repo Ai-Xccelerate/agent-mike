@@ -31,7 +31,7 @@ export default function CannedRepliesSettings() {
       setData(await getCannedReplies());
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load canned replies.");
+      setError(err instanceof Error ? err.message : "Could not load the approved wording.");
     }
   }
   useEffect(() => {
@@ -69,9 +69,19 @@ export default function CannedRepliesSettings() {
   return (
     <>
       <SettingsPageHeader
-        title="Canned replies"
-        description="Approved wording for situations that come up again and again. The worker uses it when a customer's message matches, in a chat voice and fitted to what they wrote. Changes save immediately."
+        title="Approved wording"
+        description="Wording your team has approved for questions that come up again and again. The worker leads with it when a customer's message matches, and it shapes the suggested replies in the Inbox. Changes save immediately."
       />
+
+      <section aria-label="How this works" className={`${cardClass} mt-4 p-5`}>
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-white/90">How this works</h2>
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-6 text-gray-600 dark:text-gray-300">
+          <li>Add the situation, such as a customer asking for a refund, and the exact words you want said.</li>
+          <li>When a customer's message matches, the worker leads with your wording, fitted to what they wrote.</li>
+          <li>The Inbox draft uses it too, so a suggested reply sounds like your team.</li>
+          <li>Switch a reply off to stop it being used without deleting it.</li>
+        </ol>
+      </section>
 
       <div className="flex items-center justify-between gap-4">
         <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -88,7 +98,7 @@ export default function CannedRepliesSettings() {
       {!data && !error && <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Loading…</p>}
       {data && data.replies.length === 0 && editingId === null && (
         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-          No canned replies yet. Good ones come from real conversations: how your team actually answered the same question, written the way you would say it in a chat. Avoid a generic "we have received your request" line.
+          Nothing here yet. Good wording comes from real conversations: how your team actually answered the same question, written the way you would say it in a chat. Avoid a generic "we have received your request" line.
         </p>
       )}
 

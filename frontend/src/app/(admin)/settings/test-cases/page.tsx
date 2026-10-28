@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Test cases | AI Worker" };
+export const metadata: Metadata = { title: "Test questions | AI Worker" };
 
 export default function TestCasesSettingsPage() {
   return <TestCasesSettings />;
