@@ -135,7 +135,7 @@ export async function startReplay(input: { organizationId: string; triggeredBy: 
   const [running] = await db.select({ id: evalRuns.id }).from(evalRuns).where(and(eq(evalRuns.organizationId, input.organizationId), eq(evalRuns.status, "running"))).limit(1);
   if (running) return { ok: false, status: 409, error: "A replay is already running." };
   const cases = await enabledEvalCases(input.organizationId);
-  if (cases.length === 0) return { ok: false, status: 422, error: "There are no test cases to replay yet." };
+  if (cases.length === 0) return { ok: false, status: 422, error: "There are no test questions to replay yet." };
   const profile = await getOrCreateProfile(input.organizationId);
   const [created] = await db
     .insert(evalRuns)

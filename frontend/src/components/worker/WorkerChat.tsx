@@ -12,6 +12,7 @@ import { attachedLines, FILE_ACCEPT, FILE_MAX_BYTES, FILES_MAX, fileSize } from 
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { forgetRemembered, readRemembered } from "@/lib/remembered-customer";
 import { quickActionsFor, welcomeText } from "@/lib/widget-defaults";
+import { mergeWidgetHistory, sameMessages } from "@/lib/widget-history";
 import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
 import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/customer-cards/CustomerCopilot";
 import { CustomerCardsContext, LatestReplyContext, type ChatIdentity } from "@/components/worker/customer-cards/CustomerCards";
@@ -19,6 +20,8 @@ import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 const MESSAGE_MAX_LENGTH = 4000;
+/** How often the open website chat asks the server for new messages (a manager's reply). */
+const WIDGET_SYNC_MS = 5000;
 
 // Scoped by site token, not a fixed string: the widget is served from one
 // shared origin regardless of which org embeds it, so a fixed key would let
@@ -198,6 +201,38 @@ function ChatPanelBody({
       JSON.stringify({ conversationId: compactConversationId, messages, escalated, identity } satisfies StoredChat),
     );
   }, [compact, compactConversationId, messages, escalated, identity, restoring, siteToken]);
+
+  // Compact (public widget): the server holds the conversation, so a reload shows all of it and a manager's reply
+  // appears without the visitor writing again. Checked on open and every few seconds, and not during a turn (the
+  // turn's own reply is on its way). A failed check changes nothing: the saved copy stays on screen.
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
+  useEffect(() => {
+    if (!compact || restoring || !compactConversationId || !siteToken?.trim() || loading) return;
+    let cancelled = false;
+    async function sync() {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const server = await apiFetch<{ status: string; messages: Message[] }>(
+          `/chat/messages?conversation_id=${encodeURIComponent(compactConversationId as string)}`,
+          { widgetSiteToken: siteToken },
+        );
+        if (cancelled) return;
+        const merged = mergeWidgetHistory(server.messages, messagesRef.current, welcomeMessage(profile));
+        if (!sameMessages(merged, messagesRef.current)) setMessages(merged);
+        setEscalated(server.status === "needs_human");
+      } catch {
+        // Keep what is on screen; the next check tries again.
+      }
+    }
+    void sync();
+    const timer = window.setInterval(() => void sync(), WIDGET_SYNC_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compact, restoring, compactConversationId, siteToken, loading]);
 
   // Manager mode: the rail owns which conversation is selected. Load its
   // transcript when the selection changes; reset to a blank slate when
@@ -482,19 +517,28 @@ function ChatPanelBody({
         )}
         {visibleMessages.map((message) => {
           const isAgent = message.senderType === "agent";
+          // On the website a "manager" message is a person from the team writing to the visitor. In the Playground the
+          // signed-in manager is the one typing, so theirs stays on the right like a visitor's.
+          const isStaff = compact && message.senderType === "manager";
+          const onLeft = isAgent || isStaff;
           return (
-            <div key={message.id} className={`flex gap-2.5 ${isAgent ? "" : "flex-row-reverse"}`}>
+            <div key={message.id} className={`flex gap-2.5 ${onLeft ? "" : "flex-row-reverse"}`}>
               {isAgent ? (
                 <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
+              ) : isStaff ? (
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
+                  {message.senderName.trim().slice(0, 1).toUpperCase() || "T"}
+                </span>
               ) : (
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gray-800 text-xs font-semibold text-white dark:bg-gray-200 dark:text-gray-800">
                   Y
                 </span>
               )}
-              <div className={`max-w-[82%] ${isAgent ? "" : "text-right"}`}>
+              <div className={`max-w-[82%] ${onLeft ? "" : "text-right"}`}>
+                {isStaff && <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">{message.senderName} from the team</p>}
                 <div
                   className={`break-words rounded-2xl px-4 py-2.5 text-left text-sm leading-6 ${
-                    isAgent
+                    onLeft
                       ? "rounded-tl-md border border-gray-200 bg-white text-gray-700 shadow-xs dark:border-gray-800 dark:bg-white/[0.04] dark:text-gray-200"
                       : "rounded-tr-md bg-brand-500 text-white"
                   }`}

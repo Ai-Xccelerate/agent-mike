@@ -7,6 +7,7 @@ import AnswerFeedbackControls from "@/components/worker/AnswerFeedbackControls";
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import InboxApprovals from "@/components/worker/InboxApprovals";
+import SuggestedReplyCard from "@/components/worker/SuggestedReplyCard";
 import Markdown from "@/components/worker/Markdown";
 import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
@@ -429,9 +430,9 @@ export default function WorkerInbox() {
 
   // Replying takes over: the agent stops answering this conversation before
   // the manager's message lands, so the two never talk over each other.
-  async function sendManagerReply() {
-    if (!reply.trim() || !selected) return;
-    const body = reply.trim();
+  async function sendManagerReply(draft?: string) {
+    const body = (draft ?? reply).trim();
+    if (!body || !selected) return;
     setUpdating(true);
     setNotice("");
     try {
@@ -446,10 +447,12 @@ export default function WorkerInbox() {
         body: JSON.stringify({ body }),
       });
       replaceConversation(result.conversation);
-      setReply("");
+      if (draft === undefined) setReply("");
     } catch (error) {
       // An email that couldn't be sent says why (no mailbox, a blocked domain).
       setNotice(error instanceof WorkerApiError ? error.message : "Could not send the reply. Try again.");
+      // A suggested reply stays on screen when it did not go, so nothing is lost.
+      if (draft !== undefined) throw error;
     } finally {
       setUpdating(false);
     }
@@ -830,6 +833,16 @@ export default function WorkerInbox() {
                     </Button>
                   </div>
                 ) : (
+                  <>
+                  {selected.messages.some((message) => message.senderType === "customer") && (
+                    <SuggestedReplyCard
+                      conversationId={selected.id}
+                      lastMessageKey={selected.messages[selected.messages.length - 1]?.id ?? "none"}
+                      autoStart={selected.status === "needs_human" && !selected.humanControlled}
+                      sending={updating}
+                      onSend={(text) => sendManagerReply(text)}
+                    />
+                  )}
                   <div className="rounded-2xl border border-gray-200 bg-white focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/10 dark:border-white/[0.12] dark:bg-white/[0.03]">
                     <AutoGrowTextarea
                       value={reply}
@@ -853,7 +866,7 @@ export default function WorkerInbox() {
                         )}
                       </span>
                       <button
-                        onClick={sendManagerReply}
+                        onClick={() => void sendManagerReply()}
                         disabled={!reply.trim() || updating}
                         className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-brand-500 px-3.5 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(244,121,32,0.25)] transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300 disabled:shadow-none dark:disabled:bg-brand-500/40"
                       >
@@ -862,6 +875,7 @@ export default function WorkerInbox() {
                       </button>
                     </div>
                   </div>
+                  </>
                 )}
               </div>
             </div>
