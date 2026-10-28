@@ -77,6 +77,7 @@ async function seedSource() {
       maxAgentTurns: 4,
       timezone: "America/Toronto",
       emailSignature: "Eva, EAP Expert Support",
+      title: "",
       ticketPrefix: "EAP",
       identityMode: "email_match",
       welcomeMessage: "Hi, I'm {name}.",

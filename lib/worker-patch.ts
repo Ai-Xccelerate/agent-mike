@@ -15,6 +15,7 @@ export const workerPatchSchema = z
     status: identityFieldSchemas.status,
     avatarUrl: emptyToNull(identityFieldSchemas.avatarUrl),
     accentColor: identityFieldSchemas.accentColor,
+    title: identityFieldSchemas.title,
     bio: identityFieldSchemas.bio,
     timezone: identityFieldSchemas.timezone,
     locale: identityFieldSchemas.locale,

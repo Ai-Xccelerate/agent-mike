@@ -29,7 +29,7 @@ export const AVATAR_TYPES: Record<string, string> = {
   "image/webp": "webp",
 };
 
-export const AVATAR_MAX_BYTES = 1024 * 1024; // 1 MB
+export const AVATAR_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /** Human-readable list for error messages and UI hints. */
 export const AVATAR_TYPE_LABEL = "PNG, JPEG, or WebP";

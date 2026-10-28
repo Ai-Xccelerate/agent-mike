@@ -47,6 +47,7 @@ export const identityFieldSchemas = {
     }, "Must be a valid URL")
     .nullable(),
   accentColor: accentColorSchema,
+  title: z.string().max(80),
   bio: z.string().max(500),
   timezone: z.string().refine(isValidTimezone, "Must be a valid IANA timezone such as Europe/London"),
   locale: z.string().refine(isValidLocale, "Must be a valid BCP-47 locale such as en-GB"),

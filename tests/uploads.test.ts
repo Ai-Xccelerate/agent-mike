@@ -146,7 +146,7 @@ describe("avatar content types", () => {
 
   it("accepts exactly the three image types the UI advertises", () => {
     expect(Object.keys(AVATAR_TYPES).sort()).toEqual(["image/jpeg", "image/png", "image/webp"]);
-    expect(AVATAR_MAX_BYTES).toBe(1024 * 1024);
+    expect(AVATAR_MAX_BYTES).toBe(5 * 1024 * 1024);
   });
 });
 

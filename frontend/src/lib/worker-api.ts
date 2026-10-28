@@ -152,6 +152,7 @@ export type WorkerProfile = {
   status: WorkerStatus;
   avatarUrl: string | null;
   accentColor: string;
+  title: string;
   bio: string;
   timezone: string;
   locale: string;
