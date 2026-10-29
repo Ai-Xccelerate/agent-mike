@@ -52,7 +52,7 @@ export default function TestCasesSettings() {
       setCanRun(runList.canChange);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the test questions.");
+      setError(err instanceof Error ? err.message : "Could not load the test cases.");
     }
   }, []);
 
@@ -87,14 +87,14 @@ export default function TestCasesSettings() {
   return (
     <>
       <SettingsPageHeader
-        title="Test questions"
+        title="Test cases"
         description="Questions you want answered correctly, each with what a good answer says. A replay asks every one through the real worker and scores the answers, so you can see whether a change helped. A replay emails nobody and raises no tickets."
       />
 
       <section aria-label="How this works" className={`${cardClass} mt-4 p-5`}>
         <h2 className="text-sm font-semibold text-gray-800 dark:text-white/90">How this works</h2>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm leading-6 text-gray-600 dark:text-gray-300">
-          <li>Add a question from the Overview, on any item under Needs review, and say what a good answer contains.</li>
+          <li>Add a test case from the Overview, on any item under Needs review, and say what a good answer contains.</li>
           <li>Press Replay all. The worker answers every saved question for real and each answer is marked pass or fail.</li>
           <li>Change something, such as a knowledge article or an instruction, then replay again and compare the score.</li>
           <li>Changes the Assistant makes are replayed for you, and each one can be undone.</li>
@@ -188,9 +188,9 @@ export default function TestCasesSettings() {
 
       <section className={`${cardClass} mt-4 p-5`}>
         <h2 className="text-sm font-semibold text-gray-800 dark:text-white/90">Saved questions</h2>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{cases ? `${cases.cases.length} of ${cases.limits.perOrganization}. Add one with "Add as test question" on a review item in the Overview.` : ""}</p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{cases ? `${cases.cases.length} of ${cases.limits.perOrganization}. Add one with "Make test case" on a review item in the Overview.` : ""}</p>
         {!cases && !error && <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Loading…</p>}
-        {cases && cases.cases.length === 0 && <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No test questions yet. Open the Overview, find a question the worker got wrong or the team answered, and choose "Add as test question".</p>}
+        {cases && cases.cases.length === 0 && <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No test cases yet. Open the Overview, find a question the worker got wrong or the team answered, and choose "Make test case".</p>}
         {cases && cases.cases.length > 0 && (
           <ul className="mt-3 flex flex-col gap-2.5">
             {cases.cases.map((entry) => (
