@@ -1701,6 +1701,20 @@ function siteKey(url: string): string {
   return url.replace(/\/+$/, "").toLowerCase();
 }
 
+/** A site's cloud ID, which Atlassian publishes without a sign-in. Null when it can't be read. */
+async function cloudIdForSite(site: string): Promise<string | null> {
+  try {
+    const url = new URL(site);
+    if (url.protocol !== "https:" || !url.hostname.endsWith(".atlassian.net")) return null;
+    const response = await fetch(`${url.origin}/_edge/tenant_info`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { cloudId?: unknown };
+    return typeof data.cloudId === "string" && data.cloudId ? data.cloudId : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The connection's Jira REST base through Atlassian's API gateway, which an
  * OAuth sign-in has to use: https://api.atlassian.com/ex/jira/{cloudId}.
@@ -1721,9 +1735,12 @@ export async function jiraApiBase(connectedAccountId: string): Promise<string | 
       : undefined;
   if (!match?.id) {
     // An API-token connection (e.g. a service account) isn't an OAuth sign-in, so
-    // Atlassian has no list of sites for it. Its calls go to the site's own address.
+    // Atlassian has no list of sites for it. A service account's token is scoped and
+    // is refused on the site's own address (401), so go through the gateway with the
+    // site's cloud ID, and fall back to the site's address only if that can't be read.
     if (site && listed.length === 0) {
-      const own = siteKey(site);
+      const cloudId = await cloudIdForSite(site);
+      const own = cloudId ? `https://api.atlassian.com/ex/jira/${cloudId}` : siteKey(site);
       jiraApiBases.set(connectedAccountId, own);
       return own;
     }
