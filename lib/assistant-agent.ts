@@ -90,6 +90,7 @@ import { classifyAction } from "@/lib/tools-integrations/action-policy";
 import { getActionSchema } from "@/lib/tools-integrations/composio-client";
 import { listSkillsForOrg, VERIFY_CUSTOMER_SKILL_ID } from "@/lib/tools-integrations/skills-catalog";
 import { checkConnector } from "@/lib/mcp-connectors/agent-tools";
+import { buildAssistantReadTools, buildSituationBrief } from "@/lib/assistant-read-tools";
 import { auditWorkerConfiguration, formatConfigurationSnapshot, loadConfigurationSnapshot } from "@/lib/assistant-config-audit";
 import { PRODUCT_GUIDE_TOPICS, productGuide, type ProductGuideTopic } from "@/lib/assistant-product-guide";
 import {
@@ -1876,6 +1877,8 @@ export function buildAssistantTools(
   const priorPendingIds = options.priorPendingIds ?? [];
   const propose = makeProposer(organizationId, conversationId, priorPendingIds);
   return [
+    ...buildAssistantReadTools(organizationId),
+
     tool({
       name: "query_conversations",
       description:
@@ -2233,15 +2236,22 @@ const READ_ONLY_NOTE =
   "workspace), so you have no tools to propose or apply changes. Answer, explain, audit, and draft as usual. When " +
   "something should change, say what and where, and that an owner or admin needs to make or approve it.";
 
-function buildAssistantInstructions(profile: Profile, managerName: string, readOnly = false): string {
+function buildAssistantInstructions(profile: Profile, managerName: string, readOnly = false, brief = ""): string {
   return (
     `You are the admin assistant for ${profile.displayName}, an AI worker configured for this ` +
     `organization. You are talking to ${managerName}, the manager who runs this worker, not a customer. ` +
     "Your job is to help them run the worker well: answer questions about its conversations and setup, " +
     "draft content, guide them through the product, and make changes only with their explicit permission.\n\n" +
+    brief +
     "What you can do:\n" +
     "1. Answer - look up real conversations, summarize one by ticket number, search the knowledge base, report " +
     "the live configuration (get_worker_configuration), and explain any part of the product (get_product_guide). " +
+    "You can read every part of the app, so look it up instead of guessing or asking: Overview numbers " +
+    "(get_overview), the Tickets queues and who has each ticket (get_tickets), what the worker got wrong or has " +
+    "no article for (get_review_queue), canned replies (list_canned_replies), test cases and replay scores " +
+    "(get_test_cases), what changed in the setup and what it did to the score (get_recent_changes), and who " +
+    "handoffs go to (list_human_managers). When the manager asks how things are going, what needs attention, " +
+    "or what to fix next, combine these (the queue, the review queue, the latest test score) into one answer. " +
     "Nothing to confirm, just answer.\n" +
     "2. Guide - when asked how something works, what a setting does, or whether the worker is set up correctly, " +
     "use get_product_guide and audit_configuration. Explain in plain words what a setting enables, point out " +
@@ -2322,10 +2332,10 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "Where things live (use these exact paths): Settings > Identity (names, avatar, tone, status, timezone, locale); " +
     "Settings > Role; Settings > Agent configuration (model, max turns, additional instructions); " +
     "Settings > Guardrails (confidence threshold, escalation phrases, require user verification, \"Let the " +
-    "Assistant take actions\"); Settings > Human manager; Settings > Channels (channels on or off, the widget's welcome message and quick actions); Settings > Identity (name, title, photo, short bio, tone, support email address, email signature, time zone, language); Settings > Connectors (custom MCP servers and which of their tools may run); Settings > Tools (internet, internal " +
+    "Assistant take actions\"); Settings > Human manager; Settings > Channels (channels on or off, the widget's welcome message and quick actions); Settings > Identity (name, title, photo, short bio, tone, support email address, email signature, time zone, language); Settings > Connectors (custom MCP servers and which of their tools may run, and the calls waiting for approval); Settings > Canned replies (approved wording the worker leads with, which also shapes the suggested replies in Inbox); Settings > Test cases (saved questions and replay scores); Settings > Tickets (the request types, tiers and labels tickets are sorted with); Playground (a test chat with the worker, opened from Settings > Channels, not a customer conversation); Settings > Tools (internet, internal " +
     "tools, mailbox under External tools); Settings > Skills; Settings > Knowledge; Settings > Integrations; " +
     "Settings > Email domains; Settings > Team. Inbox is where customer conversations are read, taken over or handed " +
-    "back, replied to by hand, and marked resolved or closed. Customer conversations can't be deleted anywhere. For anything more detailed, call get_product_guide.\n\n" +
+    "back, replied to by hand, and marked resolved or closed. Tickets (in the sidebar) lists every customer conversation as a ticket in queues (all open, needs a person, with the worker, with a person, closed) with its request type, priority and helpdesk key; replying happens in Inbox. Overview shows the numbers and charts. Customer conversations can't be deleted anywhere. For anything more detailed, call get_product_guide.\n\n" +
     "Knowledge follows the Knowledge page's OKF rules: one concept per article, organized with headings (an " +
     "article that covers six things answers none of them cleanly); uploads are PDF, Markdown, or text; Markdown " +
     "with OKF frontmatter (type, title, description, tags) is stored as written; PDF/text are wrapped as a concept " +
@@ -2461,6 +2471,13 @@ const TOOL_ACTIVITY_LABELS: Record<string, string> = {
   audit_configuration: "Audited configuration",
   get_product_guide: "Checked product guide",
   read_attachment: "Read attached file",
+  get_overview: "Checked the Overview numbers",
+  get_tickets: "Looked at the Tickets queue",
+  get_review_queue: "Checked the review queue",
+  list_canned_replies: "Read canned replies",
+  get_test_cases: "Checked the test cases",
+  get_recent_changes: "Checked recent changes",
+  list_human_managers: "Checked the human managers",
   [SHOW_PANEL_TOOL_NAME]: "Opened a panel",
   [SHOW_DRAFT_TOOL_NAME]: "Wrote a draft",
   [CONFIRM_PENDING_CHANGE_TOOL_NAME]: "Applied your approval",
@@ -2587,6 +2604,8 @@ export type RunAssistantOptions = {
   /** Where OAuth sign-ins return to, and who is acting. */
   appOrigin?: string;
   userId?: string;
+  /** The signed-in person's own name, for addressing them. Not the profile's escalation manager. */
+  userName?: string;
   /** True only for owners/admins. Anything else (including unset) can ask and read, never change. */
   canChange?: boolean;
   /** Streams the reply as it's made: text deltas, what the assistant is doing, and each card. */
@@ -2737,9 +2756,16 @@ export async function runAssistantAgent(
     }
   }
 
+  // Who is typing: the signed-in person, not the profile's escalation manager.
+  const speakerName = options.userName || profile.managerName;
   const agent = new Agent({
     name: `${profile.displayName} Assistant`,
-    instructions: buildAssistantInstructions(profile, profile.managerName, readOnly),
+    instructions: buildAssistantInstructions(
+      profile,
+      speakerName,
+      readOnly,
+      await buildSituationBrief(organizationId),
+    ),
     model: profile.model,
     tools: buildAssistantTools(profile, organizationId, conversationId, {
       priorPendingIds: pending.map((approval) => approval.id),
@@ -2756,7 +2782,7 @@ export async function runAssistantAgent(
   const input =
     buildAttachmentContext(attachments) +
     pendingReminder +
-    buildInputWithHistory(toHistoryTurns(history, profile.managerName), message, profile.managerName, summary);
+    buildInputWithHistory(toHistoryTurns(history, speakerName), message, speakerName, summary);
   // profile.maxAgentTurns tunes the *customer-facing* agent, which is
   // usually one tool call at most. This agent routinely needs several
   // (read a ticket, then propose a change, then synthesize the reply) - a

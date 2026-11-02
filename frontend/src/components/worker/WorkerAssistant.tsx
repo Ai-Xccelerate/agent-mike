@@ -472,6 +472,8 @@ function AssistantChat() {
             approval_decision: decision ? { decision, approval_ids: approvalIds } : undefined,
             ui_action: uiAction ? { tool: uiAction.tool, args: uiAction.args, label: uiAction.label } : undefined,
             show_panel: showPanel,
+            // So the Assistant addresses the person typing, not the worker's escalation manager.
+            user_name: greetingName ?? undefined,
           },
         },
         {
