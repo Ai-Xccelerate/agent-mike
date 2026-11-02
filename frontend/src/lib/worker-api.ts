@@ -827,7 +827,7 @@ export function getIntegrationConnection(type: string): Promise<IntegrationConne
 export function connectIntegration(
   type: string,
   system: string,
-  authMethod?: "api_key",
+  authMethod?: "api_key" | "client_credentials",
 ): Promise<{ redirectUrl: string | null; alreadyConnected?: boolean }> {
   return apiFetch<{ redirectUrl: string | null; alreadyConnected?: boolean }>(
     `/integrations/${type}/connect`,

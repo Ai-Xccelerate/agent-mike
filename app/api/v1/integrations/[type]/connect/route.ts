@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: { type: strin
       system,
       connectedBy,
       appOrigin: publicAppUrl() || req.nextUrl.origin,
-      authMethod: body?.authMethod === "api_key" ? "api_key" : "oauth",
+      authMethod: body?.authMethod === "api_key" || body?.authMethod === "client_credentials" ? body.authMethod : "oauth",
     });
     return NextResponse.json(result);
   } catch (error) {

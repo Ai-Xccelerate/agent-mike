@@ -19,15 +19,35 @@ const API_KEY_AUTH_CONFIG_ENV: Record<string, string> = {
   confluence: "COMPOSIO_CONFLUENCE_API_KEY_AUTH_CONFIG_ID",
 };
 
-export type AuthMethod = "oauth" | "api_key";
+/**
+ * A service account's OAuth 2.0 client credentials (a client ID and secret
+ * exchanged for a short-lived token), Composio's server-to-server scheme.
+ */
+const CLIENT_CREDENTIALS_AUTH_CONFIG_ENV: Record<string, string> = {
+  jira: "COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID",
+  confluence: "COMPOSIO_CONFLUENCE_CLIENT_CREDENTIALS_AUTH_CONFIG_ID",
+};
+
+export type AuthMethod = "oauth" | "api_key" | "client_credentials";
+
+const METHOD_ENV: Record<AuthMethod, Record<string, string>> = {
+  oauth: AUTH_CONFIG_ENV,
+  api_key: API_KEY_AUTH_CONFIG_ENV,
+  client_credentials: CLIENT_CREDENTIALS_AUTH_CONFIG_ENV,
+};
+
+const METHOD_LABEL: Record<Exclude<AuthMethod, "oauth">, string> = {
+  api_key: "an API key",
+  client_credentials: "OAuth 2.0 client credentials",
+};
 
 export function getAuthConfigId(system: string, method: AuthMethod = "oauth"): string {
-  const envName = (method === "api_key" ? API_KEY_AUTH_CONFIG_ENV : AUTH_CONFIG_ENV)[system];
+  const envName = METHOD_ENV[method][system];
   if (!envName) {
     throw new Error(
-      method === "api_key"
-        ? `${system} can't connect with an API key`
-        : `No Composio auth config mapping for system "${system}"`,
+      method === "oauth"
+        ? `No Composio auth config mapping for system "${system}"`
+        : `${system} can't connect with ${METHOD_LABEL[method]}`,
     );
   }
   const value = (process.env[envName] || "").trim();

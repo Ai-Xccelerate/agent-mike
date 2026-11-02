@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { IntegrationCard, IntegrationCategoryHeading, type IntegrationCardStatus } from "@/components/worker/settings/IntegrationCard";
+import ConnectMethodDialog, { type ConnectMethod } from "@/components/worker/settings/ConnectMethodDialog";
 import ConnectionSettingsDialog, {
   connectionSettingsNote,
   hasConnectionSettings,
@@ -35,7 +36,7 @@ type IntegrationCategorySectionProps = {
 /** How long a connection may sit in "pending" before the card offers a retry. */
 const STUCK_AFTER_MS = 20_000;
 
-/** Systems that can also connect with an API token, e.g. an Atlassian service account. */
+/** Systems that ask how to connect first: a person's sign-in, or a service account's API key or client credentials. */
 const API_KEY_SYSTEMS = new Set(["jira", "confluence"]);
 
 export default function IntegrationCategorySection({
@@ -50,6 +51,7 @@ export default function IntegrationCategorySection({
   const [failedSystem, setFailedSystem] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chooserFor, setChooserFor] = useState<VendorOption | null>(null);
   const [error, setError] = useState("");
   // A "pending" row can be stuck forever with nothing to unstick it: Composio's
   // own INITIALIZING status doesn't reliably self-expire, and there was
@@ -90,7 +92,8 @@ export default function IntegrationCategorySection({
     };
   }, [isPending]);
 
-  async function handleConnect(vendor: VendorOption, authMethod?: "api_key") {
+  async function handleConnect(vendor: VendorOption, authMethod?: "api_key" | "client_credentials") {
+    setChooserFor(null);
     setError("");
     setFailedSystem(null);
     setConnectingSystem(vendor.system);
@@ -176,28 +179,15 @@ export default function IntegrationCategorySection({
                 Connecting…
               </Button>
             ) : status === "unavailable" ? undefined : (
-              <div className="flex flex-col gap-2">
-                <Button
-                  size="sm"
-                  className="w-full"
-                  onClick={() => void handleConnect(vendor)}
-                  loading={connectingSystem === vendor.system}
-                  disabled={connectingSystem !== null}
-                >
-                  {status === "failed" || stuckPending ? `Retry connecting ${vendor.label}` : `Connect ${vendor.label}`}
-                </Button>
-                {API_KEY_SYSTEMS.has(vendor.system) ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => void handleConnect(vendor, "api_key")}
-                    disabled={connectingSystem !== null}
-                  >
-                    Connect with an API key
-                  </Button>
-                ) : null}
-              </div>
+              <Button
+                size="sm"
+                className="w-full"
+                onClick={() => (API_KEY_SYSTEMS.has(vendor.system) ? setChooserFor(vendor) : void handleConnect(vendor))}
+                loading={connectingSystem === vendor.system}
+                disabled={connectingSystem !== null}
+              >
+                {status === "failed" || stuckPending ? `Retry connecting ${vendor.label}` : `Connect ${vendor.label}`}
+              </Button>
             );
 
           return (
@@ -225,6 +215,14 @@ export default function IntegrationCategorySection({
           onSaved={setConnection}
         />
       )}
+      <ConnectMethodDialog
+        label={chooserFor?.label ?? ""}
+        isOpen={chooserFor !== null}
+        onClose={() => setChooserFor(null)}
+        onChoose={(method: ConnectMethod) => {
+          if (chooserFor) void handleConnect(chooserFor, method === "oauth" ? undefined : method);
+        }}
+      />
       {error && <p className="mt-2 text-xs font-medium text-error-600 dark:text-error-400">{error}</p>}
     </section>
   );
