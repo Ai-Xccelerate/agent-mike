@@ -4,6 +4,11 @@ import { knowledgeBySection, withOneFollowUp } from "@/lib/agent";
 const match = (title: string, topic?: string) => ({ documentId: title, title, heading: null, content: `Steps for ${title}.`, rank: 1, ...(topic ? { topic } : {}) });
 
 describe("the reference material for a many-part message", () => {
+  it("shows an article's own source URL, so a reply cites a real link and never a guessed one", () => {
+    const withUrl = { ...match("Customer proof stories"), url: "https://www.aixccelerate.com/case-studies" };
+    expect(knowledgeBySection([withUrl])).toBe("### Customer proof stories\nSource: https://www.aixccelerate.com/case-studies\nSteps for Customer proof stories.");
+  });
+
   it("is grouped under the question each section was found for, with anything else after", () => {
     const text = knowledgeBySection([match("Add a New Provider", "add a provider"), match("Provider Search", "search for a provider"), match("Add Provider Notes", "add a provider"), match("Overview")]);
     expect(text.indexOf("## Material for: add a provider")).toBeLessThan(text.indexOf("## Material for: search for a provider"));
