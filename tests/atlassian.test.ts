@@ -1925,10 +1925,41 @@ describe("the Jira base address for a connection", () => {
     expect(await jiraApiBase(`oauth-${crypto.randomUUID()}`)).toBe("https://api.atlassian.com/ex/jira/cloud-acme");
   });
 
-  it("uses the site's own address for an API-token connection, which has no site list", async () => {
+  it("goes through the gateway with the site's cloud ID for an API-token connection, which has no site list", async () => {
     getAccountSiteMock.mockResolvedValue("https://acme.atlassian.net/");
     proxyRequestMock.mockResolvedValue({ status: 401, data: { code: 401, message: "Unauthorized" } });
-    expect(await jiraApiBase(`token-${crypto.randomUUID()}`)).toBe("https://acme.atlassian.net");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ cloudId: "cloud-acme" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      expect(await jiraApiBase(`token-${crypto.randomUUID()}`)).toBe("https://api.atlassian.com/ex/jira/cloud-acme");
+      expect(fetchMock).toHaveBeenCalledWith("https://acme.atlassian.net/_edge/tenant_info", expect.anything());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("falls back to the site's own address when its cloud ID can't be read", async () => {
+    getAccountSiteMock.mockResolvedValue("https://acme.atlassian.net/");
+    proxyRequestMock.mockResolvedValue({ status: 401, data: { code: 401, message: "Unauthorized" } });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 500 })));
+    try {
+      expect(await jiraApiBase(`fallback-${crypto.randomUUID()}`)).toBe("https://acme.atlassian.net");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not look up a cloud ID on a host that isn't Atlassian's", async () => {
+    getAccountSiteMock.mockResolvedValue("https://evil.example.com");
+    proxyRequestMock.mockResolvedValue({ status: 401, data: {} });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      expect(await jiraApiBase(`host-${crypto.randomUUID()}`)).toBe("https://evil.example.com");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not guess when an OAuth sign-in sees several sites and none matches", async () => {
