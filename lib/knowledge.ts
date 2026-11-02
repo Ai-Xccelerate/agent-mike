@@ -60,13 +60,14 @@ export function wrapAsOkf(
   conceptId: string,
   title: string,
   body: string,
-  keep?: { description?: string | null; tags?: string[] },
+  keep?: { description?: string | null; tags?: string[]; resource?: string | null },
 ): string {
   const description = keep?.description
     ? `\ndescription: "${keep.description.replace(/"/g, '\\"')}"`
     : "";
   const tags = keep?.tags?.length ? `\ntags: [${keep.tags.join(", ")}]` : "";
-  return `---\ntype: reference\ntitle: "${title.replace(/"/g, '\\"')}"${description}${tags}\n---\n\n${body}`;
+  const resource = keep?.resource ? `\nresource: "${keep.resource.replace(/"/g, '\\"')}"` : "";
+  return `---\ntype: reference\ntitle: "${title.replace(/"/g, '\\"')}"${description}${tags}${resource}\n---\n\n${body}`;
 }
 
 /** What Settings > Knowledge accepts as an upload. Everything else is chat context only. */
@@ -139,13 +140,14 @@ export function uploadedKnowledgeRaw(
  */
 export async function editKnowledgeDocument(
   organizationId: string,
-  existing: { conceptId: string; description: string | null; tags: string[] },
+  existing: { conceptId: string; description: string | null; tags: string[]; resource?: string | null },
   title: string,
   content: string,
 ) {
   const raw = wrapAsOkf(existing.conceptId, title.trim(), content, {
     description: existing.description,
     tags: existing.tags,
+    resource: existing.resource,
   });
   return ingestOkf(organizationId, existing.conceptId, raw);
 }
@@ -165,7 +167,18 @@ export async function ingestOkf(organizationId: string, conceptId: string, raw: 
     )
     .limit(1);
 
-  if (existing && existing.checksum === checksum) {
+  // The checksum covers the body only, so a changed title used to be ignored as "nothing new". A title (or a
+  // description, tags or source URL the file states) that differs now counts as a change. A file that states
+  // none of them, such as a plain-text re-upload, still leaves what the article already has.
+  const sameTags = doc.tags.length === 0 || (doc.tags.length === existing?.tags.length && doc.tags.every((tag, i) => tag === existing.tags[i]));
+  if (
+    existing &&
+    existing.checksum === checksum &&
+    existing.title === doc.title &&
+    (doc.description == null || doc.description === existing.description) &&
+    (doc.resource == null || doc.resource === existing.resource) &&
+    sameTags
+  ) {
     return existing;
   }
 
@@ -174,11 +187,12 @@ export async function ingestOkf(organizationId: string, conceptId: string, raw: 
         .update(knowledgeDocuments)
         .set({
           title: doc.title,
-          description: doc.description,
-          tags: doc.tags,
+          // A metadata-only change (same body) keeps whatever the file leaves unstated.
+          description: existing.checksum === checksum ? (doc.description ?? existing.description) : doc.description,
+          tags: existing.checksum === checksum && doc.tags.length === 0 ? existing.tags : doc.tags,
           body: doc.body,
           checksum,
-          resource: doc.resource,
+          resource: existing.checksum === checksum ? (doc.resource ?? existing.resource) : doc.resource,
         })
         .where(eq(knowledgeDocuments.id, existing.id))
         .returning()
