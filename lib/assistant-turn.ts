@@ -251,6 +251,7 @@ export async function runAssistantTurn(
       showPanel,
       appOrigin: publicAppUrl() || req.nextUrl.origin,
       userId: tenant.userId,
+      userName: typeof body?.user_name === "string" ? body.user_name.trim().slice(0, 80) || undefined : undefined,
       canChange: isOrgAdmin(tenant.role),
       onEvent,
     });

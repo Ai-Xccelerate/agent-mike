@@ -20,6 +20,11 @@ export const PRODUCT_GUIDE_TOPICS = [
   "knowledge",
   "integrations",
   "email_domains",
+  "tickets",
+  "canned_replies",
+  "test_cases",
+  "connectors",
+  "playground",
   "team",
   "assistant",
   "not_available",
@@ -30,8 +35,8 @@ export type ProductGuideTopic = (typeof PRODUCT_GUIDE_TOPICS)[number];
 const GUIDE: Record<ProductGuideTopic, string> = {
   overview: [
     "The AI Worker answers customers over chat (Playground + website widget) and can send email through a connected mailbox.",
-    "Admin pages: Overview (stats, worker health), Assistant (this chat), Inbox (every customer conversation; read, take over or hand back, reply by hand, mark resolved or closed). Customer conversations can't be deleted; this Assistant's own chats can be archived from its History panel, Settings.",
-    "Settings sections: Identity, Role, Agent configuration, Guardrails, Human manager, Channels, Tools, Skills, Knowledge, Integrations, Email domains, Team.",
+    "Admin pages: Overview (stats, worker health), Assistant (this chat), Inbox (every customer conversation; read, take over or hand back, reply by hand, mark resolved or closed), Tickets (every customer conversation as a ticket in queues). Customer conversations can't be deleted; this Assistant's own chats can be archived from its History panel, Settings.",
+    "Settings sections: Identity, Role, Agent configuration, Knowledge, Skills, Canned replies, Test cases, Tickets (the worker's request types, tiers and labels), Tools, Integrations, Connectors, Channels, Guardrails, Email domains, Human manager, Team. The Playground is a test chat opened from Settings > Channels.",
     "Every setting lives on one worker profile per organization and saves from its Settings page.",
   ].join("\n"),
 
@@ -139,13 +144,44 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "- This list only controls where the worker may send email from its mailbox. It does not affect who can chat with the worker (that's Guardrails > Allowed email domains), and Gmail integration sends are approved one by one in the approval queue instead.",
   ].join("\n"),
 
+  tickets: [
+    "Tickets (/tickets in the sidebar) lists every real customer conversation as a ticket. Playground and Assistant chats are never tickets.",
+    "- Queues: All open, Needs a person (the worker handed over and nobody has replied), With the worker, With a person (handed over or taken over), Closed (resolved or closed). Each row shows the customer, subject, channel, request type, priority and, if a helpdesk is connected, the helpdesk key (e.g. SUP-12) as a link.",
+    "- The worker's own ticket numbers look like #1023; a Jira key looks like SUP-12. They are different things. Open a ticket to read it; replying, taking over and handing back happen in Inbox.",
+    "- Settings > Tickets sets the request types, tiers and labels the worker sorts tickets with (defaults until changed). With Jira connected, the request types come from the service desk.",
+    "- Use get_tickets for the live queues and summarize_conversation for one ticket's messages.",
+  ].join("\n"),
+
+  canned_replies: [
+    "Settings > Canned replies (/settings/canned-replies): wording the team has approved for questions that come up again and again. Each has a title, the situation it applies to, and the reply.",
+    "- The worker leads with a canned reply when a customer's message matches its situation, and canned replies shape the suggested replies in Inbox. Changes save immediately. A limited number are kept per organization and only the most relevant few go into the worker's prompt.",
+    "- Use list_canned_replies to read them. This Assistant has no tool to edit them yet: say where in Settings to do it.",
+  ].join("\n"),
+
+  test_cases: [
+    "Settings > Test cases (/settings/test-cases): questions you want answered correctly, each with what a good answer says and whether the worker should answer or hand over.",
+    "- A replay asks every enabled case through the real worker and scores the answers (a pass needs a close enough match). A replay emails nobody and raises no tickets. A replay also runs automatically after a setup change the Assistant applies, so the change's before and after scores can be compared.",
+    "- Cases come from the review queue (bad ratings, missing articles, team answers) or are added by hand, with personal details removed.",
+    "- Use get_test_cases for the cases and the latest scores, and get_recent_changes for what changed and how the score moved.",
+  ].join("\n"),
+
+  connectors: [
+    "Settings > Connectors (/settings/connectors): remote MCP servers the worker can use as tools.",
+    "- Only owners and admins can add or change them. For each connector you choose which of its tools run on their own and which need approval; calls set to needs approval wait on that page until an owner or admin approves them.",
+    "- The Assistant can check a connector's health (check_connector) but cannot add or edit one.",
+  ].join("\n"),
+
+  playground: [
+    "The Playground (/playground, opened from Settings > Channels) is a test chat with the worker as a customer would see it. Its conversations are tests: they never appear in Inbox, Tickets or the Overview numbers.",
+  ].join("\n"),
+
   team: [
     "Settings > Team (/settings/users): read-only list of people from AIX Core. Invites and roles are managed in AIX Core, not here.",
   ].join("\n"),
 
   assistant: [
     "This Assistant can:",
-    "- Answer: look up conversations, summarize one by ticket number, search knowledge, report and audit the worker's configuration, explain any setting.",
+    "- Answer: look up conversations, summarize one by ticket number, search knowledge, report and audit the worker's configuration, explain any setting. It can read the Overview numbers, the Tickets queues, the review queue, canned replies, test cases and scores, recent changes and the human managers.",
     "- Draft: replies, knowledge articles, emails (shown in chat; nothing is saved or sent by drafting).",
     "- Configure (always after your explicit confirmation): role, tone, escalation phrases, channels, skills on/off, manager name/email, email domains, customer-facing and internal name, initials, accent colour, timezone, email signature, job description, additional instructions, model, max turns, minimum confidence, user verification, internet search; plus knowledge articles and custom skills from uploaded files, and edits to existing knowledge articles and custom skills.",
     "- Act (only if 'Let the Assistant take actions' is on, and always after confirmation): send a reply on a ticket, change a ticket's status, publish a knowledge article.",
