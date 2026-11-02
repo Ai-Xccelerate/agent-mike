@@ -53,7 +53,7 @@ import {
 import { toAguiMessages } from "@/lib/assistant-cards";
 import type { AbstractAgent, Message as AguiMessage, ToolMessage } from "@ag-ui/client";
 import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -124,6 +124,7 @@ function AssistantChat() {
   const conversationId = searchParams.get("c");
   const startedNew = searchParams.has("new");
   const { userId, orgId, isLoaded: authLoaded } = useAuth();
+  const { user } = useUser();
   const lastKey = lastConversationKey(userId, orgId);
   const storedLast = useSyncExternalStore(
     subscribeToLastConversation,
@@ -592,7 +593,9 @@ function AssistantChat() {
       void send("", { uiAction: { tool: action.tool, args: action.args, label: `${action.label}: ${item.title}` } }),
   };
 
-  const managerName = profile?.managerName;
+  // The greeting is for whoever is signed in, not the worker's configured
+  // escalation manager.
+  const greetingName = user?.firstName || user?.fullName || null;
   // Until sign-in state is known we can't tell whether a chat is about to be
   // restored, so hold the start screen rather than flash it.
   const isBlank = !conversationId && !restoreTarget && (startedNew || authLoaded) && messages.length === 0;
@@ -643,7 +646,7 @@ function AssistantChat() {
               <AgentAvatar initials={avatarInitials} size="lg" accentColor={accentColor} avatarUrl={avatarUrl} />
               <p className="text-lg font-semibold text-gray-800 dark:text-white/90">
                 {greetingForHour(new Date().getHours())}
-                {managerName ? `, ${managerName}` : ""}
+                {greetingName ? `, ${greetingName}` : ""}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Ask about your conversations, change any setting, draft replies, or attach files for your
