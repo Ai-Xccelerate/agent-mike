@@ -35,6 +35,9 @@ type IntegrationCategorySectionProps = {
 /** How long a connection may sit in "pending" before the card offers a retry. */
 const STUCK_AFTER_MS = 20_000;
 
+/** Systems that can also connect with an API token, e.g. an Atlassian service account. */
+const API_KEY_SYSTEMS = new Set(["jira", "confluence"]);
+
 export default function IntegrationCategorySection({
   integrationType,
   vendors,
@@ -87,12 +90,12 @@ export default function IntegrationCategorySection({
     };
   }, [isPending]);
 
-  async function handleConnect(vendor: VendorOption) {
+  async function handleConnect(vendor: VendorOption, authMethod?: "api_key") {
     setError("");
     setFailedSystem(null);
     setConnectingSystem(vendor.system);
     try {
-      const { redirectUrl } = await connectIntegration(integrationType, vendor.system);
+      const { redirectUrl } = await connectIntegration(integrationType, vendor.system, authMethod);
       if (redirectUrl) {
         window.location.href = redirectUrl;
         return;
@@ -173,15 +176,28 @@ export default function IntegrationCategorySection({
                 Connecting…
               </Button>
             ) : status === "unavailable" ? undefined : (
-              <Button
-                size="sm"
-                className="w-full"
-                onClick={() => void handleConnect(vendor)}
-                loading={connectingSystem === vendor.system}
-                disabled={connectingSystem !== null}
-              >
-                {status === "failed" || stuckPending ? `Retry connecting ${vendor.label}` : `Connect ${vendor.label}`}
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => void handleConnect(vendor)}
+                  loading={connectingSystem === vendor.system}
+                  disabled={connectingSystem !== null}
+                >
+                  {status === "failed" || stuckPending ? `Retry connecting ${vendor.label}` : `Connect ${vendor.label}`}
+                </Button>
+                {API_KEY_SYSTEMS.has(vendor.system) ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => void handleConnect(vendor, "api_key")}
+                    disabled={connectingSystem !== null}
+                  >
+                    Connect with an API key
+                  </Button>
+                ) : null}
+              </div>
             );
 
           return (

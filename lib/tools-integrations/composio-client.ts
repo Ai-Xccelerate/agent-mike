@@ -110,11 +110,18 @@ export async function getActionSchema(slug: string): Promise<ComposioActionSchem
 /** The site a connection signed in to, e.g. https://acme.atlassian.net. Null when Composio doesn't record one. */
 export async function getAccountSite(connectedAccountId: string): Promise<string | null> {
   const account = (await getComposioClient().connectedAccounts.get(connectedAccountId)) as {
-    data?: { base_url?: unknown };
-    params?: { base_url?: unknown };
+    data?: { base_url?: unknown; subdomain?: unknown };
+    params?: { base_url?: unknown; subdomain?: unknown };
   };
   const site = account.data?.base_url ?? account.params?.base_url;
-  return typeof site === "string" && site ? site : null;
+  if (typeof site === "string" && site) return site;
+  // An API-token connection records only the subdomain it was given ("acme"), not a full address.
+  const subdomain = account.data?.subdomain ?? account.params?.subdomain;
+  if (typeof subdomain === "string" && subdomain.trim()) {
+    const value = subdomain.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+    return value.includes(".") ? `https://${value}` : `https://${value}.atlassian.net`;
+  }
+  return null;
 }
 
 /**

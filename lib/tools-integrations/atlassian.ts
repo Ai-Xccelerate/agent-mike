@@ -1719,7 +1719,16 @@ export async function jiraApiBase(connectedAccountId: string): Promise<string | 
     : listed.length === 1
       ? listed[0]
       : undefined;
-  if (!match?.id) return null;
+  if (!match?.id) {
+    // An API-token connection (e.g. a service account) isn't an OAuth sign-in, so
+    // Atlassian has no list of sites for it. Its calls go to the site's own address.
+    if (site && listed.length === 0) {
+      const own = siteKey(site);
+      jiraApiBases.set(connectedAccountId, own);
+      return own;
+    }
+    return null;
+  }
   const base = `https://api.atlassian.com/ex/jira/${match.id}`;
   jiraApiBases.set(connectedAccountId, base);
   return base;

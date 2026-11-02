@@ -60,7 +60,7 @@ import {
   type RequestTypeCatalog,
 } from "@/lib/tools-integrations/atlassian";
 import { chooseRequestType } from "@/lib/request-type-choice";
-import { workerTitle } from "@/lib/tools-integrations/atlassian";
+import { jiraApiBase, workerTitle } from "@/lib/tools-integrations/atlassian";
 import { executeRunAction, executeSearchActions } from "@/lib/tools-integrations/composio-actions";
 import { getConnectionForOrg, type IntegrationConnection } from "@/lib/tools-integrations/connection-repository";
 import {
@@ -1915,5 +1915,31 @@ describe("what the helpdesk lets the worker do for a customer", () => {
     expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: false, looksUpTickets: false });
     getConnectionMock.mockRejectedValue(new Error("db down"));
     expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: false, looksUpTickets: false });
+  });
+});
+
+describe("the Jira base address for a connection", () => {
+  it("goes through Atlassian's gateway for an OAuth sign-in", async () => {
+    getAccountSiteMock.mockResolvedValue("https://acme.atlassian.net");
+    proxyRequestMock.mockResolvedValue({ status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] });
+    expect(await jiraApiBase(`oauth-${crypto.randomUUID()}`)).toBe("https://api.atlassian.com/ex/jira/cloud-acme");
+  });
+
+  it("uses the site's own address for an API-token connection, which has no site list", async () => {
+    getAccountSiteMock.mockResolvedValue("https://acme.atlassian.net/");
+    proxyRequestMock.mockResolvedValue({ status: 401, data: { code: 401, message: "Unauthorized" } });
+    expect(await jiraApiBase(`token-${crypto.randomUUID()}`)).toBe("https://acme.atlassian.net");
+  });
+
+  it("does not guess when an OAuth sign-in sees several sites and none matches", async () => {
+    getAccountSiteMock.mockResolvedValue("https://acme.atlassian.net");
+    proxyRequestMock.mockResolvedValue({
+      status: 200,
+      data: [
+        { id: "cloud-one", url: "https://one.atlassian.net" },
+        { id: "cloud-two", url: "https://two.atlassian.net" },
+      ],
+    });
+    expect(await jiraApiBase(`many-${crypto.randomUUID()}`)).toBeNull();
   });
 });
