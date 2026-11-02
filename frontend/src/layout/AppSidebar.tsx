@@ -447,7 +447,7 @@ const AppSidebar: React.FC = () => {
                   id={listId}
                   aria-labelledby={section.title && showLabels ? headingId : undefined}
                   aria-label={section.title && !showLabels ? section.title : undefined}
-                  className="flex flex-col gap-0.5"
+                  className="flex flex-col gap-1.5"
                 >
                   {section.items.map((entry) =>
                     isFolder(entry) ? (
@@ -476,7 +476,7 @@ const AppSidebar: React.FC = () => {
           );
         })}
         <div className="flex-1" />
-        <ul className="mt-4 flex flex-col gap-0.5">
+        <ul className="mt-4 flex flex-col gap-1.5">
           {FOOT.map((item) => (
             <Row
               key={item.path}
