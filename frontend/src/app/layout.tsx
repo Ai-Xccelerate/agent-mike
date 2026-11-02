@@ -3,17 +3,19 @@ import "flatpickr/dist/flatpickr.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import LiquidBackdrop from "@/components/common/LiquidBackdrop";
 import OrganizationNameSync from "@/components/common/OrganizationNameSync";
+import { ToastProvider } from "@/components/ui/toast/ToastProvider";
+import { APP } from "@/config/app";
 import { DensityProvider } from "@/context/DensityContext";
 import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { ManagerAuthBridge } from "@/lib/manager-auth";
 
 export const metadata = {
-  title: "AI Worker | Manager console",
-  description: "Configure and operate your AI worker.",
+  title: `${APP.name} | ${APP.titleSuffix}`,
+  description: APP.description,
 };
 
-const noFlashTheme = `(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');}}catch(e){}})();`;
+const noFlashTheme = `(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');}var d=localStorage.getItem('density');if(d){document.documentElement.setAttribute('data-density',d);}}catch(e){}})();`;
 
 // The tab icon is deliberately NOT a Next metadata icon (no app/icon.svg, no
 // `icons` in metadata). Next re-syncs every metadata <link rel="icon"> on each
@@ -60,7 +62,9 @@ export default function RootLayout({
             <OrganizationNameSync />
             <ThemeProvider>
               <DensityProvider>
-                <SidebarProvider>{children}</SidebarProvider>
+                <SidebarProvider>
+                  <ToastProvider>{children}</ToastProvider>
+                </SidebarProvider>
               </DensityProvider>
             </ThemeProvider>
           </ManagerAuthBridge>

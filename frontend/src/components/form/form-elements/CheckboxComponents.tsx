@@ -1,33 +1,20 @@
 "use client";
 import React, { useState } from "react";
-import ComponentCard from "../../common/ComponentCard";
+
+import ComponentCard from "@/components/common/ComponentCard";
+
 import Checkbox from "../input/Checkbox";
 
 export default function CheckboxComponents() {
-  const [isChecked, setIsChecked] = useState(false);
-  const [isCheckedTwo, setIsCheckedTwo] = useState(true);
-  const [isCheckedDisabled, setIsCheckedDisabled] = useState(false);
+  const [unchecked, setUnchecked] = useState(false);
+  const [checked, setChecked] = useState(true);
+  const [disabled, setDisabled] = useState(false);
   return (
     <ComponentCard title="Checkbox">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-3">
-          <Checkbox checked={isChecked} onChange={setIsChecked} label="Default" />
-        </div>
-        <div className="flex items-center gap-3">
-          <Checkbox
-            checked={isCheckedTwo}
-            onChange={setIsCheckedTwo}
-            label="Checked"
-          />
-        </div>
-        <div className="flex items-center gap-3">
-          <Checkbox
-            checked={isCheckedDisabled}
-            onChange={setIsCheckedDisabled}
-            disabled
-            label="Disabled"
-          />
-        </div>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <Checkbox checked={unchecked} onChange={setUnchecked} label="Default" />
+        <Checkbox checked={checked} onChange={setChecked} label="Checked" />
+        <Checkbox checked={disabled} onChange={setDisabled} disabled label="Disabled" />
       </div>
     </ComponentCard>
   );

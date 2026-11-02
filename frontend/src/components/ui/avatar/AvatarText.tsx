@@ -40,9 +40,11 @@ const AvatarText: React.FC<AvatarTextProps> = ({
   // locked agent tokens, never Tailwind's default palette (brand rule).
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-full bg-gray-100 font-medium text-gray-600 dark:bg-white/[0.08] dark:text-gray-300 ${sizeClasses[size]} ${className}`}
+      role="img"
+      aria-label={name}
+      className={`flex shrink-0 items-center justify-center rounded-full bg-gray-100 font-semibold text-gray-700 dark:bg-white/[0.08] dark:text-gray-200 ${sizeClasses[size]} ${className}`}
     >
-      <span>{initials}</span>
+      <span aria-hidden="true">{initials}</span>
     </div>
   );
 };

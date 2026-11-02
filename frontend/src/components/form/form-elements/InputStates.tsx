@@ -1,67 +1,53 @@
 "use client";
 import React, { useState } from "react";
-import ComponentCard from "../../common/ComponentCard";
+
+import ComponentCard from "@/components/common/ComponentCard";
+
 import Input from "../input/InputField";
 import Label from "../Label";
 
+const EMAIL = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
 export default function InputStates() {
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState(false);
+  const [email, setEmail] = useState("dana@fleetwise");
+  const valid = EMAIL.test(email);
 
-  // Simulate a validation check
-  const validateEmail = (value: string) => {
-    const isValidEmail =
-      /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(value);
-    setError(!isValidEmail);
-    return isValidEmail;
-  };
-
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setEmail(value);
-    validateEmail(value);
-  };
   return (
-    <ComponentCard
-      title="Input States"
-      desc="Validation styles for error, success and disabled states on form controls."
-    >
-      <div className="space-y-5 sm:space-y-6">
-        {/* Error Input */}
+    <ComponentCard title="Input states" desc="Error, success and disabled, each with its line under the field.">
+      <div className="space-y-5">
         <div>
-          <Label>Email</Label>
+          <Label htmlFor="is-error">Work email</Label>
           <Input
+            id="is-error"
             type="email"
-            defaultValue={email}
-            error={error}
-            onChange={handleEmailChange}
-            placeholder="Enter your email"
-            hint={error ? "This is an invalid email address." : ""}
+            value={email}
+            error={!valid}
+            success={valid}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="dana@fleetwise.com"
+            hint={valid ? "Looks right. We'll send the invite here." : "Enter a full address, like dana@fleetwise.com."}
           />
         </div>
 
-        {/* Success Input */}
         <div>
-          <Label>Email</Label>
+          <Label htmlFor="is-success">Work email</Label>
           <Input
+            id="is-success"
             type="email"
-            defaultValue={email}
-            success={!error}
-            onChange={handleEmailChange}
-            placeholder="Enter your email"
-            hint={!error ? "Valid email!" : ""}
+            defaultValue="priya@ledgerly.io"
+            success
+            hint="Verified on 12 October."
           />
         </div>
 
-        {/* Disabled Input */}
         <div>
-          <Label>Email</Label>
+          <Label htmlFor="is-disabled">Workspace email</Label>
           <Input
+            id="is-disabled"
             type="text"
-            defaultValue="disabled@example.com"
-            disabled={true}
-            placeholder="Disabled email"
-            hint="This field is disabled."
+            defaultValue="revops@aixccelerate.com"
+            disabled
+            hint="Only an admin can change this."
           />
         </div>
       </div>

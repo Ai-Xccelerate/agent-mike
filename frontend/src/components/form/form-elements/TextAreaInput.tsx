@@ -1,40 +1,41 @@
 "use client";
 import React, { useState } from "react";
-import ComponentCard from "../../common/ComponentCard";
+
+import ComponentCard from "@/components/common/ComponentCard";
+
 import TextArea from "../input/TextArea";
 import Label from "../Label";
 
 export default function TextAreaInput() {
-  const [message, setMessage] = useState("");
-  const [messageTwo, setMessageTwo] = useState("");
+  const [brief, setBrief] = useState("");
+  const [reply, setReply] = useState("Thanks for the note, we");
+
   return (
-    <ComponentCard title="Textarea input field">
-      <div className="space-y-6">
-        {/* Default TextArea */}
+    <ComponentCard title="Textarea" desc="Longer answers: a brief, a note, a reply.">
+      <div className="space-y-5">
         <div>
-          <Label>Description</Label>
+          <Label>Brief for Jules</Label>
           <TextArea
-            value={message}
-            onChange={(value) => setMessage(value)}
-            rows={6}
+            value={brief}
+            onChange={setBrief}
+            rows={5}
+            placeholder="Who to reach, what to say, and what a good reply looks like."
           />
         </div>
 
-        {/* Disabled TextArea */}
         <div>
-          <Label>Description</Label>
-          <TextArea rows={6} disabled />
+          <Label>Disabled</Label>
+          <TextArea rows={4} disabled placeholder="Locked while Joy reviews the contract." />
         </div>
 
-        {/* Error TextArea */}
         <div>
-          <Label>Description</Label>
+          <Label>With an error</Label>
           <TextArea
-            rows={6}
-            value={messageTwo}
+            rows={4}
+            value={reply}
             error
-            onChange={(value) => setMessageTwo(value)}
-            hint="Please enter a valid message."
+            onChange={setReply}
+            hint="Finish the reply before you send it."
           />
         </div>
       </div>

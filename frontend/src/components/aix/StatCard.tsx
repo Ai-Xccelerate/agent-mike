@@ -62,29 +62,30 @@ export default function StatCard({
   const isGood = invertDelta ? !isUp : isUp;
   const trendColor =
     delta === undefined
-      ? "text-brand-500"
+      ? "text-brand-ink"
       : isGood
       ? "text-success-500"
       : "text-error-500";
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 transition-colors duration-150 hover:border-gray-300 dark:border-gray-800 dark:bg-white/[0.03] dark:hover:border-gray-700 md:p-6">
+    // Opaque and flat; not interactive, so it does not answer a hover.
+    <div className="animate-rise rounded-2xl border border-gray-200 bg-white p-5 dark:border-white/[0.06] dark:bg-white/[0.03]">
       {icon && (
-        <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-white/90">
+        <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-gray-900/[0.05] text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
           {icon}
         </div>
       )}
-      <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="text-theme-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">{label}</p>
       <div className="mt-1.5 flex items-end justify-between gap-2">
-        <div className="text-2xl font-bold tracking-tight text-gray-800 tabular-nums dark:text-white/90 md:text-3xl">
+        <div className="font-display text-2xl font-semibold tracking-tight text-gray-900 tabular-nums dark:text-white md:text-[28px]">
           {value}
         </div>
         {delta !== undefined && (
           <span
-            className={`mb-1 inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium ${
+            className={`mb-1 inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${
               isGood
-                ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500"
-                : "bg-error-50 text-error-600 dark:bg-error-500/15 dark:text-error-500"
+                ? "bg-success-50 text-success-700 dark:bg-success-500/15 dark:text-success-400"
+                : "bg-error-50 text-error-700 dark:bg-error-500/15 dark:text-error-400"
             }`}
           >
             {isUp ? (

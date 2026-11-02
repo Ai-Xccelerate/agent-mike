@@ -1,5 +1,16 @@
 @import 'tailwindcss';
 
+/* =========================================================================
+   The AI Xccelerate design system (v3 — "calm foundations").
+
+   The same tokens, type, radii, shadows, dark mode, glass chrome and motion
+   vocabulary the Artifacts and Persuade frontends draw with, so every AIX
+   product built from this template reads as one family. On top of the shared
+   core, the template keeps the third-party skins its showcase pages use
+   (charts, date picker, calendar, carousels, maps, the task board) at the end
+   of this file. Change a shared token here AND in the products, not one.
+   ========================================================================= */
+
 @custom-variant dark (&:is(.dark *));
 
 /* =========================================================================
@@ -80,6 +91,9 @@ html[data-density='compact'] {
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1280px;
   --breakpoint-2xl: 1536px;
+  /* The layout system's wide screen (`components/page`): from here a list
+     page opens its preview pane beside the list and grids add a column. */
+  --breakpoint-wide: 1600px;
 
   --text-title-2xl: 72px;
   --text-title-2xl--line-height: 90px;
@@ -98,23 +112,29 @@ html[data-density='compact'] {
   --text-theme-xs: 12px;
   --text-theme-xs--line-height: 18px;
 
-  /* Corner radii — AIX runs tight. The whole Tailwind radius scale is retuned
-     one notch crisper than stock so nothing reads soft/bubbly:
-       controls (buttons, inputs, chips, menu items) = rounded-lg = 6px
-       cards                                          = rounded-2xl = 12px
+  /* Corner radii. The 2026-09-30 redesign ("calm foundations") softened the
+     scale one step from the AIX template's 5px controls and 8px cards, to the
+     radii the approved mockups were drawn with:
+       controls (buttons, inputs, chips, menu items) = rounded-lg  = 8px
+       covers, thumbnails, recessed panels            = rounded-xl  = 12px
+       cards                                          = rounded-2xl = 14px
+       dialogs, the composer                          = rounded-3xl = 16px
        avatars / dots / pills                         = rounded-full
      Adjust these tokens to move the whole system; never hardcode radii. */
   --radius-sm: 0.1875rem;  /* 3px  */
-  --radius-md: 0.25rem;    /* 4px  */
-  --radius-lg: 0.3125rem;  /* 5px  — controls (buttons/inputs/chips/menu items) */
-  --radius-xl: 0.375rem;   /* 6px  */
-  --radius-2xl: 0.5rem;    /* 8px  — cards */
-  --radius-3xl: 0.75rem;   /* 12px */
+  --radius-md: 0.375rem;   /* 6px  — keycaps, small marks */
+  --radius-lg: 0.5rem;     /* 8px  — controls (buttons/inputs/chips/menu items) */
+  --radius-xl: 0.75rem;    /* 12px — covers, thumbnails, surface-2 */
+  --radius-2xl: 0.875rem;  /* 14px — cards */
+  --radius-3xl: 1rem;      /* 16px — dialogs, the composer */
 
   --color-current: currentColor;
   --color-transparent: transparent;
   --color-white: #ffffff;
   --color-black: #101828;
+  /* The ground a picture of an artifact stands on: a cover frame, the editor's
+     canvas. A step darker than the page so a white sheet reads as an object. */
+  --color-canvas: #eceef3;
 
   --color-brand-25: #fff8f2;
   --color-brand-50: #fef3e8;
@@ -125,6 +145,12 @@ html[data-density='compact'] {
   --color-brand-500: #f47920;
   --color-brand-600: #e06b15;
   --color-brand-700: #bc580f;
+  /* Orange for TEXT on light grounds; brand-700 stays the colour of fills.
+     brand-700 as text is 4.63:1 on white but 4.2:1 on the app's grey surfaces
+     (#f3f4f8) -- under AA for small text. This is 5.1:1 there, 4.5:1 on the
+     darkest grey a label sits on (#e5e7ec) and 5.6:1 on white. Dark mode keeps
+     brand-400. */
+  --color-brand-ink: #a84e0e;
   --color-brand-800: #954510;
   --color-brand-900: #78380f;
   --color-brand-950: #411c06;
@@ -253,6 +279,27 @@ html[data-density='compact'] {
   --z-index-9999: 9999;
   --z-index-99999: 99999;
   --z-index-999999: 999999;
+
+  /* The stacking scale, by name: `z-sticky`, `z-dropdown` and so on. Content
+     sits at the bottom with whatever small z it needs inside a card that keeps
+     it there (`isolate`); everything that floats is portalled to <body> and
+     takes one of these, so its height is the layer's and not whatever its
+     ancestors happened to allow (2026-10-01: the Templates brand menu sat under
+     a card's full-card button, which took its clicks and its wheel).
+
+     A menu opened inside a dialog has to clear the dialog, so it takes
+     `dialog-dropdown`; the command palette opens over any dialog. Toasts sit
+     over dialogs: an error raised by a dialog's own action ("That kit could
+     not be renamed") is read while the dialog is still open, and under the
+     scrim it was blurred. Tooltips are over everything. */
+  --z-index-sticky: 40;
+  --z-index-drawer: 60;
+  --z-index-dropdown: 1000;
+  --z-index-dialog: 2000;
+  --z-index-dialog-dropdown: 2100;
+  --z-index-palette: 2500;
+  --z-index-toast: 3000;
+  --z-index-tooltip: 4000;
 }
 
 /*
@@ -289,16 +336,6 @@ html[data-density='compact'] {
     /* Inter stylistic set + tabular numerals for tables/KPIs. */
     font-feature-settings: 'cv11', 'ss01', 'tnum';
   }
-
-  /* Public embed: hide ambient chrome so host pages show through the iframe. */
-  html[data-worker-widget="1"],
-  body[data-worker-widget="1"] {
-    background: transparent !important;
-  }
-  html[data-worker-widget="1"] .liquid-backdrop {
-    display: none !important;
-  }
-
   /* Display type — Geist with Apple-style tighter tracking. */
   .font-display {
     letter-spacing: -0.022em;
@@ -365,10 +402,11 @@ html[data-density='compact'] {
   --accent-secondary: #ff9f4a;
   --accent-light: #fef3e8;
 
-  /* Foreground */
+  /* Foreground. Muted is gray-500 (#667085, 4.97:1 on white): gray-400
+     (#98a2b3) is 2.56:1, which fails WCAG AA for text of any size. */
   --foreground-primary: #101828;
   --foreground-secondary: #475467;
-  --foreground-muted: #98a2b3;
+  --foreground-muted: #667085;
   --foreground-inverse: #ffffff;
 
   /* Surface */
@@ -386,9 +424,11 @@ html[data-density='compact'] {
   --ds-warning: #f79009;
   --ds-info: #0ba5ec;
 
-  /* Shadows (CTA-only per DS rules) */
-  --shadow-cta: 0 4px 12px rgba(244, 121, 32, 0.2);
-  --shadow-cta-strong: 0 4px 12px rgba(244, 121, 32, 0.27);
+  /* Shadows (CTA-only per DS rules). Tinted with brand-700, the primary
+     button's fill since 2026-09-30: white on #f47920 is 2.76:1 and fails AA,
+     white on #bc580f is 4.63:1. */
+  --shadow-cta: 0 4px 12px rgba(188, 88, 15, 0.22);
+  --shadow-cta-strong: 0 4px 14px rgba(188, 88, 15, 0.3);
 
   /* Gradients (max one per page, hero bands only) */
   --gradient-brand-panel: linear-gradient(180deg, #f47920 0%, #e0580b 100%);
@@ -396,8 +436,8 @@ html[data-density='compact'] {
 
   /* Ambient backdrop — the fixed gradient canvas the whole app floats over
      (rendered by <LiquidBackdrop/>). Three slow-drifting, heavily-blurred
-     blobs: AIX orange + indigo + sky, kept to a whisper so chrome stays calm. */
-  --backdrop-base: #eef1f8;
+     blobs: AIX orange + soft rose + amber, kept to a whisper so chrome stays calm. */
+  --backdrop-base: #f3f4f8;
   --backdrop-blob-a: rgba(244, 121, 32, 0.12); /* AIX orange */
   --backdrop-blob-b: rgba(251, 113, 133, 0.07); /* soft rose  */
   --backdrop-blob-c: rgba(245, 158, 11, 0.08); /* amber gold */
@@ -407,8 +447,11 @@ html[data-density='compact'] {
      high enough that page content behind the chrome NEVER reads through as
      legible text — frosted, not see-through. Menus/dropdowns are near-opaque. */
   --glass-bg: rgba(255, 255, 255, 0.78);        /* standing chrome (sidebar/header) */
-  --glass-bg-thick: rgba(255, 255, 255, 0.92);  /* floating chrome (modals) */
-  --glass-popover-bg: rgba(255, 255, 255, 0.98); /* menus/dropdowns/tooltips — readable over anything */
+  /* Floating surfaces are opaque (2026-10-01). A dialog over the artifact
+     page sits over the slide's frame, which no backdrop blur reaches: at 92%
+     the slide's own words read through the dialog's text. */
+  --glass-bg-thick: #ffffff;                    /* floating chrome (modals) */
+  --glass-popover-bg: #ffffff;                  /* menus/dropdowns/tooltips */
   --glass-bg-solid: #ffffff;
   --glass-blur: 20px;
   --glass-saturate: 155%;
@@ -450,8 +493,10 @@ html[data-density='compact'] {
      Alphas kept high enough that content behind chrome never reads through as
      legible text; menus/dropdowns are near-opaque. */
   --glass-bg: rgba(17, 24, 39, 0.74);           /* standing chrome */
-  --glass-bg-thick: rgba(17, 24, 39, 0.92);     /* floating chrome (modals) */
-  --glass-popover-bg: rgba(17, 24, 39, 0.98);   /* menus/dropdowns/tooltips */
+  /* Opaque, as in light; a menu is a step lighter than a dialog, so one
+     opened inside the other still reads as on top of it. */
+  --glass-bg-thick: #131b2c;                    /* floating chrome (modals) */
+  --glass-popover-bg: #1a2335;                  /* menus/dropdowns/tooltips */
   --glass-bg-solid: #101828;
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-border-strong: rgba(255, 255, 255, 0.12);
@@ -528,20 +573,31 @@ html[data-density='compact'] {
   border-color: var(--glass-border);
   box-shadow: var(--glass-rim);
 }
+/* Opaque: what floats -- a dialog, a drawer, a menu, a toast -- never lets
+   the page read through it, and so needs no blur behind it either. */
 .glass-float.glass-float {
   background: var(--glass-bg-thick);
-  -webkit-backdrop-filter: blur(28px) saturate(170%);
-  backdrop-filter: blur(28px) saturate(170%);
   border-color: var(--glass-border-strong);
   box-shadow: var(--glass-rim-strong), var(--shadow-elevated);
 }
 .glass-popover.glass-popover {
-  /* Near-opaque so option lists stay fully legible over ANY page content —
-     translucent menus that let the page bleed through are unreadable. */
   background: var(--glass-popover-bg);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  backdrop-filter: blur(18px) saturate(160%);
   border-color: var(--glass-border-strong);
+}
+/* Standing chrome that content scrolls under -- a phone's top bar, a sticky
+   footer -- is solid too: the sidebar may show the backdrop's colour, a bar
+   over a list of cards may not show the cards. */
+.glass-surface.glass-opaque {
+  background: var(--glass-bg-solid);
+}
+
+/* On a phone the sidebar is a drawer over the page, not chrome beside it: at
+   standing-chrome alpha the cards behind read through it as coloured smears, so
+   it takes the floating (thick) material there. */
+@media (max-width: 1023px) {
+  .sidebar-drawer.glass-surface.glass-surface {
+    background: var(--glass-bg-thick);
+  }
 }
 
 /* Capability + accessibility fallbacks. */
@@ -597,12 +653,375 @@ html[data-density='compact'] {
   .animate-badge-pop { animation: none; }
 }
 
+/* ==========================================================================
+   Interaction vocabulary
+   --------------------------------------------------------------------------
+   Three utilities, so that "focus is visible always" (design system section 5)
+   and "card hover = border shift, never lift/scale" (section 4) are stated once
+   instead of copied into forty class strings and drifting.
+
+   The ring matches `ui/button/Button` exactly rather than the `--shadow-focus-ring`
+   token the design system names. Every primitive the template ships -- Button,
+   Modal, Tabs, Alert, Checkbox, Radio, Switch, Pagination, DropdownItem -- uses
+   this Tailwind ring, and the token is used by none of them. Matching the shipped
+   components keeps focus identical across the app; matching the doc would make
+   our screens the odd ones out.
+   ========================================================================== */
+/* A text control's appearance and interaction, with no box metrics -- height,
+   width and padding stay at the call site, which is where they legitimately
+   differ. Twenty-one fields across nine files each hand-rolled this and every
+   one of them was missing the same three things the template's `InputField`
+   has: the focus ring, the resting shadow, and a colour transition. So a click
+   into a field moved the border instantly and drew no ring, while the buttons
+   beside it faded politely.
+
+   Colours match what the product screens already used rather than the
+   template's `dark:bg-gray-900`: these inputs sit on `dark:bg-white/[0.03]`
+   cards, and a near-black well inside one is a different design decision from
+   the one being fixed here. */
+/* Placeholder text is text: gray-500 on white is 4.97:1, where gray-400 was
+   2.56:1. The focused border is brand-600 (3.34:1 against white), the
+   non-text 3:1 that brand-500 misses at 2.76:1. */
+@utility field {
+  @apply appearance-none rounded-lg border border-gray-300 bg-transparent
+    text-theme-sm text-gray-800 shadow-theme-xs transition-colors duration-150
+    ease-out placeholder:text-gray-500 focus:border-brand-600
+    focus:outline-hidden focus:ring-2 focus:ring-brand-500/20
+    dark:border-white/[0.08] dark:text-white/90 dark:placeholder:text-gray-400;
+}
+
+/* A small toggle in a row of them: a language, a level of detail, a filter.
+
+   Chosen is a tint and a border, never a filled orange. The accent belongs to
+   the action, and every row of these sits within a few pixels of a primary
+   button -- two saturated oranges in one card and neither of them is the one to
+   press. The tint is the same one `menu-item-active` uses, which is where this
+   product already made that decision.
+
+   Box metrics are here rather than at the call site, unlike `field`: these are
+   always the same size, and the two rows that exist drifted apart within a day
+   of being written separately. */
+@utility chip {
+  @apply rounded-lg border px-2.5 py-1 text-theme-xs transition-colors
+    duration-150 ease-out focus-ring;
+}
+
+/* brand-800 on brand-50 is 6.1:1; brand-700 there was 4.23:1, under AA for
+   the 12px text a chip carries. */
+@utility chip-on {
+  @apply border-brand-600 bg-brand-50 text-brand-800
+    dark:border-brand-500 dark:bg-brand-500/[0.12] dark:text-brand-300;
+}
+
+@utility chip-off {
+  @apply border-gray-200 bg-white text-gray-600 hover:border-gray-300
+    hover:text-gray-800 dark:border-white/[0.08] dark:bg-transparent
+    dark:text-gray-300 dark:hover:border-white/[0.16] dark:hover:text-white/90;
+}
+
+/* Solid brand-700 (4.63:1 on white) rather than brand-500 at half strength,
+   which blended to about 1.6:1 -- visible to some, a guess for others. WCAG
+   2.2's focus appearance asks for 3:1 against the unfocused state. */
+@utility focus-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-700
+    focus-visible:ring-offset-2 focus-visible:ring-offset-white
+    dark:focus-visible:ring-brand-400 dark:focus-visible:ring-offset-gray-900;
+}
+
+/* An interactive card. Border shift and nothing else: cards sit on the surface,
+   so a lift or a scale here would contradict the elevation rules. 150ms
+   ease-out, colour only, which needs no reduced-motion guard. */
+@utility card-interactive {
+  @apply transition-colors duration-150 ease-out hover:border-gray-300
+    dark:hover:border-white/[0.14] focus-ring;
+}
+
+/* ==========================================================================
+   Entrances
+   --------------------------------------------------------------------------
+   Opacity only. Section 5 forbids scale and spring, and section 4 forbids lift,
+   so a fade is the whole vocabulary available for something arriving on screen --
+   which suits the product: chrome should appear, not perform. Guarded for
+   reduced motion, as section 5 requires for anything past a colour transition.
+   ========================================================================== */
+/* ==========================================================================
+   Work in progress
+   --------------------------------------------------------------------------
+   A determinate bar is honest about *how far*, and says nothing about *whether
+   anything is happening* -- and generation spends fifteen seconds at a time on
+   one step, so a still bar reads as a hung one.
+
+   A sweep across the filled portion answers that without lying about progress:
+   it carries no position information, it is a background animation, and it stops
+   under reduced motion, where the percentage and the elapsed timer still tell the
+   whole story.
+   ========================================================================== */
+@keyframes aix-sweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.progress-sweep {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.45) 45%,
+    rgba(255, 255, 255, 0.45) 55%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: aix-sweep 1.6s linear infinite;
+}
+
+/* The active step's marker breathes. Opacity only, like the template's own
+   typing indicator. */
+@keyframes aix-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.animate-pulse-dot {
+  animation: aix-pulse 1.4s var(--ease-quiet) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-sweep {
+    animation: none;
+    background-image: none;
+  }
+  .animate-pulse-dot {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   Reduced motion, for everything this file does not own
+   --------------------------------------------------------------------------
+   Every animation defined above has its own `prefers-reduced-motion` block, and
+   they were all correct. What was missed is the motion nobody wrote a keyframe
+   for: `animate-pulse` on eight skeletons, and `transition-transform` on every
+   chevron, switch and hover-zoom -- Tailwind utilities, so there was no place
+   for a guard to go and none of them had one.
+
+   Section 5 permits colour transitions and forbids the rest, so this narrows
+   every transition to colour rather than removing all of them: a chevron stops
+   rotating and a skeleton stops shimmering, while a button still fades between
+   its states. Narrowing `transition-property` is what cancels the others --
+   killing `transition-duration` instead would have taken the colour fades with
+   it.
+
+   `animate-spin` is deliberately left alone. A shimmer is decoration and a grey
+   block already says "loading", but a spinner is the only sign that anything is
+   happening, and a still one is a lie. Reduced motion asks for less vestibular
+   motion, not for a UI that stops reporting on itself.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-property: color, background-color, border-color, outline-color,
+      text-decoration-color, fill, stroke !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-pulse {
+    animation: none !important;
+  }
+}
+
+@keyframes aix-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* `backwards`, never `both`: an animation still applied after it ends -- which
+   is what `forwards` and `both` do -- keeps the element a stacking context for
+   good (an animated opacity or transform makes one). Every surface that had
+   risen into place trapped its popovers' z-index inside it: the Templates
+   brand menu sat under the filter row, and a card's invisible full-card button
+   took the wheel and the clicks meant for a menu over it (2026-10-01).
+   `backwards` gives the same entrance -- the first frame held through any
+   delay -- and lets go of the element when it is over. */
+.animate-fade-in {
+  animation: aix-fade-in 180ms var(--ease-out-expo) backwards;
+}
+
+/* Slightly slower, for a surface that covers the page and would otherwise
+   flash into existence. */
+.animate-surface-in {
+  animation: aix-fade-in 220ms var(--ease-out-expo) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-surface-in {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   Arrivals that settle
+   --------------------------------------------------------------------------
+   A six-pixel rise with the fade. Not a scale, not a spring, not a lift on
+   hover -- the things section 4 and 5 rule out -- but a surface arriving from
+   very slightly below where it comes to rest, which is the difference between
+   a page that appears and a page that flashes. The same translate the sidebar
+   drawer and the preview's FLIP already use, so it is not a new species of
+   motion here. Children of `.stagger` arrive in order, 40ms apart, capped so a
+   long grid does not make its last row wait.
+   ========================================================================== */
+/* A moment running out: Stop's Undo (`useUndoableStop`). Transform only, from the left. */
+@keyframes aix-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.animate-drain {
+  transform-origin: left center;
+  animation: aix-drain var(--drain-ms, 5000ms) linear forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-drain { animation: none; }
+}
+
+@keyframes aix-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-rise {
+  animation: aix-rise 360ms var(--ease-out-expo) backwards;
+}
+.stagger > * {
+  animation-delay: calc(min(var(--i, 0), 12) * 40ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise { animation: none; }
+}
+
+/* A control revealed by its container's hover or focus. Opacity plus the same
+   small rise; it is also present (not merely visible) for keyboard users, since
+   focus-within reveals it too. */
+.reveal {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 150ms var(--ease-out-expo), transform 150ms var(--ease-out-expo);
+}
+.group:hover .reveal,
+.group:focus-within .reveal,
+.reveal-shown .reveal {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal { transform: none; }
+}
+
+/* A control revealed by its card's hover or focus on a pointer device, and
+   always present on touch, where there is no hover to reveal it. Opacity only:
+   it keeps its place, so nothing moves when it appears, and it stays in the tab
+   order (focus reveals it too). */
+.reveal-touch {
+  opacity: 0;
+}
+.group:hover .reveal-touch,
+.group:focus-within .reveal-touch,
+.reveal-touch:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .reveal-touch {
+    opacity: 1;
+  }
+}
+
+/* ==========================================================================
+   The layout system's chrome (`components/page`)
+   --------------------------------------------------------------------------
+   A page bar (a list's filters, a deal's tabs) runs the full width of the
+   content area -- out through the frame's gutter, `--gutter` on `main` -- so
+   when it sticks to the top the rows scroll under one edge-to-edge band
+   rather than a box with the list showing either side of it. At rest it is
+   the page's own ground; stuck, it takes the standing-chrome material with a
+   hairline under it (`data-stuck`, set by `useStuck`).
+   ========================================================================== */
+@layer components {
+  .page-bar {
+    margin-inline: calc(var(--gutter, 1rem) * -1);
+    padding-inline: var(--gutter, 1rem);
+    border-bottom: 1px solid transparent;
+    transition:
+      background-color 150ms var(--ease-quiet),
+      border-color 150ms var(--ease-quiet);
+  }
+  .page-bar[data-stuck] {
+    background: color-mix(in srgb, var(--glass-bg-solid) 94%, transparent);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border-bottom-color: var(--glass-border-strong);
+  }
+
+  /* The row j/k is on, or the one the preview pane shows: a tone and a dark
+     edge, never orange (the page's primary action keeps the accent). */
+  .row-active {
+    background-color: rgb(16 24 40 / 0.04);
+    box-shadow: inset 2px 0 0 var(--color-gray-800);
+  }
+  .dark .row-active {
+    background-color: rgb(255 255 255 / 0.05);
+    box-shadow: inset 2px 0 0 var(--color-gray-200);
+  }
+}
+
+/* A keycap. Mono, hairline, sits on the surface. In the components layer, so
+   a utility beside it wins: unlayered, `.kbd` beat `hidden`, and keycaps meant
+   for a keyboard showed on phones (`kbd hidden sm:inline-flex`). */
+@layer components {
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-md border
+      border-gray-200 bg-white px-1.5 font-mono text-[11px] leading-none
+      text-gray-500 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-400;
+  }
+}
+
+/* A recessed tier inside a card: a group of rows, a code block, a summary. The
+   answer to "nested bordered cards are forbidden" -- depth by tone, not by
+   another border. */
+/* Layered for the reason `.kbd` is: a `rounded-*` beside it has to win. */
+@layer components {
+  .surface-2 {
+    @apply rounded-xl bg-gray-50 dark:bg-white/[0.03];
+  }
+}
+
+/* The stage a preview sits on. A quiet dot grid on the page ground, so the
+   rendered artifact reads as an object placed on a surface rather than as a
+   white hole in a white card. */
+.stage {
+  background-color: var(--surface-secondary);
+  background-image: radial-gradient(circle, rgba(16, 24, 40, 0.10) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.dark .stage {
+  background-color: #0c111d;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+}
+
+/* A hairline that sits under a section head and fades out, so a heading can
+   sit on the page without a card around it. */
+.rule-fade {
+  height: 1px;
+  background: linear-gradient(90deg, var(--border-subtle), transparent);
+}
+
 @utility menu-item {
   @apply relative flex items-center w-full gap-3 px-3 py-2 font-medium rounded-lg text-theme-sm;
 }
 
+/* The place you are is dark text on a raised white pill, not orange on a tint:
+   orange belongs to the page's one primary action. */
 @utility menu-item-active {
-  @apply bg-brand-50 text-brand-700 dark:bg-brand-500/[0.12] dark:text-brand-400;
+  @apply bg-white text-gray-900 shadow-theme-xs ring-1 ring-gray-200
+    dark:bg-white/[0.08] dark:text-white dark:ring-white/[0.08];
 }
 
 @utility menu-item-inactive {
@@ -637,8 +1056,9 @@ html[data-density='compact'] {
   @apply relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-theme-sm font-medium;
 }
 
+/* brand-ink on brand-50 is 5.1:1; brand-700 there was 4.2:1. */
 @utility menu-dropdown-item-active {
-  @apply bg-brand-50 text-brand-700 dark:bg-brand-500/[0.12] dark:text-brand-400;
+  @apply bg-brand-50 text-brand-ink dark:bg-brand-500/[0.12] dark:text-brand-400;
 }
 
 @utility menu-dropdown-item-inactive {
@@ -702,8 +1122,9 @@ html[data-density='compact'] {
   @apply !text-gray-700 dark:!text-gray-400;
 }
 
+/* Axis text is meta, not data: gray-500 (4.97:1), as the rest of the meta. */
 .apexcharts-text {
-  @apply !fill-gray-700 dark:!fill-gray-400;
+  @apply !fill-gray-500 dark:!fill-gray-400;
 }
 
 .apexcharts-tooltip.apexcharts-theme-light {
@@ -901,7 +1322,8 @@ span.flatpickr-weekday,
   --fc-border-color: #f2f4f7;
   --fc-page-bg-color: transparent;
   --fc-neutral-bg-color: transparent;
-  --fc-today-bg-color: #fff8f2;
+  /* Today is a tone of ink, not orange (selection is ink in v3). */
+  --fc-today-bg-color: rgba(16, 24, 40, 0.025);
   --fc-now-indicator-color: #f04438;
   --fc-highlight-color: rgba(244, 121, 32, 0.08);
   --fc-list-event-hover-bg-color: #f9fafb;
@@ -909,7 +1331,7 @@ span.flatpickr-weekday,
 }
 .dark .fc {
   --fc-border-color: #1d2939;
-  --fc-today-bg-color: rgba(244, 121, 32, 0.1);
+  --fc-today-bg-color: rgba(255, 255, 255, 0.03);
   --fc-list-event-hover-bg-color: rgba(255, 255, 255, 0.03);
 }
 .fc .fc-view-harness {
@@ -929,7 +1351,7 @@ span.flatpickr-weekday,
   @apply border-x-0 border-t-0;
 }
 .fc .fc-col-header-cell-cushion {
-  @apply block px-2 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 no-underline;
+  @apply block px-2 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 no-underline dark:text-gray-400;
 }
 .fc .fc-daygrid-day-frame {
   @apply min-h-24;
@@ -941,13 +1363,13 @@ span.flatpickr-weekday,
   @apply flex size-6 items-center justify-center rounded-full p-0 text-xs font-medium text-gray-700 no-underline dark:text-gray-300;
 }
 .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
-  @apply bg-brand-500 font-semibold text-white;
+  @apply bg-gray-900 font-semibold text-white dark:bg-white dark:text-gray-900;
 }
 .fc .fc-day-other .fc-daygrid-day-top {
   opacity: 1;
 }
 .fc .fc-day-other .fc-daygrid-day-number {
-  @apply text-gray-400 dark:text-gray-600;
+  @apply text-gray-500 dark:text-gray-500;
 }
 .fc .fc-event {
   @apply cursor-pointer rounded-[4px] text-xs shadow-none focus:shadow-none;
@@ -979,13 +1401,13 @@ span.flatpickr-weekday,
 }
 .fc .fc-timegrid-slot-label-cushion,
 .fc .fc-timegrid-axis-cushion {
-  @apply px-2 text-[11px] font-medium text-gray-400;
+  @apply px-2 text-[11px] font-medium text-gray-500 dark:text-gray-400;
 }
 .fc .fc-timegrid-now-indicator-line {
   border-width: 1.5px 0 0;
 }
 .fc .fc-popover {
-  @apply z-50 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-theme-lg dark:border-gray-800 dark:bg-gray-900;
+  @apply z-50 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-theme-lg dark:border-white/[0.08] dark:bg-[#1a2335];
 }
 .fc .fc-popover-header {
   @apply bg-transparent px-3 pb-1 pt-2.5 text-xs font-semibold text-gray-700 dark:text-white/90;
@@ -1004,7 +1426,7 @@ span.flatpickr-weekday,
   @apply text-xs font-semibold uppercase tracking-wide text-gray-500 no-underline dark:text-gray-400;
 }
 .fc .fc-list-event td {
-  @apply border-gray-100 px-4 py-3 text-sm dark:border-gray-800;
+  @apply border-gray-100 px-4 py-3 text-sm dark:border-white/[0.05];
 }
 .fc .fc-list-event-time {
   @apply whitespace-nowrap text-gray-500 dark:text-gray-400;
@@ -1089,16 +1511,18 @@ span.flatpickr-weekday,
 }
 
 .jvectormap-container {
-  @apply !bg-gray-50 dark:!bg-gray-900;
+  @apply !bg-gray-50 dark:!bg-white/[0.03];
 }
 .jvectormap-region.jvectormap-element {
-  @apply !fill-gray-300 hover:!fill-brand-500 dark:!fill-gray-700 dark:hover:!fill-brand-500;
+  /* Hover is a step of ink, not orange: the map is not the page's action. */
+  @apply !fill-gray-300 hover:!fill-gray-400 dark:!fill-gray-700 dark:hover:!fill-gray-500;
 }
 .jvectormap-marker.jvectormap-element {
   @apply !stroke-gray-200 dark:!stroke-gray-800;
 }
+/* Ink, not orange: white on brand-500 is 2.76:1. */
 .jvectormap-tip {
-  @apply !bg-brand-500 !border-none !px-2 !py-1;
+  @apply !rounded-lg !border-none !bg-gray-900 !px-2 !py-1 !text-theme-xs !font-medium !text-white dark:!bg-white dark:!text-gray-900;
 }
 .jvectormap-zoomin,
 .jvectormap-zoomout {
@@ -1129,4 +1553,35 @@ span.flatpickr-weekday,
     0 1px 2px 0 rgba(16, 24, 40, 0.06);
   opacity: 0.8;
   cursor: grabbing; /* Changes the cursor to indicate dragging */
+}
+
+/* Native <select>s that remain follow the theme:
+   the browser draws their open list in light or dark with the app's colours,
+   so options never come out white-on-white. The template's own pickers use the
+   custom Select (components/form/Select.tsx). */
+select {
+  color-scheme: light;
+}
+.dark select {
+  color-scheme: dark;
+}
+select option,
+select optgroup {
+  background-color: #ffffff;
+  color: #1d2939;
+}
+.dark select option,
+.dark select optgroup {
+  background-color: #101828;
+  color: #f2f4f7;
+}
+
+/* Public embed (Mike's /widget): hide ambient chrome so host pages show
+   through the iframe. */
+html[data-worker-widget="1"],
+body[data-worker-widget="1"] {
+  background: transparent !important;
+}
+html[data-worker-widget="1"] .liquid-backdrop {
+  display: none !important;
 }

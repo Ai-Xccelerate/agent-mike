@@ -16,7 +16,7 @@ export const DropdownItem: React.FC<DropdownItemProps> = ({
   href,
   onClick,
   onItemClick,
-  baseClassName = "block w-full text-left px-4 py-2 text-sm text-gray-700 transition-colors duration-150 ease-out hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/50 active:bg-gray-200 dark:text-gray-300 dark:hover:bg-white/5 dark:hover:text-white dark:active:bg-white/10",
+  baseClassName = "block w-full text-left px-4 py-2 text-sm text-gray-700 transition-colors duration-150 ease-out hover:bg-gray-100 hover:text-gray-900 focus-ring active:bg-gray-200 dark:text-gray-300 dark:hover:bg-white/5 dark:hover:text-white dark:active:bg-white/10",
   className = "",
   children,
 }) => {
@@ -32,14 +32,14 @@ export const DropdownItem: React.FC<DropdownItemProps> = ({
 
   if (tag === "a" && href) {
     return (
-      <Link href={href} className={combinedClasses} onClick={handleClick}>
+      <Link href={href} role="menuitem" className={combinedClasses} onClick={handleClick}>
         {children}
       </Link>
     );
   }
 
   return (
-    <button onClick={handleClick} className={combinedClasses}>
+    <button type="button" role="menuitem" onClick={handleClick} className={combinedClasses}>
       {children}
     </button>
   );
