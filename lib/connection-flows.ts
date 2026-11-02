@@ -32,7 +32,7 @@ export async function startIntegrationConnection(input: {
   system: string;
   connectedBy: string;
   appOrigin: string;
-  /** "api_key" connects with an API token (e.g. a service account) instead of a person's sign-in. */
+  /** "api_key" or "client_credentials" connect a service account instead of a person's sign-in. */
   authMethod?: AuthMethod;
 }): Promise<{ redirectUrl: string | null; alreadyConnected?: boolean }> {
   if (!getIntegrationType(input.integrationType)) {

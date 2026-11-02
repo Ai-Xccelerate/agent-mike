@@ -102,6 +102,24 @@ describe("API-key auth configs", () => {
     expect(getAuthConfigId("confluence", "api_key")).toBe("ac_key_confluence");
   });
 
+  it("reads the client-credentials config separately, and says so when it isn't set", async () => {
+    const saved = process.env.COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID;
+    try {
+      process.env.COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID = "ac_cc_jira";
+      vi.resetModules();
+      const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
+      expect(getAuthConfigId("jira", "client_credentials")).toBe("ac_cc_jira");
+      delete process.env.COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID;
+      expect(() => getAuthConfigId("jira", "client_credentials")).toThrow(
+        "COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID is not set",
+      );
+      expect(() => getAuthConfigId("zoho", "client_credentials")).toThrow("can't connect with OAuth 2.0 client credentials");
+    } finally {
+      if (saved === undefined) delete process.env.COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID;
+      else process.env.COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID = saved;
+    }
+  });
+
   it("says so when the API-key config isn't set, or the system can't use one", async () => {
     delete process.env.COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID;
     vi.resetModules();
