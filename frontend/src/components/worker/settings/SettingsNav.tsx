@@ -99,7 +99,7 @@ export default function SettingsNav() {
   return (
     <nav aria-label="Settings sections" className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4 lg:block lg:space-y-6">
       {SETTINGS_SECTIONS.map((section) => (
-        <div key={section.title} className="min-w-0 space-y-0.5">
+        <div key={section.title} className="min-w-0 space-y-1.5">
           <h2 className="mb-1.5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
             {section.title}
           </h2>
