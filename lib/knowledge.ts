@@ -218,6 +218,8 @@ export interface KnowledgeMatch {
   heading: string | null;
   content: string;
   rank: number;
+  /** The article's own source URL (its `resource`), so a reply can cite a real link instead of guessing one. */
+  url?: string | null;
   /** For a message with several separate questions: the question this section was found for. */
   topic?: string;
 }
@@ -247,9 +249,10 @@ async function searchChunks(organizationId: string, tsQuery: SQL, limit: number)
     title: string;
     heading: string | null;
     content: string;
+    resource: string | null;
     rank: number;
   }>(sql`
-    select kc.document_id, kd.title, kc.heading, kc.content,
+    select kc.document_id, kd.title, kd.resource, kc.heading, kc.content,
            ts_rank_cd(to_tsvector('english', kd.title || ' ' || coalesce(kc.heading, '') || ' ' || kc.content), ${tsQuery}) as rank
     from knowledge_chunks kc
     join knowledge_documents kd on kd.id = kc.document_id
@@ -265,6 +268,7 @@ async function searchChunks(organizationId: string, tsQuery: SQL, limit: number)
     heading: row.heading,
     content: row.content,
     rank: Number(row.rank),
+    url: row.resource,
   }));
 }
 
