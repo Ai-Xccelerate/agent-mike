@@ -1,6 +1,9 @@
 "use client";
 import React, { useEffect, useId, useRef, useState } from "react";
 
+import { Floating } from "@/components/ui/floating/Floating";
+import { within } from "@/components/ui/floating/layers";
+
 interface Option {
   value: string;
   text: string;
@@ -55,14 +58,12 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
     onChange?.(next);
   };
 
-  // Close on outside click.
+  // Close on outside click. The list floats in <body> (`Floating`), so
+  // "outside" asks `within`, which counts it as part of the control.
   useEffect(() => {
     if (!isOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
+      if (containerRef.current && !within(containerRef.current, e.target)) {
         close();
       }
     };
@@ -114,7 +115,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
         {label}
       </label>
 
-      <div className="relative z-20 inline-block w-full">
+      <div className="relative inline-block w-full">
         <div className="relative flex flex-col items-center">
           <div
             ref={controlRef}
@@ -130,11 +131,11 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
             tabIndex={disabled ? -1 : 0}
             onClick={toggleDropdown}
             onKeyDown={onControlKeyDown}
-            className={`w-full rounded-lg outline-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 ${
+            className={`w-full rounded-lg outline-hidden focus-ring ${
               disabled ? "cursor-not-allowed" : "cursor-pointer"
             }`}
           >
-            <div className="mb-2 flex h-11 rounded-lg border border-gray-300 bg-transparent py-1.5 pl-3 pr-3 shadow-theme-xs transition-colors duration-150 ease-out hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600">
+            <div className="mb-2 flex min-h-10 rounded-lg border border-gray-300 bg-transparent py-1 pl-2 pr-2 shadow-theme-xs transition-colors duration-150 ease-out hover:border-gray-400 dark:border-white/[0.08] dark:hover:border-white/[0.16]">
               <div className="flex flex-auto flex-wrap gap-2">
                 {selectedOptions.length > 0 ? (
                   selectedOptions.map((value) => {
@@ -143,7 +144,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
                     return (
                       <div
                         key={value}
-                        className="group flex items-center justify-center rounded-lg border border-transparent bg-gray-100 py-1 pl-2.5 pr-2 text-sm text-gray-800 transition-colors duration-150 ease-out hover:border-gray-300 dark:bg-gray-800 dark:text-white/90 dark:hover:border-gray-700"
+                        className="group flex items-center justify-center rounded-lg border border-transparent bg-gray-100 py-0.5 pl-2.5 pr-2 text-sm text-gray-800 transition-colors duration-150 ease-out hover:border-gray-300 dark:bg-white/[0.06] dark:text-white/90 dark:hover:border-white/[0.12]"
                       >
                         <span className="max-w-full flex-initial">{text}</span>
                         <button
@@ -153,7 +154,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
                             e.stopPropagation();
                             removeOption(value);
                           }}
-                          className="ml-1 flex items-center rounded text-gray-500 transition-colors duration-150 ease-out hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 dark:text-gray-400 dark:hover:text-gray-200"
+                          className="ml-1 flex items-center rounded text-gray-500 transition-colors duration-150 ease-out hover:text-gray-700 focus-ring dark:text-gray-400 dark:hover:text-gray-200"
                         >
                           <svg
                             className="fill-current"
@@ -206,13 +207,13 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
             </div>
           </div>
 
-          {isOpen && (
+          <Floating open={isOpen} anchor={controlRef} matchWidth offset={0}>
             <div
               id={listId}
               role="listbox"
               aria-multiselectable="true"
               aria-labelledby={labelId}
-              className="glass-popover absolute left-0 top-full z-40 max-h-select w-full overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-800"
+              className="glass-popover max-h-select w-full overflow-y-auto overscroll-contain rounded-lg border border-gray-200 dark:border-white/[0.08]"
             >
               <div className="flex flex-col">
                 {options.map((option, index) => {
@@ -245,7 +246,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
                 })}
               </div>
             </div>
-          )}
+          </Floating>
         </div>
       </div>
     </div>

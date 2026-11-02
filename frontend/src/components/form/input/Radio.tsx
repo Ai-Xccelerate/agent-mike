@@ -11,6 +11,10 @@ interface RadioProps {
   disabled?: boolean; // Optional disabled state for the radio button
 }
 
+/**
+ * A radio (LIB-RADIO). The ring is a mark: chosen, it fills brand-600 with a
+ * white centre. Group radios in a `fieldset` with a `legend` (sentence case).
+ */
 const Radio: React.FC<RadioProps> = ({
   id,
   name,
@@ -24,10 +28,8 @@ const Radio: React.FC<RadioProps> = ({
   return (
     <label
       htmlFor={id}
-      className={`group relative flex cursor-pointer select-none items-center gap-3 text-sm font-medium ${
-        disabled
-          ? "cursor-not-allowed text-gray-400 dark:text-gray-600"
-          : "text-gray-700 dark:text-gray-300"
+      className={`group relative flex select-none items-center gap-3 text-sm font-medium text-gray-800 dark:text-gray-200 ${
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
       } ${className}`}
     >
       <input
@@ -38,26 +40,19 @@ const Radio: React.FC<RadioProps> = ({
         checked={checked}
         onChange={() => !disabled && onChange(value)} // Prevent onChange when disabled
         className="peer sr-only"
-        disabled={disabled} // Disable input
+        disabled={disabled}
       />
       <span
-        className={`flex h-5 w-5 items-center justify-center rounded-full border-[1.25px] transition-colors duration-150 ease-out peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/50 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white dark:peer-focus-visible:ring-offset-gray-900 ${
+        aria-hidden="true"
+        className={`flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors duration-150 ease-out peer-focus-visible:ring-2 peer-focus-visible:ring-brand-700 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white dark:peer-focus-visible:ring-brand-400 dark:peer-focus-visible:ring-offset-gray-900 ${
           checked
-            ? "border-brand-500 bg-brand-500"
-            : "border-gray-300 bg-transparent dark:border-gray-700"
-        } ${
-          disabled
-            ? "border-gray-200 bg-gray-100 dark:border-gray-700 dark:bg-gray-700"
-            : !checked
-            ? "group-hover:border-gray-400 dark:group-hover:border-gray-500"
-            : ""
+            ? "border-brand-600 bg-brand-600"
+            : `border-gray-300 bg-white dark:border-white/[0.16] dark:bg-white/[0.03] ${
+                disabled ? "" : "group-hover:border-gray-400 dark:group-hover:border-white/[0.24]"
+              }`
         }`}
       >
-        <span
-          className={`h-2 w-2 rounded-full bg-white ${
-            checked ? "block" : "hidden"
-          }`}
-        ></span>
+        <span className={`size-2 rounded-full bg-white ${checked ? "block" : "hidden"}`} />
       </span>
       {label}
     </label>

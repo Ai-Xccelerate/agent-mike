@@ -1,52 +1,56 @@
 "use client";
 import React, { useState } from "react";
-import ComponentCard from "../../common/ComponentCard";
+
+import ComponentCard from "@/components/common/ComponentCard";
+
 import Label from "../Label";
-import Select from "../Select";
 import MultiSelect from "../MultiSelect";
+import Select from "../Select";
+
+const ACCOUNT_OPTIONS = [
+  { value: "northwind", label: "Northwind Logistics" },
+  { value: "fleetwise", label: "Fleetwise" },
+  { value: "ledgerly", label: "Ledgerly" },
+  { value: "brightline", label: "Brightline Health" },
+];
+
+const AGENT_OPTIONS = [
+  { value: "nick", text: "Nick", selected: false },
+  { value: "jules", text: "Jules", selected: false },
+  { value: "pepper", text: "Pepper", selected: false },
+  { value: "tony", text: "Tony", selected: false },
+  { value: "joy", text: "Joy", selected: false },
+  { value: "george", text: "George", selected: false },
+];
 
 export default function SelectInputs() {
-  const options = [
-    { value: "marketing", label: "Marketing" },
-    { value: "template", label: "Template" },
-    { value: "development", label: "Development" },
-  ];
-
-  const [selectedValues, setSelectedValues] = useState<string[]>([]);
-
-  const handleSelectChange = (value: string) => {
-    console.log("Selected value:", value);
-  };
-
-  const multiOptions = [
-    { value: "1", text: "Option 1", selected: false },
-    { value: "2", text: "Option 2", selected: false },
-    { value: "3", text: "Option 3", selected: false },
-    { value: "4", text: "Option 4", selected: false },
-    { value: "5", text: "Option 5", selected: false },
-  ];
+  const [account, setAccount] = useState("");
+  const [agents, setAgents] = useState<string[]>(["jules", "pepper"]);
 
   return (
-    <ComponentCard title="Select Inputs">
-      <div className="space-y-6">
+    <ComponentCard title="Select inputs" desc="One value from a list, or several.">
+      <div className="space-y-5">
         <div>
-          <Label htmlFor="select-input">Select Input</Label>
+          <Label htmlFor="si-account">Account</Label>
           <Select
-            id="select-input"
-            options={options}
-            placeholder="Select Option"
-            onChange={handleSelectChange}
+            id="si-account"
+            options={ACCOUNT_OPTIONS}
+            placeholder="Choose an account"
+            value={account}
+            onChange={setAccount}
           />
         </div>
-        <div className="relative">
+        <div>
           <MultiSelect
-            label="Multiple Select Options"
-            options={multiOptions}
-            defaultSelected={["1", "3"]}
-            onChange={(values) => setSelectedValues(values)}
+            label="Agents on this account"
+            options={AGENT_OPTIONS}
+            defaultSelected={["jules", "pepper"]}
+            onChange={setAgents}
           />
-          <p className="sr-only">
-            Selected Values: {selectedValues.join(", ")}
+          <p className="mt-1.5 text-theme-xs text-gray-500 dark:text-gray-400">
+            {agents.length === 0
+              ? "No agents yet: the account is unattended."
+              : `${agents.length} agent${agents.length === 1 ? "" : "s"} will work this account.`}
           </p>
         </div>
       </div>

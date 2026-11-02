@@ -10,6 +10,7 @@ interface RadioProps {
   className?: string; // Optional custom classes for styling
 }
 
+/** The compact radio (LIB-RADIO-SM): 16px, for dense rows and filter lists. */
 const RadioSm: React.FC<RadioProps> = ({
   id,
   name,
@@ -22,10 +23,9 @@ const RadioSm: React.FC<RadioProps> = ({
   return (
     <label
       htmlFor={id}
-      className={`group flex cursor-pointer select-none items-center text-sm text-gray-500 dark:text-gray-400 ${className}`}
+      className={`group flex cursor-pointer select-none items-center gap-2 text-sm text-gray-700 dark:text-gray-300 ${className}`}
     >
-      <span className="relative">
-        {/* Hidden Input */}
+      <span className="relative flex">
         <input
           type="radio"
           id={id}
@@ -35,20 +35,15 @@ const RadioSm: React.FC<RadioProps> = ({
           onChange={() => onChange(value)}
           className="peer sr-only"
         />
-        {/* Styled Radio Circle */}
         <span
-          className={`mr-2 flex h-4 w-4 items-center justify-center rounded-full border transition-colors duration-150 ease-out peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/50 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white dark:peer-focus-visible:ring-offset-gray-900 ${
+          aria-hidden="true"
+          className={`flex size-4 items-center justify-center rounded-full border transition-colors duration-150 ease-out peer-focus-visible:ring-2 peer-focus-visible:ring-brand-700 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white dark:peer-focus-visible:ring-brand-400 dark:peer-focus-visible:ring-offset-gray-900 ${
             checked
-              ? "border-brand-500 bg-brand-500"
-              : "border-gray-300 bg-transparent group-hover:border-gray-400 dark:border-gray-700 dark:group-hover:border-gray-500"
+              ? "border-brand-600 bg-brand-600"
+              : "border-gray-300 bg-white group-hover:border-gray-400 dark:border-white/[0.16] dark:bg-white/[0.03] dark:group-hover:border-white/[0.24]"
           }`}
         >
-          {/* Inner Dot */}
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              checked ? "bg-white" : "bg-transparent"
-            }`}
-          ></span>
+          <span className={`size-1.5 rounded-full ${checked ? "bg-white" : "bg-transparent"}`} />
         </span>
       </span>
       {label}

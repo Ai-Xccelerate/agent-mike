@@ -2,6 +2,9 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
+import { Floating } from "@/components/ui/floating/Floating";
+import { within } from "@/components/ui/floating/layers";
+
 type Placement = "top" | "bottom" | "left" | "right";
 
 interface PopoverProps {
@@ -10,13 +13,8 @@ interface PopoverProps {
   placement?: Placement;
 }
 
-const placementClasses: Record<Placement, string> = {
-  top: "bottom-full left-1/2 mb-2 -translate-x-1/2",
-  bottom: "top-full left-1/2 mt-2 -translate-x-1/2",
-  left: "right-full top-1/2 mr-2 -translate-y-1/2",
-  right: "left-full top-1/2 ml-2 -translate-y-1/2",
-};
-
+// Floats in <body> against its button (`Floating`), centred on it, and turns
+// to the other side when the one asked for is short of room.
 const Popover: React.FC<PopoverProps> = ({
   trigger,
   content,
@@ -24,11 +22,12 @@ const Popover: React.FC<PopoverProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      if (ref.current && !within(ref.current, e.target)) {
         setOpen(false);
       }
     };
@@ -46,6 +45,7 @@ const Popover: React.FC<PopoverProps> = ({
   return (
     <div className="relative inline-block" ref={ref}>
       <button
+        ref={button}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -54,13 +54,11 @@ const Popover: React.FC<PopoverProps> = ({
       >
         {trigger}
       </button>
-      {open && (
-        <div
-          className={`absolute z-50 w-64 rounded-2xl border border-gray-200 p-4 glass-popover dark:border-gray-800 ${placementClasses[placement]}`}
-        >
+      <Floating open={open} anchor={button} side={placement} align="center" offset={8}>
+        <div className="w-64 rounded-2xl border border-gray-200 p-4 glass-popover dark:border-gray-800">
           {content}
         </div>
-      )}
+      </Floating>
     </div>
   );
 };

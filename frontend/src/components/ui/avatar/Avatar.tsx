@@ -1,64 +1,73 @@
+/**
+ * A person's photo (LIB-AVATAR), round, with an optional presence dot. For an
+ * agent use `aix/AgentAvatar` (its portrait and identity colour are locked);
+ * for someone with no photo, `AvatarText` (initials on a neutral chip); for a
+ * few people at once, `AvatarGroup`.
+ *
+ * A hairline ring keeps a pale photo from melting into a white card. The dot
+ * is a mark: green online, amber busy, grey offline (away is not an error).
+ */
+
 import Image from "next/image";
 import React from "react";
 
+export type AvatarSize = "xsmall" | "small" | "medium" | "large" | "xlarge" | "xxlarge";
+
 interface AvatarProps {
-  src: string; // URL of the avatar image
-  alt?: string; // Alt text for the avatar
-  size?: "xsmall" | "small" | "medium" | "large" | "xlarge" | "xxlarge"; // Avatar size
-  status?: "online" | "offline" | "busy" | "none"; // Status indicator
+  src: string;
+  /** Who it is: the person's name, never "avatar". */
+  alt?: string;
+  size?: AvatarSize;
+  status?: "online" | "offline" | "busy" | "none";
+  className?: string;
 }
 
-const sizeClasses = {
-  xsmall: "h-6 w-6 max-w-6",
-  small: "h-8 w-8 max-w-8",
-  medium: "h-10 w-10 max-w-10",
-  large: "h-12 w-12 max-w-12",
-  xlarge: "h-14 w-14 max-w-14",
-  xxlarge: "h-16 w-16 max-w-16",
+export const AVATAR_SIZE: Record<AvatarSize, string> = {
+  xsmall: "size-6",
+  small: "size-8",
+  medium: "size-10",
+  large: "size-12",
+  xlarge: "size-14",
+  xxlarge: "size-16",
 };
 
-const statusSizeClasses = {
-  xsmall: "h-1.5 w-1.5 max-w-1.5",
-  small: "h-2 w-2 max-w-2",
-  medium: "h-2.5 w-2.5 max-w-2.5",
-  large: "h-3 w-3 max-w-3",
-  xlarge: "h-3.5 w-3.5 max-w-3.5",
-  xxlarge: "h-4 w-4 max-w-4",
+const AVATAR_PX: Record<AvatarSize, number> = { xsmall: 24, small: 32, medium: 40, large: 48, xlarge: 56, xxlarge: 64 };
+
+const statusSizeClasses: Record<AvatarSize, string> = {
+  xsmall: "size-2",
+  small: "size-2.5",
+  medium: "size-2.5",
+  large: "size-3",
+  xlarge: "size-3.5",
+  xxlarge: "size-4",
 };
 
 const statusColorClasses = {
   online: "bg-success-500",
-  offline: "bg-error-400",
+  offline: "bg-gray-400 dark:bg-gray-500",
   busy: "bg-warning-500",
 };
 
-const Avatar: React.FC<AvatarProps> = ({
-  src,
-  alt = "User Avatar",
-  size = "medium",
-  status = "none",
-}) => {
-  return (
-    <div className={`relative rounded-full ${sizeClasses[size]}`}>
-      {/* Avatar Image */}
-      <Image
-        width="0"
-        height="0"
-        sizes="100vw"
-        src={src}
-        alt={alt}
-        className="h-full w-full rounded-full object-cover"
-      />
+const STATUS_WORD = { online: "online", offline: "offline", busy: "busy" };
 
-      {/* Status Indicator */}
+const Avatar: React.FC<AvatarProps> = ({ src, alt = "User avatar", size = "medium", status = "none", className = "" }) => {
+  return (
+    <span className={`relative inline-flex shrink-0 ${AVATAR_SIZE[size]} ${className}`}>
+      <Image
+        width={AVATAR_PX[size]}
+        height={AVATAR_PX[size]}
+        sizes={`${AVATAR_PX[size]}px`}
+        src={src}
+        alt={status !== "none" ? `${alt}, ${STATUS_WORD[status]}` : alt}
+        className="size-full rounded-full object-cover ring-1 ring-black/5 dark:ring-white/10"
+      />
       {status !== "none" && (
         <span
-          className={`absolute bottom-0 right-0 rounded-full border-[1.5px] border-white dark:border-gray-900 ${
-            statusSizeClasses[size]
-          } ${statusColorClasses[status] || ""}`}
-        ></span>
+          aria-hidden="true"
+          className={`absolute bottom-0 right-0 rounded-full ring-2 ring-white dark:ring-gray-900 ${statusSizeClasses[size]} ${statusColorClasses[status]}`}
+        />
       )}
-    </div>
+    </span>
   );
 };
 

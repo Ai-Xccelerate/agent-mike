@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from "react";
+import Select from "@/components/form/Select";
 
 interface CountryCode {
   code: string;
@@ -10,14 +11,22 @@ interface PhoneInputProps {
   countries: CountryCode[];
   placeholder?: string;
   onChange?: (phoneNumber: string) => void;
-  selectPosition?: "start" | "end"; // New prop for dropdown position
+  selectPosition?: "start" | "end"; // Dropdown position within the field
+  /** The number field's id, for a `Label`'s `htmlFor`. */
+  id?: string;
 }
 
+/**
+ * A phone number with its country code (LIB-PHONEINPUT): one `field`-styled
+ * box holding a borderless country picker and the number, split by a hairline.
+ * The box takes the focus ring while either part has the focus.
+ */
 const PhoneInput: React.FC<PhoneInputProps> = ({
   countries,
   placeholder = "+1 (555) 000-0000",
   onChange,
-  selectPosition = "start", // Default position is 'start'
+  selectPosition = "start",
+  id,
 }) => {
   const [selectedCountry, setSelectedCountry] = useState<string>("US");
   const [phoneNumber, setPhoneNumber] = useState<string>("+1");
@@ -27,112 +36,55 @@ const PhoneInput: React.FC<PhoneInputProps> = ({
     {}
   );
 
-  const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newCountry = e.target.value;
+  const handleCountryChange = (newCountry: string) => {
     setSelectedCountry(newCountry);
     setPhoneNumber(countryCodes[newCountry]);
-    if (onChange) {
-      onChange(countryCodes[newCountry]);
-    }
+    onChange?.(countryCodes[newCountry]);
   };
 
   const handlePhoneNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newPhoneNumber = e.target.value;
-    setPhoneNumber(newPhoneNumber);
-    if (onChange) {
-      onChange(newPhoneNumber);
-    }
+    setPhoneNumber(e.target.value);
+    onChange?.(e.target.value);
   };
 
-  return (
-    <div className="relative flex">
-      {/* Dropdown position: Start */}
-      {selectPosition === "start" && (
-        <div className="absolute">
-          <select
-            value={selectedCountry}
-            onChange={handleCountryChange}
-            className="appearance-none bg-none rounded-l-lg border-0 border-r border-gray-200 bg-transparent py-3 pl-3.5 pr-8 leading-tight text-gray-700 cursor-pointer transition-colors duration-150 ease-out focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:text-gray-400"
-          >
-            {countries.map((country) => (
-              <option
-                key={country.code}
-                value={country.code}
-                className="text-gray-700 dark:bg-gray-900 dark:text-gray-400"
-              >
-                {country.code}
-              </option>
-            ))}
-          </select>
-          <div className="absolute inset-y-0 flex items-center text-gray-700 pointer-events-none bg-none right-3 dark:text-gray-400">
-            <svg
-              className="stroke-current"
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M4.79175 7.396L10.0001 12.6043L15.2084 7.396"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-        </div>
-      )}
+  const countrySelect = (
+    <div className="w-[84px] shrink-0 px-1">
+      <Select
+        variant="ghost"
+        size="sm"
+        value={selectedCountry}
+        onChange={handleCountryChange}
+        ariaLabel="Country code"
+        options={countries.map((c) => ({ value: c.code, label: c.code }))}
+      />
+    </div>
+  );
 
-      {/* Input field */}
+  const divider = <span aria-hidden="true" className="h-6 w-px shrink-0 bg-gray-200 dark:bg-white/[0.08]" />;
+
+  return (
+    <div className="flex h-10 w-full items-center rounded-lg border border-gray-300 bg-transparent shadow-theme-xs transition-colors duration-150 ease-out focus-within:border-brand-600 focus-within:ring-2 focus-within:ring-brand-500/20 hover:border-gray-400 dark:border-white/[0.08] dark:hover:border-white/[0.16] dark:focus-within:border-brand-500">
+      {selectPosition === "start" && (
+        <>
+          {countrySelect}
+          {divider}
+        </>
+      )}
       <input
+        id={id}
         type="tel"
+        inputMode="tel"
+        autoComplete="tel"
         value={phoneNumber}
         onChange={handlePhoneNumberChange}
         placeholder={placeholder}
-        className={`h-11 w-full ${
-          selectPosition === "start" ? "pl-[84px]" : "pr-[84px]"
-        } rounded-lg border border-gray-300 bg-transparent py-3 px-4 text-sm text-gray-800 shadow-theme-xs transition-colors duration-150 ease-out placeholder:text-gray-500 hover:border-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-400 dark:hover:border-gray-600 dark:focus:border-brand-800`}
+        className="h-full w-full min-w-0 bg-transparent px-3 text-sm tabular-nums text-gray-800 placeholder:text-gray-500 focus:outline-hidden dark:text-white/90 dark:placeholder:text-gray-400"
       />
-
-      {/* Dropdown position: End */}
       {selectPosition === "end" && (
-        <div className="absolute right-0">
-          <select
-            value={selectedCountry}
-            onChange={handleCountryChange}
-            className="appearance-none bg-none rounded-r-lg border-0 border-l border-gray-200 bg-transparent py-3 pl-3.5 pr-8 leading-tight text-gray-700 cursor-pointer transition-colors duration-150 ease-out focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:text-gray-400"
-          >
-            {countries.map((country) => (
-              <option
-                key={country.code}
-                value={country.code}
-                className="text-gray-700 dark:bg-gray-900 dark:text-gray-400"
-              >
-                {country.code}
-              </option>
-            ))}
-          </select>
-          <div className="absolute inset-y-0 flex items-center text-gray-700 pointer-events-none right-3 dark:text-gray-400">
-            <svg
-              className="stroke-current"
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M4.79175 7.396L10.0001 12.6043L15.2084 7.396"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-        </div>
+        <>
+          {divider}
+          {countrySelect}
+        </>
       )}
     </div>
   );

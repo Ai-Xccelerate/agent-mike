@@ -1,3 +1,14 @@
+/**
+ * Something is happening and there is no telling how long it takes
+ * (LIB-SPINNER). Where you can say how far, use `ProgressBar`; where you know
+ * the shape of what is coming, a `Skeleton`; inside a button, `Button`'s own
+ * `loading`.
+ *
+ * The ring is a faint track with one arc running round it. It keeps turning
+ * under reduced motion -- a still spinner says nothing is happening -- while
+ * the dots, which are decoration, rest.
+ */
+
 import React from "react";
 
 type SpinnerSize = "sm" | "md" | "lg";
@@ -8,45 +19,44 @@ interface SpinnerProps {
   size?: SpinnerSize;
   color?: SpinnerColor;
   variant?: SpinnerVariant;
+  /** What is loading, for a screen reader: "Loading accounts". */
+  label?: string;
+  className?: string;
 }
 
 const ringSize: Record<SpinnerSize, string> = {
-  sm: "h-5 w-5 border-2",
-  md: "h-8 w-8 border-[3px]",
-  lg: "h-12 w-12 border-4",
+  sm: "size-5 border-2",
+  md: "size-8 border-[2.5px]",
+  lg: "size-12 border-[3px]",
 };
 
 const dotSize: Record<SpinnerSize, string> = {
-  sm: "h-1.5 w-1.5",
-  md: "h-2.5 w-2.5",
-  lg: "h-3.5 w-3.5",
+  sm: "size-1.5",
+  md: "size-2",
+  lg: "size-3",
 };
 
 const ringColor: Record<SpinnerColor, string> = {
-  brand: "border-brand-500 border-t-transparent",
-  gray: "border-gray-300 border-t-transparent dark:border-gray-600 dark:border-t-transparent",
-  white: "border-white border-t-transparent",
+  brand: "border-brand-500/20 border-t-brand-500",
+  gray: "border-gray-900/10 border-t-gray-600 dark:border-white/10 dark:border-t-gray-300",
+  white: "border-white/30 border-t-white",
 };
 
 const dotColor: Record<SpinnerColor, string> = {
   brand: "bg-brand-500",
-  gray: "bg-gray-400 dark:bg-gray-500",
+  gray: "bg-gray-500 dark:bg-gray-400",
   white: "bg-white",
 };
 
-const Spinner: React.FC<SpinnerProps> = ({
-  size = "md",
-  color = "brand",
-  variant = "ring",
-}) => {
+const Spinner: React.FC<SpinnerProps> = ({ size = "md", color = "brand", variant = "ring", label = "Loading", className = "" }) => {
   if (variant === "dots") {
     return (
-      <span className="inline-flex items-center gap-1.5" role="status" aria-label="Loading">
+      <span className={`inline-flex items-center gap-1.5 ${className}`} role="status" aria-label={label}>
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className={`inline-block animate-pulse rounded-full ${dotSize[size]} ${dotColor[color]}`}
-            style={{ animationDelay: `${i * 0.2}s` }}
+            className={`animate-pulse-dot inline-block rounded-full ${dotSize[size]} ${dotColor[color]}`}
+            style={{ animationDelay: `${i * 0.18}s` }}
           />
         ))}
       </span>
@@ -56,8 +66,8 @@ const Spinner: React.FC<SpinnerProps> = ({
   return (
     <span
       role="status"
-      aria-label="Loading"
-      className={`inline-block animate-spin rounded-full ${ringSize[size]} ${ringColor[color]}`}
+      aria-label={label}
+      className={`inline-block shrink-0 animate-spin rounded-full ${ringSize[size]} ${ringColor[color]} ${className}`}
     />
   );
 };

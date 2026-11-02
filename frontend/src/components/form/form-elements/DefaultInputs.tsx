@@ -1,106 +1,83 @@
 "use client";
-import React, { useState } from 'react';
-import ComponentCard from '../../common/ComponentCard';
-import Label from '../Label';
-import Input from '../input/InputField';
-import Select from '../Select';
-import { EyeCloseIcon, EyeIcon, TimeIcon } from '../../../icons';
-import DatePicker from '@/components/form/date-picker';
+import React, { useState } from "react";
+
+import ComponentCard from "@/components/common/ComponentCard";
+import { ClockIcon } from "@/components/common/icons";
+import DatePicker from "@/components/form/date-picker";
+import { EyeCloseIcon, EyeIcon } from "@/icons";
+
+import Input from "../input/InputField";
+import Label from "../Label";
+import Select from "../Select";
+
+const ROLE_OPTIONS = [
+  { value: "demand-gen", label: "Demand generation" },
+  { value: "outbound", label: "Outbound sales" },
+  { value: "inbound", label: "Inbound qualification" },
+];
 
 export default function DefaultInputs() {
   const [showPassword, setShowPassword] = useState(false);
-  const options = [
-    { value: "marketing", label: "Marketing" },
-    { value: "template", label: "Template" },
-    { value: "development", label: "Development" },
-  ];
-  const handleSelectChange = (value: string) => {
-    console.log("Selected value:", value);
-  };
+  const [role, setRole] = useState("");
+
   return (
-    <ComponentCard title="Default Inputs">
-      <div className="space-y-6">
+    <ComponentCard title="Default inputs" desc="Text, select, password, date and time fields.">
+      <div className="space-y-5">
         <div>
-          <Label>Input</Label>
-          <Input type="text" />
+          <Label htmlFor="di-name">Input</Label>
+          <Input id="di-name" type="text" />
         </div>
         <div>
-          <Label>Input with Placeholder</Label>
-          <Input type="text" placeholder="info@gmail.com" />
+          <Label htmlFor="di-email">Input with placeholder</Label>
+          <Input id="di-email" type="email" placeholder="dana@fleetwise.com" />
         </div>
         <div>
-          <Label htmlFor="default-select">Select Input</Label>
-          <Select
-            id="default-select"
-            options={options}
-            placeholder="Select an option"
-            onChange={handleSelectChange}
-          />
+          <Label htmlFor="di-select">Select</Label>
+          <Select id="di-select" options={ROLE_OPTIONS} placeholder="Choose a role" value={role} onChange={setRole} />
         </div>
         <div>
-          <Label>Password Input</Label>
+          <Label htmlFor="di-password">Password</Label>
           <div className="relative">
             <Input
+              id="di-password"
               type={showPassword ? "text" : "password"}
-              placeholder="Enter your password"
+              placeholder="At least 12 characters"
+              autoComplete="new-password"
+              className="pr-10"
             />
             <button
               type="button"
               aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 z-30 -translate-y-1/2 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
+              className="focus-ring absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-500 transition-colors duration-150 ease-out hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-white"
             >
               {showPassword ? (
-                <EyeIcon className="fill-gray-500 transition-colors duration-150 ease-out hover:fill-gray-700 dark:fill-gray-400 dark:hover:fill-gray-300" />
+                <EyeIcon className="size-5 fill-current" />
               ) : (
-                <EyeCloseIcon className="fill-gray-500 transition-colors duration-150 ease-out hover:fill-gray-700 dark:fill-gray-400 dark:hover:fill-gray-300" />
+                <EyeCloseIcon className="size-5 fill-current" />
               )}
             </button>
           </div>
         </div>
 
-        <div>
-          <DatePicker
-            id="date-picker"
-            label="Date Picker Input"
-            placeholder="Select a date"
-            onChange={(dates, currentDateString) => {
-              // Handle your logic
-              console.log({ dates, currentDateString });
-            }}
-          />
-        </div>
+        <DatePicker id="di-date" label="Date" placeholder="Choose a date" />
 
         <div>
-          <Label htmlFor="tm">Time Picker Input</Label>
+          <Label htmlFor="di-time">Time</Label>
           <div className="relative">
-            <Input
-              type="time"
-              id="tm"
-              name="tm"
-              onChange={(e) => console.log(e.target.value)}
-            />
-            <span className="absolute text-gray-500 -translate-y-1/2 pointer-events-none right-3 top-1/2 dark:text-gray-400">
-              <TimeIcon />
+            <Input type="time" id="di-time" name="di-time" className="pr-10" />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+              <ClockIcon className="size-4.5" />
             </span>
           </div>
         </div>
         <div>
-          <Label htmlFor="tm">Input with Payment</Label>
+          <Label htmlFor="di-card">Card number</Label>
           <div className="relative">
-            <Input
-              type="text"
-              placeholder="Card number"
-              className="pl-[62px]"
-            />
-            <span className="absolute left-0 top-1/2 flex h-11 w-[46px] -translate-y-1/2 items-center justify-center border-r border-gray-200 dark:border-gray-800">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 20 20"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
+            <Input id="di-card" type="text" placeholder="1234 5678 9012 3456" autoComplete="cc-number" className="pl-13 tabular-nums" />
+            <span className="pointer-events-none absolute inset-y-0 left-0 flex w-10 items-center justify-center border-r border-gray-200 dark:border-white/[0.08]">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <circle cx="6.25" cy="10" r="5.625" fill="#E80B26" />
                 <circle cx="13.75" cy="10" r="5.625" fill="#F59D31" />
                 <path

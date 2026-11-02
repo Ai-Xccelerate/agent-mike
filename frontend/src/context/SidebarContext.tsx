@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useCallback, useContext, useState, useEffect } from "react";
 
 type SidebarContextType = {
   isExpanded: boolean;
@@ -38,7 +38,9 @@ export const SidebarProvider: React.FC<{ children: React.ReactNode }> = ({
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      if (!mobile) {
+      // The drawer exists below `lg` (1024px), not only below 768: closing it at
+      // 768 left a tablet turned sideways with the drawer gone mid-use.
+      if (window.innerWidth >= 1024) {
         setIsMobileOpen(false);
       }
     };
@@ -51,17 +53,19 @@ export const SidebarProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, []);
 
-  const toggleSidebar = () => {
+  // Stable identities: the frame's keyboard shortcuts subscribe with these,
+  // and a new function per render re-subscribed them on every render.
+  const toggleSidebar = useCallback(() => {
     setIsExpanded((prev) => !prev);
-  };
+  }, []);
 
-  const toggleMobileSidebar = () => {
+  const toggleMobileSidebar = useCallback(() => {
     setIsMobileOpen((prev) => !prev);
-  };
+  }, []);
 
-  const toggleSubmenu = (item: string) => {
+  const toggleSubmenu = useCallback((item: string) => {
     setOpenSubmenu((prev) => (prev === item ? null : item));
-  };
+  }, []);
 
   return (
     <SidebarContext.Provider

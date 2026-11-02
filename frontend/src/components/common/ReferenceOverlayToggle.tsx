@@ -1,47 +1,59 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+/**
+ * The AIX reference overlay (LIB-REFIDS): every element carrying a
+ * `data-aix-id` shows its ID as an orange badge, so a page, a block or a frame
+ * region can be named precisely ("change AIX-311.2"). See AIX-REFERENCE.md.
+ *
+ * On or off is a class on <html> (`.aix-ref-mode`, styled in globals.css) and a
+ * word in `localStorage`, read through `useSyncExternalStore` like the theme
+ * and the density -- so the sidebar's row, the palette's command and the `\`
+ * key all show and change the same state.
+ */
 
-// Floating toggle for the AIX reference overlay. When on, every element
-// carrying a data-aix-id shows its ID as an orange badge (see globals.css
-// `.aix-ref-mode` rules and AIX-REFERENCE.md for the ID scheme).
-export default function ReferenceOverlayToggle() {
-  const [on, setOn] = useState(false);
+import { useEffect, useSyncExternalStore } from "react";
 
-  useEffect(() => {
-    const saved = localStorage.getItem("aix-ref-mode") === "on";
-    if (saved) {
-      setOn(true);
-      document.documentElement.classList.add("aix-ref-mode");
-    }
-  }, []);
+const KEY = "aix-ref-mode";
+const EVENT = "aix:ref-mode";
+const CLASS = "aix-ref-mode";
 
-  const toggle = () => {
-    const next = !on;
-    setOn(next);
-    document.documentElement.classList.toggle("aix-ref-mode", next);
-    localStorage.setItem("aix-ref-mode", next ? "on" : "off");
+function read(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+function subscribe(onChange: () => void): () => void {
+  window.addEventListener(EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(EVENT, onChange);
+    window.removeEventListener("storage", onChange);
   };
+}
 
-  return (
-    <button
-      onClick={toggle}
-      title={
-        on
-          ? "Hide AIX reference IDs"
-          : "Show AIX reference IDs (pages, blocks, frame regions)"
-      }
-      aria-pressed={on}
-      className={`fixed bottom-6 left-6 z-99999 flex h-10 items-center gap-2 rounded-lg border px-3 font-mono text-xs font-bold shadow-theme-md transition-colors duration-150 ${
-        on
-          ? "border-brand-500 bg-brand-500 text-white"
-          : "border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
-      }`}
-    >
-      AIX-ID
-      <span
-        className={`size-2 rounded-full ${on ? "bg-white" : "bg-gray-300 dark:bg-gray-600"}`}
-      />
-    </button>
-  );
+export function setReferenceIds(on: boolean): void {
+  try {
+    window.localStorage.setItem(KEY, on ? "on" : "off");
+  } catch {
+    // Storage refused (a private window): the overlay still turns on for now.
+  }
+  document.documentElement.classList.toggle(CLASS, on);
+  window.dispatchEvent(new Event(EVENT));
+}
+
+export function toggleReferenceIds(): void {
+  setReferenceIds(!read());
+}
+
+/** Whether the overlay is on, kept current; applies the class on mount. */
+export function useReferenceIds(): boolean {
+  const on = useSyncExternalStore(subscribe, read, () => false);
+  useEffect(() => {
+    document.documentElement.classList.toggle(CLASS, on);
+  }, [on]);
+  return on;
 }

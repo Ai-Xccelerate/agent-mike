@@ -1,55 +1,59 @@
-import React, { useState } from "react";
+"use client";
 
-const ChartTab: React.FC = () => {
-  const [selected, setSelected] = useState<
-    "optionOne" | "optionTwo" | "optionThree"
-  >("optionOne");
+/**
+ * A chart's period switch (LIB-CHARTTAB): Monthly · Quarterly · Annually by
+ * default, or any segments you give it. It is a `SegmentedControl` at the
+ * small size -- the chosen period a raised white pill, never orange -- so a
+ * period switch on a chart reads the same as every other one-of-a-few choice
+ * in the product.
+ *
+ * Controlled (`value` + `onChange`) when the chart redraws for the period;
+ * uncontrolled (`defaultValue`) for a demo.
+ */
 
-  const getButtonClass = (option: "optionOne" | "optionTwo" | "optionThree") =>
-    selected === option
-      ? "shadow-theme-xs text-gray-900 dark:text-white bg-white dark:bg-gray-800"
-      : "text-gray-500 dark:text-gray-400";
+import { useState } from "react";
 
+import SegmentedControl, { type Segment } from "@/components/ui/SegmentedControl";
+
+export type ChartRange = "monthly" | "quarterly" | "annually";
+
+export const CHART_RANGES: Array<Segment<ChartRange>> = [
+  { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "annually", label: "Annually" },
+];
+
+interface ChartTabProps<T extends string> {
+  value?: T;
+  defaultValue?: T;
+  onChange?: (value: T) => void;
+  /** The periods on offer. Monthly, quarterly and annually by default. */
+  segments?: Array<Segment<T>>;
+  ariaLabel?: string;
+  className?: string;
+}
+
+export default function ChartTab<T extends string = ChartRange>({
+  value,
+  defaultValue,
+  onChange,
+  segments = CHART_RANGES as unknown as Array<Segment<T>>,
+  ariaLabel = "Chart period",
+  className = "",
+}: ChartTabProps<T>) {
+  const [own, setOwn] = useState<T>(defaultValue ?? segments[0].value);
+  const chosen = value ?? own;
   return (
-    <div
-      role="group"
-      aria-label="Chart range"
-      className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900"
-    >
-      <button
-        type="button"
-        aria-pressed={selected === "optionOne"}
-        onClick={() => setSelected("optionOne")}
-        className={`w-full rounded-md px-3 py-2 text-theme-sm font-medium transition-colors duration-150 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/50 dark:hover:text-white ${getButtonClass(
-          "optionOne"
-        )}`}
-      >
-        Monthly
-      </button>
-
-      <button
-        type="button"
-        aria-pressed={selected === "optionTwo"}
-        onClick={() => setSelected("optionTwo")}
-        className={`w-full rounded-md px-3 py-2 text-theme-sm font-medium transition-colors duration-150 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/50 dark:hover:text-white ${getButtonClass(
-          "optionTwo"
-        )}`}
-      >
-        Quarterly
-      </button>
-
-      <button
-        type="button"
-        aria-pressed={selected === "optionThree"}
-        onClick={() => setSelected("optionThree")}
-        className={`w-full rounded-md px-3 py-2 text-theme-sm font-medium transition-colors duration-150 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/50 dark:hover:text-white ${getButtonClass(
-          "optionThree"
-        )}`}
-      >
-        Annually
-      </button>
-    </div>
+    <SegmentedControl<T>
+      ariaLabel={ariaLabel}
+      size="sm"
+      value={chosen}
+      segments={segments}
+      className={className}
+      onChange={(next) => {
+        setOwn(next);
+        onChange?.(next);
+      }}
+    />
   );
-};
-
-export default ChartTab;
+}

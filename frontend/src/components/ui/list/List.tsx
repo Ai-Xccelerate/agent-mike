@@ -1,5 +1,15 @@
+/**
+ * A list of short lines in prose (LIB-LIST): bullets, steps, features, a
+ * checklist. Markers are quiet grey -- a column of orange bullets is a dozen
+ * orange moments -- except the checklist's ticks, which say "done" in green.
+ *
+ * For rows of things you can open (deals, people), use a divided list of
+ * rows instead (see the List page's last block, or `PanelList`).
+ */
+
 import React from "react";
-import { CheckLineIcon } from "@/icons";
+
+import { CheckIcon } from "@/components/common/icons";
 
 export interface ListItem {
   text: React.ReactNode;
@@ -12,18 +22,16 @@ interface ListProps {
   className?: string;
 }
 
-const List: React.FC<ListProps> = ({
-  items,
-  variant = "unordered",
-  className = "",
-}) => {
-  const baseItem = "text-sm text-gray-700 dark:text-gray-300";
+const List: React.FC<ListProps> = ({ items, variant = "unordered", className = "" }) => {
+  const baseItem = "text-theme-sm leading-relaxed text-gray-700 dark:text-gray-300";
 
   if (variant === "ordered") {
     return (
-      <ol className={`list-decimal space-y-3 pl-5 marker:text-brand-500 ${className}`}>
+      <ol
+        className={`list-decimal space-y-2.5 pl-5 marker:font-medium marker:tabular-nums marker:text-gray-500 dark:marker:text-gray-400 ${className}`}
+      >
         {items.map((item, i) => (
-          <li key={i} className={baseItem}>
+          <li key={i} className={`pl-1 ${baseItem}`}>
             {item.text}
           </li>
         ))}
@@ -33,9 +41,9 @@ const List: React.FC<ListProps> = ({
 
   if (variant === "unordered") {
     return (
-      <ul className={`list-disc space-y-3 pl-5 marker:text-brand-500 ${className}`}>
+      <ul className={`list-disc space-y-2.5 pl-5 marker:text-gray-400 dark:marker:text-gray-500 ${className}`}>
         {items.map((item, i) => (
-          <li key={i} className={baseItem}>
+          <li key={i} className={`pl-1 ${baseItem}`}>
             {item.text}
           </li>
         ))}
@@ -47,19 +55,16 @@ const List: React.FC<ListProps> = ({
   return (
     <ul className={`space-y-3 ${className}`}>
       {items.map((item, i) => (
-        <li key={i} className="flex items-center gap-3">
+        <li key={i} className="flex items-start gap-3">
           <span
-            className={`flex h-5 w-5 shrink-0 items-center justify-center ${
+            aria-hidden="true"
+            className={`mt-px flex size-5 shrink-0 items-center justify-center rounded-full ${
               variant === "check"
-                ? "rounded-full bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
-                : "text-brand-500"
+                ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400"
+                : "text-gray-500 dark:text-gray-400"
             }`}
           >
-            {variant === "check" ? (
-              <CheckLineIcon className="h-3.5 w-3.5" />
-            ) : (
-              item.icon
-            )}
+            {variant === "check" ? <CheckIcon className="size-3.5" strokeWidth={2.25} /> : item.icon}
           </span>
           <span className={baseItem}>{item.text}</span>
         </li>
