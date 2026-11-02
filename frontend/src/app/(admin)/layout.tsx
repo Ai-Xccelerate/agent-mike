@@ -49,11 +49,15 @@ function Frame({ children }: { children: React.ReactNode }) {
   // A full-bleed page (an editor, a canvas: `useFullBleed`) gets the whole
   // height and width beside the sidebar at every size, and scrolls itself.
   const bleed = useFrameBleed();
-  // The Assistant is a pane of its own: it fills the column beside the sidebar
-  // and scrolls itself, but keeps the phone's top bar for the drawer.
+  // The Assistant fills the column beside the sidebar and scrolls itself, but
+  // keeps the phone's top bar for the drawer.
   const pathname = usePathname();
-  const flush = pathname === "/assistant" || pathname.startsWith("/assistant/");
-  const fill = bleed || flush;
+  const under = (prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
+  const flush = under("/assistant");
+  // Inbox, Playground and Settings are fixed-height panes too (their lists and
+  // threads scroll inside), so they get a height to fill, and the old padding.
+  const pane = under("/inbox") || under("/playground") || under("/settings");
+  const fill = bleed || flush || pane;
 
   return (
     /*
@@ -108,7 +112,7 @@ function Frame({ children }: { children: React.ReactNode }) {
               showing through the gap above it. */}
           <div
             data-page
-            className={fill ? "flex min-h-0 w-full flex-1 flex-col" : "flex w-full flex-1 flex-col pt-5 pb-12 md:pt-8 md:pb-14 xl:pt-9 xl:pb-16"}
+            className={pane ? "flex min-h-0 w-full flex-1 flex-col p-4 md:p-6" : fill ? "flex min-h-0 w-full flex-1 flex-col" : "flex w-full flex-1 flex-col pt-5 pb-12 md:pt-8 md:pb-14 xl:pt-9 xl:pb-16"}
           >
             {children}
           </div>
