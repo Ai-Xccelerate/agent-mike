@@ -80,3 +80,34 @@ describe("auth config lookup", () => {
     expect(() => getAuthConfigId("zoho")).toThrow("COMPOSIO_ZOHO_AUTH_CONFIG_ID is not set");
   });
 });
+
+describe("API-key auth configs", () => {
+  const KEYS = ["COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID", "COMPOSIO_CONFLUENCE_API_KEY_AUTH_CONFIG_ID"] as const;
+  const saved = KEYS.map((key) => process.env[key]);
+  afterEach(() => {
+    KEYS.forEach((key, index) => {
+      if (saved[index] === undefined) delete process.env[key];
+      else process.env[key] = saved[index];
+    });
+  });
+
+  it("reads the API-key config separately from the OAuth one", async () => {
+    process.env.COMPOSIO_JIRA_AUTH_CONFIG_ID = "ac_oauth_jira";
+    process.env.COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID = "ac_key_jira";
+    process.env.COMPOSIO_CONFLUENCE_API_KEY_AUTH_CONFIG_ID = "ac_key_confluence";
+    vi.resetModules();
+    const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
+    expect(getAuthConfigId("jira")).toBe("ac_oauth_jira");
+    expect(getAuthConfigId("jira", "api_key")).toBe("ac_key_jira");
+    expect(getAuthConfigId("confluence", "api_key")).toBe("ac_key_confluence");
+  });
+
+  it("says so when the API-key config isn't set, or the system can't use one", async () => {
+    delete process.env.COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID;
+    vi.resetModules();
+    const { getAuthConfigId } = await import("@/lib/tools-integrations/auth-configs");
+    expect(() => getAuthConfigId("jira", "api_key")).toThrow("COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID is not set");
+    expect(() => getAuthConfigId("zoho", "api_key")).toThrow("can't connect with an API key");
+  });
+});
+

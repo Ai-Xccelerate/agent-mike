@@ -827,12 +827,13 @@ export function getIntegrationConnection(type: string): Promise<IntegrationConne
 export function connectIntegration(
   type: string,
   system: string,
+  authMethod?: "api_key",
 ): Promise<{ redirectUrl: string | null; alreadyConnected?: boolean }> {
   return apiFetch<{ redirectUrl: string | null; alreadyConnected?: boolean }>(
     `/integrations/${type}/connect`,
     {
       method: "POST",
-      body: JSON.stringify({ system }),
+      body: JSON.stringify(authMethod ? { system, authMethod } : { system }),
     },
   );
 }

@@ -1,4 +1,4 @@
-import { getAuthConfigId } from "@/lib/tools-integrations/auth-configs";
+import { getAuthConfigId, type AuthMethod } from "@/lib/tools-integrations/auth-configs";
 import { findActiveConnectedAccount, linkConnection } from "@/lib/tools-integrations/composio-client";
 import {
   attachConnectedAccountId,
@@ -32,6 +32,8 @@ export async function startIntegrationConnection(input: {
   system: string;
   connectedBy: string;
   appOrigin: string;
+  /** "api_key" connects with an API token (e.g. a service account) instead of a person's sign-in. */
+  authMethod?: AuthMethod;
 }): Promise<{ redirectUrl: string | null; alreadyConnected?: boolean }> {
   if (!getIntegrationType(input.integrationType)) {
     throw new ConnectionFlowError(`Unknown integration type "${input.integrationType}"`, 400);
@@ -39,7 +41,7 @@ export async function startIntegrationConnection(input: {
 
   let authConfigId: string;
   try {
-    authConfigId = getAuthConfigId(input.system);
+    authConfigId = getAuthConfigId(input.system, input.authMethod ?? "oauth");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid auth config";
     throw new ConnectionFlowError(message, message.endsWith("is not set") ? 500 : 400);
