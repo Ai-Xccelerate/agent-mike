@@ -16,9 +16,10 @@
  * customer email from — and attributing every bug report to it would file the
  * whole team's reports under one fictional person.
  *
- * So nothing is identified until there is a real signed-in human to identify.
- * Until then reporters are asked for their details, which is Grab's documented
- * fallback and the honest answer while this build has no sign-in.
+ * So only a real signed-in human is identified: `GrabWidget` passes the Clerk
+ * user's email, name and id once Clerk has loaded, and resets on sign-out.
+ * With nobody signed in, reporters are asked for their details, which is
+ * Grab's documented fallback.
  */
 
 export interface GrabUser {
