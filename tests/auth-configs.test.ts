@@ -120,6 +120,31 @@ describe("API-key auth configs", () => {
     }
   });
 
+  it("lists only the connection methods whose config is set", async () => {
+    const names = [
+      "COMPOSIO_JIRA_AUTH_CONFIG_ID",
+      "COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID",
+      "COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID",
+    ] as const;
+    const saved = names.map((name) => process.env[name]);
+    try {
+      process.env.COMPOSIO_JIRA_AUTH_CONFIG_ID = "ac_oauth_jira";
+      process.env.COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID = "ac_key_jira";
+      delete process.env.COMPOSIO_JIRA_CLIENT_CREDENTIALS_AUTH_CONFIG_ID;
+      vi.resetModules();
+      const { availableAuthMethods } = await import("@/lib/tools-integrations/auth-configs");
+      expect(availableAuthMethods("jira")).toEqual(["oauth", "api_key"]);
+      delete process.env.COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID;
+      expect(availableAuthMethods("jira")).toEqual(["oauth"]);
+      expect(availableAuthMethods("zoho")).not.toContain("api_key");
+    } finally {
+      names.forEach((name, index) => {
+        if (saved[index] === undefined) delete process.env[name];
+        else process.env[name] = saved[index];
+      });
+    }
+  });
+
   it("says so when the API-key config isn't set, or the system can't use one", async () => {
     delete process.env.COMPOSIO_JIRA_API_KEY_AUTH_CONFIG_ID;
     vi.resetModules();

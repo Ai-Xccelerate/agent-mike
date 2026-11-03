@@ -56,3 +56,15 @@ export function getAuthConfigId(system: string, method: AuthMethod = "oauth"): s
   }
   return value;
 }
+
+/** The ways this server can connect a system, in the order the chooser lists them: those whose auth config is set. */
+export function availableAuthMethods(system: string): AuthMethod[] {
+  return (Object.keys(METHOD_ENV) as AuthMethod[]).filter((method) => {
+    try {
+      getAuthConfigId(system, method);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}

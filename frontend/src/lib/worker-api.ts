@@ -824,6 +824,15 @@ export function getIntegrationConnection(type: string): Promise<IntegrationConne
   return apiFetch<IntegrationConnection>(`/integrations/${type}`);
 }
 
+export function getConnectMethods(
+  type: string,
+  system: string,
+): Promise<{ methods: ("oauth" | "api_key" | "client_credentials")[] }> {
+  return apiFetch<{ methods: ("oauth" | "api_key" | "client_credentials")[] }>(
+    `/integrations/${type}/connect?system=${encodeURIComponent(system)}`,
+  );
+}
+
 export function connectIntegration(
   type: string,
   system: string,

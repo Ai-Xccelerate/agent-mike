@@ -25,11 +25,14 @@ const METHODS: { method: ConnectMethod; title: string; description: string }[] =
 /** Asks how to connect, before sending the manager to the sign-in for that way. */
 export default function ConnectMethodDialog({
   label,
+  methods,
   isOpen,
   onClose,
   onChoose,
 }: {
   label: string;
+  /** The ways this server has set up; null while still asking it. */
+  methods: ConnectMethod[] | null;
   isOpen: boolean;
   onClose: () => void;
   onChoose: (method: ConnectMethod) => void;
@@ -45,7 +48,8 @@ export default function ConnectMethodDialog({
             </p>
           </div>
           <div className="mt-5 flex flex-col gap-3">
-            {METHODS.map((option) => (
+            {methods === null && <p className="text-sm text-gray-500 dark:text-gray-400">Checking what is set up…</p>}
+            {METHODS.filter((option) => methods?.includes(option.method)).map((option) => (
               <button
                 key={option.method}
                 type="button"
