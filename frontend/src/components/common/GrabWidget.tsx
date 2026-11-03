@@ -1,8 +1,9 @@
 "use client";
 
+import { useUser } from "@clerk/nextjs";
 import Script from "next/script";
 import { useEffect } from "react";
-import { grabScriptUrl } from "@/lib/grab";
+import { grabScriptUrl, identifyGrabUser, resetGrab } from "@/lib/grab";
 
 /** Appended inside Grab's shadow root; see `polishLauncher` for why. */
 const STYLE_ID = "aix-grab-fab-polish";
@@ -78,6 +79,24 @@ function polishLauncher(): boolean {
  */
 export default function GrabWidget() {
   const src = grabScriptUrl();
+  const { user, isLoaded } = useUser();
+  const email = user?.primaryEmailAddress?.emailAddress;
+  const userId = user?.id;
+  const name = user?.fullName ?? undefined;
+
+  // Tell Grab who is reporting, so nobody is asked for their details. This is
+  // the signed-in person from Clerk, never the worker's own mailbox (see
+  // `lib/grab.ts`). Calls made before the script loads are queued by the shim
+  // and replayed, so this does not wait for the launcher.
+  //
+  // The cleanup is the sign-out half: it runs when the person changes or this
+  // layout unmounts, so the next person on the same browser is not filed under
+  // the previous one's name.
+  useEffect(() => {
+    if (!src || !isLoaded || !userId) return;
+    identifyGrabUser({ email, name, userId });
+    return () => resetGrab();
+  }, [src, isLoaded, userId, email, name]);
 
   // Polled rather than driven off the script's onLoad: the launcher mounts
   // itself some time after the script evaluates, so load is too early. Bounded
