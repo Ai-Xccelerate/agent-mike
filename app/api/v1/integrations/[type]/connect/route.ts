@@ -6,8 +6,25 @@ import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { ConnectionFlowError, startIntegrationConnection } from "@/lib/connection-flows";
 import { getIntegrationType } from "@/lib/tools-integrations/registry";
+import { availableAuthMethods } from "@/lib/tools-integrations/auth-configs";
 
 export const dynamic = "force-dynamic";
+
+/** Which ways of connecting a system this server has set up, so the chooser offers only those. */
+export async function GET(req: NextRequest, { params }: { params: { type: string } }) {
+  const tenant = await getIdentityAdapter().resolveManagerRequest(req);
+  if (!isOrgAdmin(tenant.role)) {
+    return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
+  }
+  if (!getIntegrationType(params.type)) {
+    return NextResponse.json({ error: `Unknown integration type "${params.type}"` }, { status: 400 });
+  }
+  const system = req.nextUrl.searchParams.get("system")?.trim() ?? "";
+  if (!system) {
+    return NextResponse.json({ error: "system is required" }, { status: 400 });
+  }
+  return NextResponse.json({ methods: availableAuthMethods(system) });
+}
 
 export async function POST(req: NextRequest, { params }: { params: { type: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);

@@ -12,6 +12,7 @@ import ConnectionSettingsDialog, {
 import {
   connectIntegration,
   disconnectIntegration,
+  getConnectMethods,
   getIntegrationConnection,
   type IntegrationConnection,
 } from "@/lib/worker-api";
@@ -52,6 +53,7 @@ export default function IntegrationCategorySection({
   const [disconnecting, setDisconnecting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chooserFor, setChooserFor] = useState<VendorOption | null>(null);
+  const [chooserMethods, setChooserMethods] = useState<ConnectMethod[] | null>(null);
   const [error, setError] = useState("");
   // A "pending" row can be stuck forever with nothing to unstick it: Composio's
   // own INITIALIZING status doesn't reliably self-expire, and there was
@@ -113,6 +115,23 @@ export default function IntegrationCategorySection({
       setConnectingSystem(null);
       setFailedSystem(vendor.system);
       setError(err instanceof Error ? err.message : `Could not start ${vendor.label} connection.`);
+    }
+  }
+
+  /** Asks which ways this server has set up. With only the usual sign-in, there is nothing to choose. */
+  async function openChooser(vendor: VendorOption) {
+    setError("");
+    setChooserMethods(null);
+    setChooserFor(vendor);
+    try {
+      const { methods } = await getConnectMethods(integrationType, vendor.system);
+      if (methods.length <= 1) {
+        await handleConnect(vendor);
+        return;
+      }
+      setChooserMethods(methods);
+    } catch {
+      await handleConnect(vendor);
     }
   }
 
@@ -182,7 +201,7 @@ export default function IntegrationCategorySection({
               <Button
                 size="sm"
                 className="w-full"
-                onClick={() => (API_KEY_SYSTEMS.has(vendor.system) ? setChooserFor(vendor) : void handleConnect(vendor))}
+                onClick={() => (API_KEY_SYSTEMS.has(vendor.system) ? void openChooser(vendor) : void handleConnect(vendor))}
                 loading={connectingSystem === vendor.system}
                 disabled={connectingSystem !== null}
               >
@@ -217,6 +236,7 @@ export default function IntegrationCategorySection({
       )}
       <ConnectMethodDialog
         label={chooserFor?.label ?? ""}
+        methods={chooserMethods}
         isOpen={chooserFor !== null}
         onClose={() => setChooserFor(null)}
         onChoose={(method: ConnectMethod) => {
