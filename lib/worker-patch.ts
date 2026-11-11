@@ -2,6 +2,7 @@ import { z } from "zod";
 import { fieldErrors, identityFieldSchemas } from "@/lib/identity-fields";
 import { integrationsConfigSchema } from "@/lib/integrations";
 import { ticketSchemaPatch } from "@/lib/ticket-schema";
+import { widgetAppearanceSchema } from "@/lib/widget-appearance";
 
 const emptyToNull = (schema: z.ZodType<string | null>) =>
   z.union([z.literal(""), schema]).transform((value) => (value === "" ? null : value));
@@ -39,6 +40,8 @@ export const workerPatchSchema = z
       .array(z.string().trim().min(1, "A quick action can't be empty").max(40, "Keep a quick action under 40 characters"))
       .max(6, "Six quick actions at most")
       .nullable(),
+    // How the website chat looks. null = back to the defaults.
+    widgetAppearance: widgetAppearanceSchema.nullable(),
     // Shipped as a column with no way to set it. Fail-closed by default, so
     // without this the only way to let a worker auto-execute write tools was
     // editing the database by hand.

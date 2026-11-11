@@ -1,3 +1,4 @@
+import type { WidgetAppearance } from "@/lib/widget-appearance";
 import { relations, sql } from "drizzle-orm";
 import type { AssistantCard } from "@/lib/assistant-cards";
 import type { CustomerCard } from "@/lib/customer-cards";
@@ -91,6 +92,8 @@ export const workerProfiles = pgTable(
     // greeting / quick actions. "{name}" in the message becomes the worker's customer-facing name.
     welcomeMessage: text("welcome_message"),
     quickActions: jsonb("quick_actions").$type<string[] | null>(),
+    // How the website chat looks (lib/widget-appearance.ts). null = the defaults.
+    widgetAppearance: jsonb("widget_appearance").$type<WidgetAppearance | null>(),
     // Fail-closed: write tools (create/update in an external system) wait for a
     // human unless this worker is explicitly set to auto-execute.
     requireWriteApproval: boolean("require_write_approval").notNull().default(true),
