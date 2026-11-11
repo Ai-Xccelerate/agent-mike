@@ -401,8 +401,8 @@ export default function ChannelsSettings() {
         aixId="AIX-164.1"
       >
         <div className={dividerClass}>
-          {/* The toggle row drops its bottom padding as the last child of a wrapper; restore it when no panel follows. */}
-          <div className={profile.channelsConfig.chat ? "" : "pb-4"}>
+          {/* The toggle row drops its bottom padding as the last child of a wrapper; restore it so the panels never touch the divider. */}
+          <div className="pb-4">
             <SettingsToggleRow
               title="Chat"
               description="Playground and the embeddable website widget."
