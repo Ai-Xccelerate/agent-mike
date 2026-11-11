@@ -1,6 +1,8 @@
 "use client";
 
 import { ChatPanel } from "@/components/worker/WorkerChat";
+import { useWidgetLook } from "@/lib/use-widget-look";
+import type { WidgetLauncherIcon } from "@/lib/widget-appearance";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -12,6 +14,7 @@ export default function WorkerWidget() {
   const searchParams = useSearchParams();
   const siteToken = useMemo(() => (searchParams.get("site") || "").trim(), [searchParams]);
   const [open, setOpen] = useState(false);
+  const { look, ready } = useWidgetLook(siteToken);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -46,6 +49,9 @@ export default function WorkerWidget() {
     );
   }
 
+  // Waits for the worker's brand colour, so the launcher never flashes in the app's own colour first.
+  if (!ready) return null;
+
   return (
     <main data-worker-widget="1" className="pointer-events-none fixed inset-0 z-[2147483000] overflow-hidden bg-transparent">
       <div className="pointer-events-auto absolute bottom-4 right-4 flex flex-col items-end gap-3">
@@ -67,18 +73,24 @@ export default function WorkerWidget() {
               <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           ) : (
-            <svg className="size-6" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path
-                d="M4 12a8 8 0 1 1 3.2 6.4L4 20l1.2-3.5A7.96 7.96 0 0 1 4 12Z"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <LauncherGlyph icon={look?.appearance.launcherIcon ?? "chat"} />
           )}
         </button>
       </div>
     </main>
+  );
+}
+
+/** The closed launcher's icon: one of three, chosen per worker. */
+function LauncherGlyph({ icon }: { icon: WidgetLauncherIcon }) {
+  const paths: Record<WidgetLauncherIcon, string> = {
+    chat: "M4 12a8 8 0 1 1 3.2 6.4L4 20l1.2-3.5A7.96 7.96 0 0 1 4 12Z",
+    message: "M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4 3v-3H5.5A1.5 1.5 0 0 1 4 15.5v-9Z",
+    headset: "M4 13v-1a8 8 0 0 1 16 0v1M4 13h3v5H5.5A1.5 1.5 0 0 1 4 16.5V13Zm16 0h-3v5h1.5a1.5 1.5 0 0 0 1.5-1.5V13ZM17 18v.5a2.5 2.5 0 0 1-2.5 2.5H12",
+  };
+  return (
+    <svg className="size-6" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d={paths[icon]} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveWidgetAppearance } from "@/lib/widget-appearance";
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import Markdown from "@/components/worker/Markdown";
@@ -406,6 +407,7 @@ function ChatPanelBody({
   const displayName = profile?.displayName ?? "AI Worker";
   const avatarInitials = profile?.avatarInitials ?? "AW";
   const accentColor = profile?.accentColor;
+  const appearance = resolveWidgetAppearance(profile?.widgetAppearance);
   const avatarUrl = profile?.avatarUrl;
   // "Not you?": forget this device and start a fresh chat that asks again.
   function startAsSomeoneElse() {
@@ -499,7 +501,7 @@ function ChatPanelBody({
             avatarUrl={avatarUrl}
           />
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">{displayName}</p>
+            <p className="truncate text-sm font-semibold text-gray-800 dark:text-white/90">{compact ? (appearance.panelTitle ?? displayName) : displayName}</p>
             <p className="flex min-w-0 items-center gap-1.5 truncate text-xs text-gray-500 dark:text-gray-400">
               {compact && identity?.verified ? (
                 <>
@@ -509,7 +511,7 @@ function ChatPanelBody({
                   </button>
                 </>
               ) : (
-                <span className="truncate">{compact ? "AI assistant" : "Online"}</span>
+                <span className="truncate">{compact ? (appearance.panelSubtitle ?? "AI assistant") : "Online"}</span>
               )}
             </p>
           </div>

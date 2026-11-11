@@ -59,7 +59,14 @@ describe("publicWorkerIdentity", () => {
       status: "active",
       welcomeMessage: null,
       quickActions: null,
+      widgetAppearance: { theme: "light", corners: "rounded", launcherIcon: "chat", panelTitle: null, panelSubtitle: null },
     });
+  });
+
+  it("carries how the widget should look, with the defaults filled in for what is not set", () => {
+    const identity = publicWorkerIdentity(profile({ widgetAppearance: { theme: "auto", corners: "soft", launcherIcon: "headset", panelTitle: "EAP Expert Support", panelSubtitle: null } }));
+    expect(identity.widgetAppearance).toEqual({ theme: "auto", corners: "soft", launcherIcon: "headset", panelTitle: "EAP Expert Support", panelSubtitle: null });
+    expect(publicWorkerIdentity(profile({ widgetAppearance: { corners: "square" } as never })).widgetAppearance).toMatchObject({ corners: "square", theme: "light" });
   });
 
   it("carries the built-in quick actions the caller worked out, when it has any", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { ChatPanel } from "@/components/worker/WorkerChat";
+import { useWidgetLook } from "@/lib/use-widget-look";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo } from "react";
 
@@ -12,6 +13,7 @@ import { useEffect, useMemo } from "react";
 export default function WorkerWidgetPanel() {
   const searchParams = useSearchParams();
   const siteToken = useMemo(() => (searchParams.get("site") || "").trim(), [searchParams]);
+  const { ready } = useWidgetLook(siteToken);
 
   useEffect(() => {
     document.documentElement.dataset.workerWidget = "1";
@@ -43,6 +45,9 @@ export default function WorkerWidgetPanel() {
       </main>
     );
   }
+
+  // Waits for the worker's brand colour, so the chat never flashes in the app's own colour first.
+  if (!ready) return <main className="fixed inset-0 bg-white" />;
 
   return (
     <main data-worker-widget="1" className="fixed inset-0 bg-white dark:bg-gray-900">

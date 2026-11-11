@@ -1,3 +1,4 @@
+import { resolveWidgetAppearance } from "@/lib/widget-appearance";
 import type { workerProfiles } from "@/db/schema";
 
 type Profile = typeof workerProfiles.$inferSelect;
@@ -17,6 +18,7 @@ export function publicWorkerIdentity(profile: Profile, defaultQuickActions?: str
     quickActions: profile.quickActions,
     // Whether the widget shows the paperclip for attaching a file.
     chatAttachments: profile.chatAttachments,
+    widgetAppearance: resolveWidgetAppearance(profile.widgetAppearance),
     // What the widget shows when quickActions is null; decided by what this worker can do.
     ...(defaultQuickActions ? { defaultQuickActions } : {}),
   };

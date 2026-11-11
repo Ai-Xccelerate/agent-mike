@@ -1,3 +1,4 @@
+import type { WidgetAppearance } from "@/lib/widget-appearance";
 import type { FeedbackReason } from "@/lib/answer-feedback";
 import type { AssistantCard } from "@/lib/assistant-cards";
 import type { CustomerCard } from "@/lib/customer-cards";
@@ -185,6 +186,8 @@ export type WorkerProfile = {
   emailManagerOnHandoff: boolean;
   /** Visitors may attach files in the website chat; the worker never reads them, the team does. */
   chatAttachments: boolean;
+  /** How the website chat looks. null = the defaults. */
+  widgetAppearance: WidgetAppearance | null;
   /** The team's first-reply target in hours, shown on the Overview. */
   firstReplyTargetHours: number | null;
   /** Settings > Email domains: on = the worker may only email approved domains. */
