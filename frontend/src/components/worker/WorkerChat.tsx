@@ -55,6 +55,12 @@ function welcomeMessage(profile: WorkerProfile | null): Message {
 
 type ChatPanelProps = {
   compact?: boolean;
+  /**
+   * The chat sits inside a page's own chat window, which brings its own title bar and close button. Leaves out this
+   * panel's header, keeping only a slim bar for what a visitor must still be able to do: "Not you?" and see that a
+   * manager was told.
+   */
+  embedded?: boolean;
   onClose?: () => void;
   /** Required for public widget embeds — org is resolved from this token. */
   siteToken?: string;
@@ -80,6 +86,7 @@ export function ChatPanel(props: ChatPanelProps) {
 
 function ChatPanelBody({
   compact = false,
+  embedded = false,
   onClose,
   siteToken,
   conversationId: externalConversationId = null,
@@ -446,8 +453,29 @@ function ChatPanelBody({
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-gray-900 ${compact ? "rounded-2xl" : ""}`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-gray-900 ${compact && !embedded ? "rounded-2xl" : ""}`}
     >
+      {embedded ? (
+        (compact && identity?.verified) || escalated ? (
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-2 text-xs dark:border-gray-800 dark:bg-gray-900">
+            <span className="flex min-w-0 items-center gap-1.5 truncate text-gray-500 dark:text-gray-400">
+              {compact && identity?.verified && (
+                <>
+                  <span className="truncate font-medium text-success-700 dark:text-success-400">Email verified</span>
+                  <button type="button" onClick={startAsSomeoneElse} disabled={loading} className="shrink-0 underline decoration-dotted hover:text-gray-700 dark:hover:text-gray-200">
+                    Not you?
+                  </button>
+                </>
+              )}
+            </span>
+            {escalated && (
+              <Badge size="sm" color="warning">
+                Manager notified
+              </Badge>
+            )}
+          </div>
+        ) : null
+      ) : (
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
         <div className="flex min-w-0 items-center gap-3">
           {onToggleRail && (
@@ -507,6 +535,7 @@ function ChatPanelBody({
           )}
         </div>
       </header>
+      )}
 
       <CustomerCardsContext.Provider value={cardActions}>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 [scrollbar-gutter:stable] dark:bg-gray-950/40 sm:p-5">
