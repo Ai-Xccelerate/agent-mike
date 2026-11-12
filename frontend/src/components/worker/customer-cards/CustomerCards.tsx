@@ -22,6 +22,9 @@ export type CustomerCardsContextValue = {
   siteToken?: string;
   identity?: ChatIdentity;
   onIdentity?: (identity: ChatIdentity) => void;
+  /** Details before the chat: the form is the first thing on screen, starts the conversation, and sends no message. */
+  gate?: boolean;
+  onConversation?: (conversationId: string) => void;
 };
 
 export const CustomerCardsContext = createContext<CustomerCardsContextValue>({ busy: false, onReply: () => undefined });
@@ -94,7 +97,7 @@ function useCountdown(): [number, (seconds: number) => void] {
  * form gives way to a one-line confirmation and the chat carries on.
  */
 export function IdentityRequestView({ data }: { data: IdentityRequestCard }) {
-  const { busy, onReply, conversationId, siteToken, identity, onIdentity } = useContext(CustomerCardsContext);
+  const { busy, onReply, conversationId, siteToken, identity, onIdentity, gate, onConversation } = useContext(CustomerCardsContext);
   const latest = useContext(LatestReplyContext);
   const [name, setName] = useState(data.name ?? identity?.name ?? "");
   const [email, setEmail] = useState(data.email ?? identity?.email ?? "");
@@ -116,7 +119,7 @@ export function IdentityRequestView({ data }: { data: IdentityRequestCard }) {
     );
   }
   // Older questions have been answered; their forms would only confuse.
-  if (!latest) return null;
+  if (!latest && !gate) return null;
 
   function fail(error: unknown, where: "form" | "code") {
     if (error instanceof WorkerApiError) {
@@ -151,12 +154,13 @@ export function IdentityRequestView({ data }: { data: IdentityRequestCard }) {
     const cleanName = name.trim();
     if (cleanName.length < 2 || cleanName.length > 80) next.name = "Enter your name (2 to 80 characters).";
     if (!EMAIL_PATTERN.test(email.trim())) next.email = "Enter a valid email address.";
-    if (!conversationId) next.form = "Send your message first, then share your details.";
+    if (!conversationId && !gate) next.form = "Send your message first, then share your details.";
     setErrors(next);
-    if (Object.keys(next).length > 0 || !conversationId) return;
+    if (Object.keys(next).length > 0 || (!conversationId && !gate)) return;
     setWorking(true);
     try {
       const result = await submitIdentity({ conversationId, name: cleanName, email: email.trim() }, siteToken);
+      if (result.conversation_id) onConversation?.(result.conversation_id);
       onIdentity?.({ name: cleanName, email: email.trim(), verified: false });
       if (result.next === "code") {
         setStage("code");
@@ -164,7 +168,7 @@ export function IdentityRequestView({ data }: { data: IdentityRequestCard }) {
         setCode("");
       } else {
         setStage("done");
-        onReply("I've shared my details.");
+        if (!gate) onReply("I've shared my details.");
       }
     } catch (error) {
       fail(error, "form");
@@ -187,7 +191,7 @@ export function IdentityRequestView({ data }: { data: IdentityRequestCard }) {
       if (verified.remember_token) saveRemembered(siteToken, { token: verified.remember_token, name: verified.name ?? name.trim(), email: email.trim() });
       onIdentity?.({ name: name.trim(), email: email.trim(), verified: true });
       setStage("done");
-      onReply("I've verified my email.");
+      if (!gate) onReply("I've verified my email.");
     } catch (error) {
       fail(error, "code");
     } finally {

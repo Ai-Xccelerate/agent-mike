@@ -14,6 +14,9 @@ import {
   saveCustomerIdentity,
 } from "@/lib/customer-identity";
 import { lookupJiraCustomerByEmail } from "@/lib/tools-integrations/atlassian";
+import { insertConversationWithTicket } from "@/lib/customer-turn";
+import { identityGateRequired } from "@/lib/identity-gate";
+import { anonymousVisitorName } from "@/lib/customer-identity";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -38,21 +41,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Check your details", errors }, { status: 422 });
   }
 
+  const profile = await getOrCreateProfile(tenant.orgId);
+  const mode = normalizeIdentityMode(profile.identityMode);
+  if (mode === "off") return NextResponse.json({ error: "Customer identity is switched off" }, { status: 400 });
+
   const conversationId = typeof body?.conversation_id === "string" ? body.conversation_id : "";
-  const [conversation] = conversationId
+  let [conversation] = conversationId
     ? await db
         .select()
         .from(conversations)
         .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, tenant.orgId)))
         .limit(1)
     : [];
+  // The "details before the chat" form has no conversation yet: it starts one, empty, for the details to belong to.
+  // Only the public widget, and only while the worker asks for details first.
+  if (!conversation && !conversationId && tenant.source === "widget" && (await identityGateRequired(tenant.orgId, profile))) {
+    conversation = await insertConversationWithTicket({
+      organizationId: tenant.orgId,
+      channel: "widget",
+      subject: "New chat",
+      customerName: anonymousVisitorName(),
+    });
+  }
   if (!conversation || conversation.channel === "email" || conversation.channel === "assistant") {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
-
-  const profile = await getOrCreateProfile(tenant.orgId);
-  const mode = normalizeIdentityMode(profile.identityMode);
-  if (mode === "off") return NextResponse.json({ error: "Customer identity is switched off" }, { status: 400 });
 
   const { name, email } = parsed.data;
 
@@ -60,7 +73,7 @@ export async function POST(req: NextRequest) {
     await saveCustomerIdentity({ organizationId: tenant.orgId, conversation, name, email });
     // Informational only: an address Jira knows is not proof the visitor owns it.
     const known = await lookupJiraCustomerByEmail(tenant.orgId, email);
-    return NextResponse.json({ ok: true, mode, next: "done", known_customer: known, resend_in: 0 });
+    return NextResponse.json({ ok: true, mode, next: "done", known_customer: known, resend_in: 0, conversation_id: conversation.id });
   }
 
   // email_code: the address is saved as said, and trusted only once the code comes back.
@@ -84,6 +97,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     mode,
     next: "code",
+    conversation_id: conversation.id,
     known_customer: null,
     resend_in: sent.resendInSeconds,
     expires_in: IDENTITY_LIMITS.codeTtlMs / 1000,

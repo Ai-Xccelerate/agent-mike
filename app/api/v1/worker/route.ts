@@ -4,6 +4,7 @@ import { getIdentityAdapter } from "@/lib/identity";
 import { isOrgAdmin } from "@/lib/org-roles";
 import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { applyWorkerPatch } from "@/lib/worker-settings";
+import { identityGateRequired } from "@/lib/identity-gate";
 import { publicWorkerIdentity } from "@/lib/public-worker-identity";
 import { helpdeskCapabilities } from "@/lib/tools-integrations/atlassian";
 import { defaultQuickActions } from "@/lib/widget-defaults";
@@ -20,7 +21,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid or missing site token" }, { status: 401 });
     }
     const profile = await getOrCreateProfile(widgetTenant.orgId);
-    return NextResponse.json(publicWorkerIdentity(profile, defaultQuickActions(await helpdeskCapabilities(widgetTenant.orgId))));
+    return NextResponse.json(
+      publicWorkerIdentity(
+        profile,
+        defaultQuickActions(await helpdeskCapabilities(widgetTenant.orgId)),
+        await identityGateRequired(widgetTenant.orgId, profile),
+      ),
+    );
   }
 
   const tenant = await identity.resolveManagerRequest(req);

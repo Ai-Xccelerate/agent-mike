@@ -9,7 +9,8 @@ import { attachmentMarker, linkUploads, usableUploads } from "@/lib/attachments"
 import { insertConversationWithTicket, runCustomerTurn, type TicketFollowUp } from "@/lib/customer-turn";
 import { extractStatedCustomer } from "@/lib/customer-stated";
 import { timed, traceSet, withTurnTimer } from "@/lib/timing";
-import { anonymousVisitorName, normalizeIdentityMode } from "@/lib/customer-identity";
+import { anonymousVisitorName, identityGateSatisfied, normalizeIdentityMode } from "@/lib/customer-identity";
+import { identityGateRequired } from "@/lib/identity-gate";
 
 /**
  * One chat turn for the Playground and the website widget, shared by the JSON
@@ -102,6 +103,18 @@ async function runChatRequestTimed(
         .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, tenant.orgId)))
         .limit(1),
     );
+  }
+
+  // "Details before the chat": the website chat does not answer anyone it does not know yet. Enforced here, not
+  // only in the widget, because the widget is public and anyone can call this route directly. A device remembered
+  // from a verified visit may open a new conversation: it starts verified (below).
+  if (tenant.source === "widget" && (await identityGateRequired(tenant.orgId, profile))) {
+    const mode = normalizeIdentityMode(profile.identityMode);
+    const known = conversation ? identityGateSatisfied(conversation, mode) : false;
+    const rememberedDevice = !conversation && mode === "email_code" && readRememberToken(body?.remember_token, tenant.orgId);
+    if (!known && !rememberedDevice) {
+      return fail(403, { error: "Share your details to start the chat.", code: "identity_required" });
+    }
   }
 
   // Load prior turns before inserting the current message so the latest user
