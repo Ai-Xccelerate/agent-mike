@@ -339,7 +339,7 @@ export default function SkillsSettings() {
                     Skill settings
                   </p>
                   <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-6 text-gray-600 dark:border-gray-800 dark:bg-white/5 dark:text-gray-300">
-                    Turning this skill off here also turns off &ldquo;Require user verification&rdquo; under
+                    Turning this skill off here also turns off &ldquo;Check customers against the CRM&rdquo; under
                     Guardrails. They&apos;re the same setting shown in both places.
                   </div>
                 </div>

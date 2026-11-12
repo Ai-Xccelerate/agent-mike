@@ -11,7 +11,7 @@ import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 const VERIFY_CUSTOMER_SKILL_ID = "verify-customer";
 
 /**
- * "Require user verification" is not a check the server runs — it is the
+ * "Check customers against the CRM" (was "Require user verification") is not a check the server runs — it is the
  * Verify customer skill, and this switch is how it gets turned on.
  *
  * Three things that are easy to get wrong here:
@@ -86,7 +86,7 @@ export default function UserVerificationToggle({
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Require user verification
+              Check customers against the CRM
             </p>
             <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">
               Ask for the customer&rsquo;s email address and check it against your CRM before discussing
@@ -96,7 +96,7 @@ export default function UserVerificationToggle({
           <button
             role="switch"
             aria-checked={checked}
-            aria-label={`${checked ? "Stop requiring" : "Require"} user verification`}
+            aria-label={`${checked ? "Stop checking" : "Check"} customers against the CRM`}
             // Only the "turn on" direction is ever gated — turning off must
             // always stay possible, per the invariant documented above.
             disabled={checked ? false : !loaded || blocked}
@@ -164,7 +164,7 @@ export default function UserVerificationToggle({
       <Modal
         isOpen={explaining}
         onClose={() => setExplaining(false)}
-        ariaLabel="How user verification works"
+        ariaLabel="How checking customers against the CRM works"
         className="w-full max-w-md p-6"
       >
         <h3 className="text-base font-semibold text-gray-800 dark:text-white/90">

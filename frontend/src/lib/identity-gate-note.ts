@@ -3,7 +3,7 @@ type IdentityMode = "off" | "email_match" | "email_code";
 /**
  * Says, next to the Customer identity setting, whether visitors are asked for their details before they can chat, and
  * why. The form has no switch of its own: it follows the identity check, "Also raise a ticket for conversations the
- * worker answers" (Integrations > Jira) and "Require user verification". Without this line the form would appear in the
+ * worker answers" (Integrations > Jira) and "Check customers against the CRM". Without this line the form would appear in the
  * chat with nothing on any settings page to explain it.
  */
 export function identityGateNote(input: { identityMode: IdentityMode; requireUserVerification: boolean; logsEveryConversation: boolean }) {
@@ -11,7 +11,7 @@ export function identityGateNote(input: { identityMode: IdentityMode; requireUse
   const reason = logsEveryConversation
     ? "every conversation is logged as a ticket"
     : requireUserVerification
-      ? "user verification is required"
+      ? "the CRM customer check is on"
       : null;
   if (identityMode === "off") {
     return logsEveryConversation
@@ -27,7 +27,7 @@ export function identityGateNote(input: { identityMode: IdentityMode; requireUse
   if (reason) {
     return {
       tone: "info" as const,
-      text: `Visitors give their name and email${identityMode === "email_code" ? ", then an emailed code," : ""} before they can chat, because ${reason}. To change that, change ${logsEveryConversation ? "Integrations > Jira > Also raise a ticket for conversations the worker answers" : "Require user verification above"}.`,
+      text: `Visitors give their name and email${identityMode === "email_code" ? ", then an emailed code," : ""} before they can chat, because ${reason}. To change that, change ${logsEveryConversation ? "Integrations > Jira > Also raise a ticket for conversations the worker answers" : "Check customers against the CRM above"}.`,
     };
   }
   return {

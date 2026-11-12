@@ -5,7 +5,7 @@ import { getSkill, loadSkills, type SkillDefinition } from "@/lib/tools-integrat
 export type SkillSource = "catalog" | "custom";
 
 /**
- * The built-in skill behind the "Require user verification" guardrail. The
+ * The built-in skill behind the "Check customers against the CRM" guardrail (once "Require user verification"). The
  * guardrail switches this on rather than merely pointing at it, so the id has
  * to be nameable from outside the catalog.
  */

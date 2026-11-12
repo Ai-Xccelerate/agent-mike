@@ -241,7 +241,7 @@ const SETTINGS_FIELD_LABELS = {
   model: "model",
   maxAgentTurns: "max turns per reply",
   confidenceThreshold: "minimum confidence",
-  requireUserVerification: "require user verification",
+  requireUserVerification: "check customers against the CRM",
   internetSearch: "internet search",
 } as const;
 type SettingsField = keyof typeof SETTINGS_FIELD_LABELS;
@@ -917,7 +917,7 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
         "Propose changing other worker settings: customer-facing name, internal name, avatar initials, accent " +
         "colour (#RRGGBB), timezone (IANA, e.g. Europe/Berlin), email signature, job description, additional " +
         "instructions, model (gpt-5.6-luna or gpt-5.6-sol), max turns per reply (1-10), minimum confidence " +
-        "(0.5-0.95), require user verification (needs an active CRM), internet search tool. Pass null for every " +
+        "(0.5-0.95), check customers against the CRM (needs an active CRM), internet search tool. Pass null for every " +
         "field you are not changing. Put several changes in one call. Does not apply anything.",
       parameters: z.object({
         changes: z.object({
@@ -961,7 +961,7 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
           if (picked.requireUserVerification === true) {
             const crm = await getConnectionForOrg(organizationId, "crm").catch(() => null);
             if (crm?.status !== "active") {
-              return "Can't propose that: require user verification needs an active CRM connection. Connect one in Settings > Integrations first.";
+              return "Can't propose that: checking customers against the CRM needs an active CRM connection. Connect one in Settings > Integrations first.";
             }
           }
           const current = await readProfileForPreview(organizationId);
@@ -2283,7 +2283,7 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "4. Configure - propose changes to almost any setting with the matching propose_* tool: role, tone, " +
     "escalation phrases, channels, skills, manager contact, email domains, and (propose_settings_change) names, " +
     "initials, accent colour, timezone, email signature, job description, additional instructions, model, max " +
-    "turns, minimum confidence, user verification, internet search. You can also turn an attached file into a " +
+    "turns, minimum confidence, checking customers against the CRM, internet search. You can also turn an attached file into a " +
     "knowledge article or custom skill, and propose edits to a knowledge article or a custom skill's instructions. You can also propose connecting or disconnecting a business system or " +
     "the mailbox (a sign-in window opens after approval) and turning internal tools on or off. These never " +
     "depend on 'Assistant actions'.\n" +
@@ -2331,7 +2331,7 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "tone\") stays narrow.\n\n" +
     "Where things live (use these exact paths): Settings > Identity (names, avatar, tone, status, timezone, locale); " +
     "Settings > Role; Settings > Agent configuration (model, max turns, additional instructions); " +
-    "Settings > Guardrails (confidence threshold, escalation phrases, require user verification, \"Let the " +
+    "Settings > Guardrails (confidence threshold, escalation phrases, check customers against the CRM, \"Let the " +
     "Assistant take actions\"); Settings > Human manager; Settings > Channels (channels on or off, the widget's welcome message and quick actions); Settings > Identity (name, title, photo, short bio, tone, support email address, email signature, time zone, language); Settings > Connectors (custom MCP servers and which of their tools may run, and the calls waiting for approval); Settings > Canned replies (approved wording the worker leads with, which also shapes the suggested replies in Inbox); Settings > Test cases (saved questions and replay scores); Settings > Tickets (the request types, tiers and labels tickets are sorted with); Playground (a test chat with the worker, opened from Settings > Channels, not a customer conversation); Settings > Tools (internet, internal " +
     "tools, mailbox under External tools); Settings > Skills; Settings > Knowledge; Settings > Integrations; " +
     "Settings > Email domains; Settings > Team. Inbox is where customer conversations are read, taken over or handed " +

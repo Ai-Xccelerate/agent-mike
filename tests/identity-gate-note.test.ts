@@ -22,10 +22,10 @@ describe("what the Customer identity setting says about the details form", () =>
     expect(note.text).not.toMatch(/emailed code/);
   });
 
-  it("names user verification as the cause when that is what asks", () => {
+  it("names the CRM customer check as the cause when that is what asks", () => {
     const note = identityGateNote({ ...base, identityMode: "email_match", requireUserVerification: true });
-    expect(note.text).toMatch(/user verification is required/);
-    expect(note.text).toMatch(/Require user verification/);
+    expect(note.text).toMatch(/the CRM customer check is on/);
+    expect(note.text).toMatch(/Check customers against the CRM/);
   });
 
   it("warns when every conversation is logged but nobody is asked who they are", () => {
