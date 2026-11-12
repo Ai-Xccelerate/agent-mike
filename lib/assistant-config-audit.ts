@@ -154,7 +154,7 @@ export function formatConfigurationSnapshot(snapshot: ConfigurationSnapshot): st
     `Tone: ${profile.tone}`,
     `Model: ${profile.model}; max turns per reply: ${profile.maxAgentTurns}; confidence threshold: ${profile.confidenceThreshold}`,
     `Escalation phrases: ${profile.escalationTerms.join(", ") || "(none configured)"}`,
-    `Require user verification: ${profile.requireUserVerification ? "on" : "off"}`,
+    `Check customers against the CRM: ${profile.requireUserVerification ? "on" : "off"}`,
     `Assistant actions: ${profile.assistantActionsEnabled ? "on" : "off"}`,
     `Human manager: ${profile.managerName}${profile.managerEmail ? ` <${profile.managerEmail}>` : " (no email)"}`,
     `Channels on: ${on(profile.channelsConfig)}`,
@@ -220,7 +220,13 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
       fix: "I can propose a role (propose_role_change) if you tell me what the worker should handle.",
     });
   }
-  if (snapshot.knowledgeCount === 0 && !snapshot.internalIntegrations.some((item) => item.active && ["parchment", "scribe", "agent_wiki"].includes(item.key))) {
+  // An enabled custom connector (for example a docs server) is a knowledge source too.
+  const hasWorkingConnector = (snapshot.connectors ?? []).some((c) => c.enabled && !c.lastError && c.tools.length > 0);
+  if (
+    snapshot.knowledgeCount === 0 &&
+    !hasWorkingConnector &&
+    !snapshot.internalIntegrations.some((item) => item.active && ["parchment", "scribe", "agent_wiki"].includes(item.key))
+  ) {
     add({
       severity: "blocker",
       area: "Knowledge",
@@ -307,7 +313,7 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
       add({
         severity: "warning",
         area: "Guardrails",
-        issue: "Require user verification is on, but the verify-customer skill that carries it out is off.",
+        issue: "Checking customers against the CRM is on, but the verify-customer skill that carries it out is off.",
         fix: "I can propose turning on verify-customer (propose_skill_change); it needs an active CRM connection.",
       });
     }

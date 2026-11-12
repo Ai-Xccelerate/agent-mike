@@ -79,6 +79,13 @@ describe("auditWorkerConfiguration", () => {
     expect(issues(snapshot({ knowledgeCount: 0 }))).toContain("tip:Knowledge");
   });
 
+  it("counts a working docs connector as a knowledge source", () => {
+    const connector = { name: "Docs", enabled: true, status: "connected", lastError: null, tools: [{ name: "search_docs", permission: "allow", readOnly: true }] };
+    const s = snapshot({ knowledgeCount: 0, internalIntegrations: [], connectors: [connector] });
+    expect(issues(s)).not.toContain("blocker:Knowledge");
+    expect(issues(snapshot({ knowledgeCount: 0, internalIntegrations: [], connectors: [{ ...connector, enabled: false }] }))).toContain("blocker:Knowledge");
+  });
+
   it("flags email on without a connected mailbox or approved domains", () => {
     const s = snapshot({ profile: profile({ channelsConfig: { chat: true, email: true, voice: false } }) });
     expect(issues(s)).toEqual(expect.arrayContaining(["blocker:Channels", "warning:Email domains"]));
