@@ -289,7 +289,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
         />
         <SettingsToggleRow
           title="Also raise a ticket for conversations the worker answers"
-          description="For the desk's reporting. The ticket is marked as answered, nobody is emailed, and the customer is told nothing. It needs the visitor's name and email first, so a visitor who has not given them is asked once. Greetings and out-of-scope questions are not logged. Needs ticket raising above."
+          description="For the desk's reporting. The ticket is marked as answered, nobody is emailed, and the customer is told nothing. Visitors give their name and email (and the emailed code, if Customer identity under Guardrails is set to it) before they can chat, so every conversation has a customer. It needs a Customer identity check turned on there. Greetings and out-of-scope questions are not logged. Needs ticket raising above."
           checked={ticketEveryConversation}
           disabled={saving || !createTicketOnHandoff}
           onChange={() => setTicketEveryConversation((value) => !value)}

@@ -170,6 +170,10 @@ export type WorkerProfile = {
   allowedDomains: string[];
   requireUserVerification: boolean;
   identityMode: IdentityMode;
+  /** Website chat only: ask for name, email (and the emailed code) before the first message. */
+  identityGate?: boolean;
+  /** Manager view only: Jira is set to also raise a ticket for conversations the worker answers. */
+  logsEveryConversation?: boolean;
   /** What the website widget opens with (Settings > Channels > Chat); null = the built-in greeting. */
   welcomeMessage?: string | null;
   /** The tap-to-send buttons under the greeting; null = the built-in four. */
@@ -1207,16 +1211,18 @@ export type IdentityResponse = {
   known_customer: boolean | null;
   /** Seconds until a code can be sent again. */
   resend_in: number;
+  /** The conversation the details belong to; set when the form started it (details before the chat). */
+  conversation_id?: string;
 };
 
 /** Saves the name and email a visitor gave (and sends the code in email_code mode). */
 export function submitIdentity(
-  input: { conversationId: string; name: string; email: string },
+  input: { conversationId?: string; name: string; email: string },
   widgetSiteToken?: string,
 ): Promise<IdentityResponse> {
   return apiFetch<IdentityResponse>("/chat/identity", {
     method: "POST",
-    body: JSON.stringify({ conversation_id: input.conversationId, name: input.name, email: input.email }),
+    body: JSON.stringify({ ...(input.conversationId ? { conversation_id: input.conversationId } : {}), name: input.name, email: input.email }),
     widgetSiteToken,
   });
 }

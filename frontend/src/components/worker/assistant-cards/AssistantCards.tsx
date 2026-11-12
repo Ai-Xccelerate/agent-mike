@@ -347,7 +347,7 @@ export function ConfigView({ data }: { data: ConfigCard }) {
       </div>
       <p className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">
         Escalates below {Math.round(data.guardrails.confidenceThreshold * 100)}% confidence ·{" "}
-        {plural(data.guardrails.escalationTerms, "escalation phrase")} · user verification{" "}
+        {plural(data.guardrails.escalationTerms, "escalation phrase")} · CRM customer check{" "}
         {data.guardrails.requireUserVerification ? "on" : "off"} · Assistant actions {data.guardrails.assistantActions ? "on" : "off"} ·{" "}
         {plural(data.conversationCount, "real conversation")}
       </p>

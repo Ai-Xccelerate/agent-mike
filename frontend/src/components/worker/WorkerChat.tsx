@@ -16,7 +16,7 @@ import { quickActionsFor, welcomeText } from "@/lib/widget-defaults";
 import { mergeWidgetHistory, sameMessages } from "@/lib/widget-history";
 import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
 import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/customer-cards/CustomerCopilot";
-import { CustomerCardsContext, LatestReplyContext, type ChatIdentity } from "@/components/worker/customer-cards/CustomerCards";
+import { CustomerCardsContext, IdentityRequestView, LatestReplyContext, type ChatIdentity } from "@/components/worker/customer-cards/CustomerCards";
 import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
@@ -119,6 +119,8 @@ function ChatPanelBody({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadedIdRef = useRef<string | null>(null);
+  // A device remembered from a verified visit skips the details form; the server says so if it no longer does.
+  const [rememberedDevice, setRememberedDevice] = useState(() => Boolean(readRemembered(siteToken)?.token));
 
   const {
     listening,
@@ -136,6 +138,11 @@ function ChatPanelBody({
 
   const conversationId = compact ? compactConversationId : (externalConversationId ?? undefined);
   const identity = compact || identityConversationId === conversationId ? storedIdentity : undefined;
+  // Details before the chat (the organization logs every conversation or requires verification): the form comes
+  // first, and nothing can be sent until it is done. The server enforces this too.
+  const identityMode = profile?.identityMode ?? "off";
+  const identityKnown = Boolean(identity?.email && (identity.verified || identityMode === "email_match"));
+  const gatePending = compact && !restoring && Boolean(profile?.identityGate) && !identityKnown && !rememberedDevice;
 
   // Widget and Playground both show this worker's Identity. The widget
   // resolves the org from the site token; the manager console uses the
@@ -330,6 +337,8 @@ function ChatPanelBody({
     setFileError(null);
     setStatusLabel(null);
     setLoading(true);
+    // Set from the run's error event, which a closure writes to; read in the catch below.
+    const failed: { code: string | null } = { code: null };
     try {
       // The server holds the history; the agent only carries this message.
       agent.setMessages([{ id: crypto.randomUUID(), role: "user", content: trimmed }]);
@@ -361,6 +370,7 @@ function ChatPanelBody({
           },
           onRunErrorEvent: ({ event }) => {
             failure = event.message;
+            failed.code = event.code ?? null;
           },
           onRunFailed: ({ error }) => {
             failure = error.message;
@@ -383,6 +393,17 @@ function ChatPanelBody({
       setEscalated(response.escalated);
       setPreview(false);
     } catch {
+      // The server wants details first (a remembered device that is no longer remembered, or an old chat): show the
+      // form again rather than a made-up connection error.
+      if (compact && failed.code === "403") {
+        forgetRemembered(siteToken);
+        setRememberedDevice(false);
+        setCompactConversationId(undefined);
+        setIdentity(undefined);
+        setMessages((items) => items.filter((item) => item.id !== undefined && !String(item.id).startsWith("customer-")));
+        setValue(trimmed);
+        return;
+      }
       setPreview(true);
       setMessages((items) => [
         ...items,
@@ -439,8 +460,10 @@ function ChatPanelBody({
       setIdentity(next);
       setIdentityConversationId(conversationId);
     },
+    gate: gatePending,
+    onConversation: (id: string) => setCompactConversationId(id),
   };
-  const showQuickActions = compact && !loading && messages.length <= 1 && quickActionsFor(profile).length > 0;
+  const showQuickActions = compact && !loading && !gatePending && messages.length <= 1 && quickActionsFor(profile).length > 0;
 
   if (compact && !siteToken?.trim()) {
     return (
@@ -625,6 +648,12 @@ function ChatPanelBody({
           </div>
         )}
 
+        {gatePending && (
+          <div className="pl-10">
+            <IdentityRequestView data={{ mode: identityMode === "email_code" ? "email_code" : "email_match" }} />
+          </div>
+        )}
+
         {showQuickActions && (
           <div className="flex flex-wrap gap-2 pl-10" role="group" aria-label="Quick actions">
             {quickActionsFor(profile).map((action) => (
@@ -711,8 +740,11 @@ function ChatPanelBody({
             minRows={1}
             maxRows={6}
             maxLength={MESSAGE_MAX_LENGTH}
+            disabled={gatePending}
             placeholder={
-              listening
+              gatePending
+                ? "Share your details to start"
+                : listening
                 ? "Listening. Tap the mic when you are done."
                 : transcribing
                   ? "Transcribing…"
@@ -770,7 +802,7 @@ function ChatPanelBody({
           </button>
           <button
             type="submit"
-            disabled={(!value.trim() && files.length === 0) || loading || uploading}
+            disabled={(!value.trim() && files.length === 0) || loading || uploading || gatePending}
             aria-label="Send message"
             title="Send message"
             className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-500 text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"

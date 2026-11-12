@@ -31,6 +31,7 @@ function profile(overrides: Partial<Profile> = {}): Profile {
     escalationTerms: ["refund"],
     allowedDomains: [],
     requireUserVerification: false,
+    identityMode: "off",
     assistantActionsEnabled: true,
     managerName: "Charan",
     managerEmail: "hidden@example.com",
@@ -60,6 +61,8 @@ describe("publicWorkerIdentity", () => {
       welcomeMessage: null,
       quickActions: null,
       widgetAppearance: { theme: "light", corners: "rounded", launcherIcon: "chat", panelTitle: null, panelSubtitle: null },
+      identityGate: false,
+      identityMode: "off",
     });
   });
 

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { conversations, emailVerificationCodes } from "@/db/schema";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { OutboundBlocked, sendAsWorker } from "@/lib/outbound";
+import { isPlaceholderCustomerName } from "@/lib/customer-name";
 
 /**
  * Who a widget visitor is, and whether we have checked.
@@ -75,6 +76,19 @@ export function trustedCustomerEmail(row: IdentityRow): string | null {
   if (!row.customerEmail) return null;
   if (row.channel === "email" || row.customerEmailVerifiedAt) return row.customerEmail;
   return null;
+}
+
+/**
+ * Whether a conversation already has what the "details before the chat" gate asks for: a verified email when the
+ * worker emails a code, a name and an email when it only asks. Decided from stored facts, never from the model.
+ */
+export function identityGateSatisfied(
+  conversation: { customerName: string; customerEmail: string | null; customerEmailVerifiedAt?: Date | string | null },
+  mode: IdentityMode,
+): boolean {
+  if (mode === "off") return true;
+  if (mode === "email_code") return Boolean(conversation.customerEmail && conversation.customerEmailVerifiedAt);
+  return Boolean(conversation.customerEmail) && !isPlaceholderCustomerName(conversation.customerName);
 }
 
 export const identityInputSchema = z.object({
