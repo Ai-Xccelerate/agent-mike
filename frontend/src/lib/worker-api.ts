@@ -172,6 +172,8 @@ export type WorkerProfile = {
   identityMode: IdentityMode;
   /** Website chat only: ask for name, email (and the emailed code) before the first message. */
   identityGate?: boolean;
+  /** Manager view only: Jira is set to also raise a ticket for conversations the worker answers. */
+  logsEveryConversation?: boolean;
   /** What the website widget opens with (Settings > Channels > Chat); null = the built-in greeting. */
   welcomeMessage?: string | null;
   /** The tap-to-send buttons under the greeting; null = the built-in four. */

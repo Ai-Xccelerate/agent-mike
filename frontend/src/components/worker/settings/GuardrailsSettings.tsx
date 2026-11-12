@@ -2,6 +2,7 @@
 
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
+import IdentityGateNote from "@/components/worker/settings/IdentityGateNote";
 import UserVerificationToggle from "@/components/worker/settings/UserVerificationToggle";
 import { cardClass, fieldClass, sectionHintClass, sectionTitleClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
@@ -106,7 +107,7 @@ export default function GuardrailsSettings() {
       <section className={cardClass}>
         <h2 className={sectionTitleClass}>Customer identity</h2>
         <p className={sectionHintClass}>
-          How the website chat finds out who is writing. Only asked when the customer wants to raise or check a ticket.
+          How the website chat finds out who is writing.
         </p>
         <label className="mt-5 block text-sm font-medium text-gray-700 dark:text-gray-300">
           Identity check
@@ -125,6 +126,11 @@ export default function GuardrailsSettings() {
             {IDENTITY_MODES.find((mode) => mode.value === (profile.identityMode ?? "off"))?.help}
           </span>
         </label>
+        <IdentityGateNote
+          identityMode={profile.identityMode ?? "off"}
+          requireUserVerification={profile.requireUserVerification}
+          logsEveryConversation={Boolean(profile.logsEveryConversation)}
+        />
       </section>
 
       <section className={cardClass}>

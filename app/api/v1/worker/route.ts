@@ -6,7 +6,7 @@ import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { applyWorkerPatch } from "@/lib/worker-settings";
 import { identityGateRequired } from "@/lib/identity-gate";
 import { publicWorkerIdentity } from "@/lib/public-worker-identity";
-import { helpdeskCapabilities } from "@/lib/tools-integrations/atlassian";
+import { helpdeskCapabilities, helpdeskTicketsEveryConversation } from "@/lib/tools-integrations/atlassian";
 import { defaultQuickActions } from "@/lib/widget-defaults";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
@@ -31,12 +31,13 @@ export async function GET(req: NextRequest) {
   }
 
   const tenant = await identity.resolveManagerRequest(req);
-  const [profile, organizationName, capabilities] = await Promise.all([
+  const [profile, organizationName, capabilities, logsEveryConversation] = await Promise.all([
     getOrCreateProfile(tenant.orgId),
     getOrganizationName(tenant.orgId),
     helpdeskCapabilities(tenant.orgId),
+    helpdeskTicketsEveryConversation(tenant.orgId),
   ]);
-  return NextResponse.json({ ...profile, organizationName, defaultQuickActions: defaultQuickActions(capabilities) });
+  return NextResponse.json({ ...profile, organizationName, logsEveryConversation, defaultQuickActions: defaultQuickActions(capabilities) });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -49,6 +50,10 @@ export async function PATCH(req: NextRequest) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error, errors: result.errors }, { status: result.status });
   }
-  const [organizationName, capabilities] = await Promise.all([getOrganizationName(tenant.orgId), helpdeskCapabilities(tenant.orgId)]);
-  return NextResponse.json({ ...result.profile, organizationName, defaultQuickActions: defaultQuickActions(capabilities) });
+  const [organizationName, capabilities, logsEveryConversation] = await Promise.all([
+    getOrganizationName(tenant.orgId),
+    helpdeskCapabilities(tenant.orgId),
+    helpdeskTicketsEveryConversation(tenant.orgId),
+  ]);
+  return NextResponse.json({ ...result.profile, organizationName, logsEveryConversation, defaultQuickActions: defaultQuickActions(capabilities) });
 }

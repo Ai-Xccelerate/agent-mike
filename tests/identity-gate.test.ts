@@ -13,6 +13,7 @@ import { runChatRequest } from "@/lib/chat-turn";
 import { issueRememberToken } from "@/lib/remembered-customer";
 import { publicWorkerIdentity } from "@/lib/public-worker-identity";
 import { POST as postIdentity } from "@/app/api/v1/chat/identity/route";
+import { GET as getWorker } from "@/app/api/v1/worker/route";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 const logEveryMock = vi.hoisted(() => vi.fn());
@@ -192,5 +193,14 @@ describe("the form starts the conversation", () => {
     expect(identityGateSatisfied({ ...base, customerEmailVerifiedAt: null }, "email_match")).toBe(true);
     expect(identityGateSatisfied({ customerName: "Visitor 4821", customerEmail: "dana@example.com" }, "email_match")).toBe(false);
     expect(identityGateSatisfied({ customerName: "Visitor 4821", customerEmail: null }, "off")).toBe(true);
+  });
+});
+
+describe("the manager's view of the worker", () => {
+  it("says whether every conversation is logged, so Settings can explain the form", async () => {
+    const read = async () => json(await getWorker(new NextRequest("http://localhost/api/v1/worker")));
+    expect(await read()).toMatchObject({ logsEveryConversation: false });
+    logEveryMock.mockResolvedValue(true);
+    expect(await read()).toMatchObject({ logsEveryConversation: true });
   });
 });
