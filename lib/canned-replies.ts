@@ -2,6 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { cannedReplies } from "@/db/schema";
+import { featureEnabled } from "@/lib/features";
 
 export type CannedReply = typeof cannedReplies.$inferSelect;
 
@@ -45,6 +46,8 @@ export async function deleteCannedReply(organizationId: string, id: string): Pro
  * page, so it sits in the fixed part of the prompt.
  */
 export async function cannedRepliesBlock(organizationId: string): Promise<string> {
+  // Switched off: nothing is added to the worker's instructions, whatever is stored.
+  if (!featureEnabled("cannedReplies")) return "";
   const rows = (await listCannedReplies(organizationId)).filter((row) => row.enabled).slice(0, CANNED_LIMITS.inPrompt);
   const lines: string[] = [];
   let used = 0;

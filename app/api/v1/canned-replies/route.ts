@@ -1,3 +1,4 @@
+import { featureEnabled, featureOff } from "@/lib/features";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
@@ -8,11 +9,13 @@ import { CANNED_LIMITS, cannedReplyCreateSchema, createCannedReply, listCannedRe
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  if (!featureEnabled("cannedReplies")) return featureOff();
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   return NextResponse.json({ replies: await listCannedReplies(tenant.orgId), limits: CANNED_LIMITS, canChange: isOrgAdmin(tenant.role) });
 }
 
 export async function POST(req: NextRequest) {
+  if (!featureEnabled("cannedReplies")) return featureOff();
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   if (!isOrgAdmin(tenant.role)) return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
   const parsed = cannedReplyCreateSchema.safeParse(await req.json().catch(() => null));

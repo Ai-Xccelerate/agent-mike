@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { conversations } from "@/db/schema";
 import { getOrCreateProfile } from "@/lib/bootstrap";
 import { listCannedReplies } from "@/lib/canned-replies";
+import { featureEnabled } from "@/lib/features";
 import { listChanges } from "@/lib/change-log";
 import { enabledEvalCases, listEvalCases } from "@/lib/eval-cases";
 import { listEvalRuns } from "@/lib/eval-replay";
@@ -192,6 +193,8 @@ export function buildAssistantReadTools(organizationId: string): Tool[] {
       },
     }),
 
+    ...(featureEnabled("cannedReplies")
+      ? [
     tool({
       name: "list_canned_replies",
       description:
@@ -205,8 +208,12 @@ export function buildAssistantReadTools(organizationId: string): Tool[] {
           .map((r) => `- ${r.title} (when: ${clip(r.situation, 120)}) -> ${clip(r.reply, 200)}`)
           .join("\n");
       },
-    }),
+    })
+      ]
+      : []),
 
+    ...(featureEnabled("testCases")
+      ? [
     tool({
       name: "get_test_cases",
       description:
@@ -233,7 +240,9 @@ export function buildAssistantReadTools(organizationId: string): Tool[] {
         }
         return lines.join("\n");
       },
-    }),
+    })
+      ]
+      : []),
 
     tool({
       name: "get_recent_changes",

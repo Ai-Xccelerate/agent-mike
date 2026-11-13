@@ -1,6 +1,7 @@
 import { Agent, run, tool } from "@openai/agents";
 import { recordChange, takeSnapshot } from "@/lib/change-log";
 import { startReplay } from "@/lib/eval-replay";
+import { featureEnabled } from "@/lib/features";
 import type { Tool } from "@openai/agents";
 import { z } from "zod";
 import { and, desc, eq, gte, inArray, notInArray } from "drizzle-orm";
@@ -2248,8 +2249,10 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "the live configuration (get_worker_configuration), and explain any part of the product (get_product_guide). " +
     "You can read every part of the app, so look it up instead of guessing or asking: Overview numbers " +
     "(get_overview), the Tickets queues and who has each ticket (get_tickets), what the worker got wrong or has " +
-    "no article for (get_review_queue), canned replies (list_canned_replies), test cases and replay scores " +
-    "(get_test_cases), what changed in the setup and what it did to the score (get_recent_changes), and who " +
+    "no article for (get_review_queue), " +
+    (featureEnabled("cannedReplies") ? "canned replies (list_canned_replies), " : "") +
+    (featureEnabled("testCases") ? "test cases and replay scores (get_test_cases), " : "") +
+    "what changed in the setup (get_recent_changes), and who " +
     "handoffs go to (list_human_managers). When the manager asks how things are going, what needs attention, " +
     "or what to fix next, combine these (the queue, the review queue, the latest test score) into one answer. " +
     "Nothing to confirm, just answer.\n" +

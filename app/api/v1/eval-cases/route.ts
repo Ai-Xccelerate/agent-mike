@@ -1,3 +1,4 @@
+import { featureEnabled, featureOff } from "@/lib/features";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
@@ -8,11 +9,13 @@ import { EVAL_CASE_LIMITS, createEvalCase, evalCaseCreateSchema, listEvalCases }
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  if (!featureEnabled("testCases")) return featureOff();
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   return NextResponse.json({ cases: await listEvalCases(tenant.orgId), limits: EVAL_CASE_LIMITS, canChange: isOrgAdmin(tenant.role) });
 }
 
 export async function POST(req: NextRequest) {
+  if (!featureEnabled("testCases")) return featureOff();
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   if (!isOrgAdmin(tenant.role)) return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
   const parsed = evalCaseCreateSchema.safeParse(await req.json().catch(() => null));

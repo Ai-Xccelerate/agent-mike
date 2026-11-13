@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useFeatureFlags } from "@/lib/use-features";
 import { apiFetch, createEvalCase, type EvalCaseInput } from "@/lib/worker-api";
 import { GROUNDING_LABELS, ROUTE_LABELS, SHOW_REPLY_TRACE, type GroundingVerdict, type ReplyRoute } from "@/lib/reply-trace";
 
@@ -50,6 +51,7 @@ function suggestedCase(item: ReviewItem): { reference: string; behaviour: "answe
 
 /** Saves one review item as a saved test question. Personal details are removed on the server. */
 function MakeTestCase({ item }: { item: ReviewItem }) {
+  const { testCases } = useFeatureFlags();
   const start = suggestedCase(item);
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState(item.question);
@@ -58,6 +60,8 @@ function MakeTestCase({ item }: { item: ReviewItem }) {
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState("");
 
+  // Test cases are switched off: the review item is only shown, it cannot be saved as one.
+  if (!testCases) return null;
   if (state === "saved") {
     return (
       <p className="mt-2 text-xs text-success-700 dark:text-success-400">
