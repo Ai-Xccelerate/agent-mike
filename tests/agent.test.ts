@@ -1641,19 +1641,19 @@ describe("agent instructions — KB grounding", () => {
     managerName: "Charan",
   };
 
-  it("tells the worker to ask which meaning, offer the closest pages at a handover, and hand over an outage at once", async () => {
+  it("tells the worker to ask which meaning, say plainly she has no answer at a handover, and hand over an outage at once", async () => {
     const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
     // Ambiguous questions: ask which one, with tap options, instead of guessing.
     expect(instructions).toContain("could reasonably mean two or more different things");
     expect(instructions).toContain("do not pick one and answer it");
     expect(instructions).toContain("[[CHOICES: first meaning | second meaning]]");
-    // A handover names the closest pages, never as the answer, always with the caveat.
-    expect(instructions).toContain("name up to three of them by their exact titles");
-    expect(instructions).toContain("never copy steps from it into that reply");
-    expect(instructions).toContain("not sure they cover it");
+    // A handover says plainly she has no answer, and never talks about pages or material to the customer.
+    expect(instructions).toContain("I don't have the answer to that, so I've passed it to our team");
+    expect(instructions).toContain("Never mention pages, articles, guidance, reference material");
+    expect(instructions).not.toContain("closest pages");
     // The per-turn reminder after the material repeats both.
     expect(instructions).toContain("ask which instead of answering one");
-    expect(instructions).toContain("closest pages above");
+    expect(instructions).toContain("never mention pages, articles, guidance or material to the customer");
     // An outage is handed over in the same reply, with nothing asked first.
     expect(instructions).toContain("nobody in their office can use it");
     expect(instructions).toContain("ask them nothing first");

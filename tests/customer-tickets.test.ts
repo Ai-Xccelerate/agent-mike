@@ -6,7 +6,7 @@ import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
 import { customerTickets } from "@/lib/customer-tickets";
 import { customerStatusWord, referenceNotice, ticketReference } from "@/lib/ticket-reference";
-import { helpdeskRaisesTickets, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { helpdeskRaisesTickets, helpdeskTicketsEveryConversation, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
 const runAgentMock = vi.hoisted(() => vi.fn());
 
@@ -19,6 +19,7 @@ vi.mock("@/lib/tools-integrations/atlassian", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tools-integrations/atlassian")>()),
   recordHandoffInJira: vi.fn(async () => null),
   helpdeskRaisesTickets: vi.fn(async () => false),
+  helpdeskTicketsEveryConversation: vi.fn(async () => false),
 }));
 vi.mock("@/lib/conversation-memory", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/conversation-memory")>()),
@@ -252,6 +253,22 @@ describe("a verified customer chasing an earlier request", () => {
     expect(row.externalTicketKey).toBe("SUP-5");
   });
 
+  it("only asking the status: a note that they reached out again goes on that request, linked, and no second ticket is raised", async () => {
+    runAgentMock.mockResolvedValue({ ...chase, answer: "SUP-5 is with the support team.", escalate: false });
+    vi.mocked(helpdeskTicketsEveryConversation).mockResolvedValue(true);
+    vi.mocked(recordHandoffInJira).mockReset();
+    vi.mocked(recordHandoffInJira).mockResolvedValue({ key: "SUP-5", created: false });
+    const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com" });
+    await db.insert(messages).values({ conversationId: conversation.id, senderType: "customer", senderName: "Visitor", body: "any news?" });
+    await turn(conversation.id, "what is the status of SUP-5");
+    await vi.waitFor(() => expect(recordHandoffInJira).toHaveBeenCalledTimes(1));
+    const sent = vi.mocked(recordHandoffInJira).mock.calls[0][0];
+    expect(sent).toMatchObject({ reachedOutAgain: true, conversation: { externalTicketKey: "SUP-5" } });
+    vi.mocked(helpdeskTicketsEveryConversation).mockResolvedValue(false);
+    const [row] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
+    expect(row.externalTicketKey).toBe("SUP-5");
+  });
+
   it("changes nothing when the conversation already has its own ticket", async () => {
     runAgentMock.mockResolvedValue(chase);
     vi.mocked(recordHandoffInJira).mockReset();
@@ -326,17 +343,20 @@ describe("no ticket for an unknown person", () => {
 });
 
 describe("chasing a request that is already in the verified customer's own list", () => {
-  it("marks the quoted earlier request as one a chase can go on, but not the current chat or an unchecked address", async () => {
+  it("marks the quoted earlier request as one a chase note can go on, but not the current chat or a different typed address", async () => {
     const earlier = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com", customerEmailVerifiedAt: new Date(), externalTicketKey: "SUP-30", ticketSummary: "Booking page down" });
     const checked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com", customerEmailVerifiedAt: new Date() });
     const unchecked = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "sam@example.com" });
+    const stranger = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "other@example.com" });
     const chaseable = async (from: string, quoted: string) =>
       (await customerTickets(orgId, from, "EAP", quoted)).filter((t) => t.chaseable).map((t) => t.serviceDeskKey);
     expect(await chaseable(checked.id, "SUP-30")).toEqual(["SUP-30"]);
     expect(await chaseable(checked.id, "sup-30")).toEqual(["SUP-30"]);
     expect(await chaseable(checked.id, `EAP-${earlier.ticketNumber}`)).toEqual(["SUP-30"]);
     expect(await chaseable(checked.id, "SUP-99")).toEqual([]);
-    expect(await chaseable(unchecked.id, "SUP-30")).toEqual([]);
+    // The request's own address typed here, not checked: a note that they asked again may go on it (nothing is shown).
+    expect(await chaseable(unchecked.id, "SUP-30")).toEqual(["SUP-30"]);
+    expect(await chaseable(stranger.id, "SUP-30")).toEqual([]);
     expect(await chaseable(earlier.id, "SUP-30")).toEqual([]);
   });
 });

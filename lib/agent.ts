@@ -1011,8 +1011,11 @@ export async function buildAgentTools(
           reference: z.string().optional().describe("A reference or ticket number the customer quoted, such as TCK-1332"),
         }),
         execute: async ({ reference }) => {
-          const own = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix, reference) : [];
-          onTicketsChecked?.(own.find((ticket) => ticket.chaseable)?.serviceDeskKey ?? undefined);
+          const found = conversationId ? await customerTickets(organizationId, conversationId, profile.ticketPrefix, reference) : [];
+          onTicketsChecked?.(found.find((ticket) => ticket.chaseable)?.serviceDeskKey ?? undefined);
+          // This chat's own request is left out: its number is in the conversation already, and shown here it was
+          // quoted as an earlier ticket (or under a second number) to a customer asking about a different one.
+          const own = found.filter((ticket) => !ticket.thisChat);
           const desk = jiraAccountId && conversationId ? await lookupCustomerTickets(organizationId, conversationId, jiraAccountId) : null;
           const deskByKey = new Map<string, unknown>();
           try {
@@ -1023,13 +1026,13 @@ export async function buildAgentTools(
             // A helpdesk answer that cannot be read leaves the worker's own status in place.
           }
           const noteForQuoted =
-            reference && !own.some((ticket) => !ticket.thisChat)
-              ? "No request with that number is visible to this customer. Never say whether it exists. If they have not given the email address on that request, ask for it by opening the details form (end your reply with [[NEED_IDENTITY]]), so it can be checked: a request is only shown to the person it belongs to. Once they have filled it in, look the number up again. If they already have, tell them a teammate will check it."
+            reference && own.length === 0
+              ? "No request with that number is visible to this customer. Never say whether it exists. If they have not given the email address on that request, ask for it by opening the details form (end your reply with [[NEED_IDENTITY]]), so it can be checked: a request is only shown to the person it belongs to. Once they have filled it in, look the number up again. Explain this limit once only. If they have already given their details or you have already said you cannot see that request, do not say it again or ask again: say once that you cannot open it from here, tell them a teammate will check it, and end with [[ESCALATE]] so a person picks it up."
               : null;
           if (own.length === 0) {
             return JSON.stringify({
               tickets: [],
-              note: "This customer has no requests on record. If they quote a number you can't find here, tell them a teammate will check it.",
+              note: noteForQuoted ?? "This customer has no earlier requests on record (the request for this chat is not listed: its number is already in the conversation). If they quote a number you can't find here, tell them a teammate will check it.",
             });
           }
           return JSON.stringify({
@@ -1240,13 +1243,11 @@ export async function buildInstructions(
     "only from the reference material below. Do not fill gaps with general knowledge or generic advice, " +
     "and do not invent steps, settings, timelines, or policies. If the reference material does not " +
     "cover the question, tell the customer you're bringing in a teammate who can help, and end with " +
-    "[[ESCALATE]]. When you hand over because the material does not cover the question, look through the reference material " +
-    "before you finish: every page in it that is clearly about the question's topic (for example training, logging in, a " +
-    "feature's name) counts as close even if it only partly covers the question, so name up to three of them by their exact " +
-    "titles in one final sentence, for example \"While you wait, these pages are the closest I have, though I'm not sure they " +
-    "cover your question: [title], [title].\" Leave that sentence out only when none of the pages is about the question's topic " +
-    "at all. Never say or suggest that a page is the answer, never copy steps from it into that reply, and always keep the " +
-    "caveat that you are not sure they cover it. When the reference material does answer it, give that answer and end with " +
+    "[[ESCALATE]]. When you hand over because you do not have the answer, say so plainly, for example \"I don't have the answer to that, so " +
+    "I've passed it to our team. They'll follow up.\" Never mention pages, articles, guidance, reference material, documentation, " +
+    "searching, or what you could or could not find: the customer only needs to know you do not have the answer and a person is " +
+    "taking it. Never say or suggest that anything is the answer unless the material answers it, and never copy steps into a handover reply. "+
+    "When the reference material does answer it, give that answer and end with " +
     "[[FOLLOWUP]] or [[RESOLVE]] — a step in the material like \"contact support\" is part of the answer, " +
     "not a reason to escalate. Greetings, thanks, small talk, and short clarifying questions do not need " +
     "reference material — reply to those naturally. Search first and answer when the material covers the " +
@@ -1392,8 +1393,8 @@ export async function buildInstructions(
     // stuck? a teammate will check" was read as a reason to hand over (7 of 8 runs).
     "\n\nReminder: if the reference material above answers the question, give that answer and end with [[FOLLOWUP]] " +
     "or [[RESOLVE]]. A step in it like \"contact support\" or \"a teammate will check\" is part of the answer, not a reason " +
-    "to hand over. If it does not cover a support question, hand over with [[ESCALATE]] and, unless none is about the question's topic, " +
-    "end the reply with one sentence naming up to three of the closest pages above as the closest you have, not certain to " +
+    "to hand over. If it does not cover a support question, hand over with [[ESCALATE]] and say plainly that you do not have the answer " +
+    "and have passed it to the team: never mention pages, articles, guidance or material to the customer. " +
     "cover it. If the question " +
     "could mean two different things the material answers differently, ask which instead of answering one. " +
     "End this reply with exactly one of [[ESCALATE]], [[RESOLVE]] or [[FOLLOWUP]]" +
