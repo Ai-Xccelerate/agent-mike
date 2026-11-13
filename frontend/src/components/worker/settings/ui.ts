@@ -19,6 +19,13 @@
 export const fieldClass =
   "h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-500";
 
+/**
+ * A native select: the field style with room on the right for the chevron the app draws on every select
+ * (`select` in globals.css), so text never runs under the arrow and a long value ends in an ellipsis. Never use
+ * `fieldClass` on a select: its `px-4` ignores the arrow.
+ */
+export const selectFieldClass = fieldClass.replace(" px-4 ", " pl-4 pr-10 ");
+
 /** Auto-grows to fit its content (see `AutoGrowTextarea`) — never a manual resize handle. */
 export const textareaClass =
   "w-full resize-none rounded-lg border border-gray-300 bg-transparent px-4 py-3 text-sm leading-6 text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-500";

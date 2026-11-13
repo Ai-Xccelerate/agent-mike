@@ -27,6 +27,8 @@ const outlineControl =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white/60 px-3 text-sm font-medium text-gray-700 transition-colors hover:bg-white disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]";
 const fieldClass =
   "h-9 w-full rounded-lg border border-gray-200 bg-white/60 px-2.5 text-sm text-gray-800 outline-none focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 disabled:opacity-60 dark:border-white/[0.12] dark:bg-gray-900 dark:text-white/90";
+// A select in this page's field style, with room on the right for the chevron every select gets (globals.css).
+const selectControlClass = fieldClass.replace(" px-2.5 ", " pl-2.5 pr-9 ");
 
 const STATUSES: Conversation["status"][] = ["open", "needs_human", "resolved", "closed"];
 
@@ -37,14 +39,13 @@ function messageTime(iso: string) {
   return `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
 
-/** A select with its own chevron, inset from the edge. The native arrow sits flush against the border. */
+/** A select; the chevron is drawn by the global select style. */
 function SelectField({ className = "", children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <span className={`relative block ${className}`}>
-      <select {...props} className={`${fieldClass} appearance-none pr-9`}>
+      <select {...props} className={selectControlClass}>
         {children}
       </select>
-      <ChevronDownIcon aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
     </span>
   );
 }

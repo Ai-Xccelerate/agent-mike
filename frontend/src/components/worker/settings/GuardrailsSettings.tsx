@@ -4,7 +4,7 @@ import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader"
 import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
 import IdentityGateNote from "@/components/worker/settings/IdentityGateNote";
 import UserVerificationToggle from "@/components/worker/settings/UserVerificationToggle";
-import { cardClass, fieldClass, sectionHintClass, sectionTitleClass } from "@/components/worker/settings/ui";
+import { cardClass, fieldClass, sectionHintClass, sectionTitleClass, selectFieldClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 import type { IdentityMode } from "@/lib/worker-api";
 
@@ -114,7 +114,7 @@ export default function GuardrailsSettings() {
           <select
             value={profile.identityMode ?? "off"}
             onChange={(e) => update("identityMode", e.target.value as IdentityMode)}
-            className={`${fieldClass} mt-2`}
+            className={`${selectFieldClass} mt-2`}
           >
             {IDENTITY_MODES.map((mode) => (
               <option key={mode.value} value={mode.value}>

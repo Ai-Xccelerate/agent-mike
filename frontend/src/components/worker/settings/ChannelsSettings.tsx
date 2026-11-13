@@ -8,7 +8,7 @@ import MailboxStatusLine from "@/components/worker/settings/MailboxStatusLine";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
 import SettingsSection from "@/components/worker/settings/SettingsSection";
 import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
-import { counterClass, dividerClass, fieldClass, hintClass, labelClass, textareaClass } from "@/components/worker/settings/ui";
+import { counterClass, dividerClass, fieldClass, hintClass, labelClass, textareaClass, selectFieldClass } from "@/components/worker/settings/ui";
 import { ChatIcon, CopyIcon } from "@/icons";
 import {
   defaultWelcomeMessage,
@@ -288,7 +288,7 @@ function ChatAppearanceSettings({
         </div>
         <label className="block">
           <span className={labelClass}>Light or dark</span>
-          <select className={`${fieldClass} mt-1.5`} value={appearance.theme} onChange={(event) => set({ theme: event.target.value as WidgetAppearance["theme"] })}>
+          <select className={`${selectFieldClass} mt-1.5`} value={appearance.theme} onChange={(event) => set({ theme: event.target.value as WidgetAppearance["theme"] })}>
             {THEME_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
@@ -296,7 +296,7 @@ function ChatAppearanceSettings({
         </label>
         <label className="block">
           <span className={labelClass}>Corners</span>
-          <select className={`${fieldClass} mt-1.5`} value={appearance.corners} onChange={(event) => set({ corners: event.target.value as WidgetAppearance["corners"] })}>
+          <select className={`${selectFieldClass} mt-1.5`} value={appearance.corners} onChange={(event) => set({ corners: event.target.value as WidgetAppearance["corners"] })}>
             {CORNER_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
@@ -304,7 +304,7 @@ function ChatAppearanceSettings({
         </label>
         <label className="block">
           <span className={labelClass}>Launcher icon</span>
-          <select className={`${fieldClass} mt-1.5`} value={appearance.launcherIcon} onChange={(event) => set({ launcherIcon: event.target.value as WidgetAppearance["launcherIcon"] })}>
+          <select className={`${selectFieldClass} mt-1.5`} value={appearance.launcherIcon} onChange={(event) => set({ launcherIcon: event.target.value as WidgetAppearance["launcherIcon"] })}>
             {ICON_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import Button from "@/components/ui/button/Button";
 import SettingsToggle from "@/components/worker/settings/SettingsToggle";
-import { cardClass, counterClass, fieldClass, labelClass, textareaClass } from "@/components/worker/settings/ui";
+import { cardClass, counterClass, fieldClass, labelClass, textareaClass, selectFieldClass } from "@/components/worker/settings/ui";
 import { PencilIcon, PlusIcon, TrashBinIcon } from "@/icons";
 import {
   createWorkerManager,
@@ -113,7 +113,7 @@ export default function ManagersList() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className={labelClass}>
               Backup <span className="font-normal text-gray-400">(told while this person is switched off)</span>
-              <select className={`${fieldClass} mt-2`} value={form.backupId} onChange={(e) => setForm((f) => ({ ...f, backupId: e.target.value }))}>
+              <select className={`${selectFieldClass} mt-2`} value={form.backupId} onChange={(e) => setForm((f) => ({ ...f, backupId: e.target.value }))}>
                 <option value="">No backup</option>
                 {data?.managers.filter((m) => m.id !== editingId).map((m) => (
                   <option key={m.id} value={m.id}>

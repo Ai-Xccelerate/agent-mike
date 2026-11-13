@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
 import { SettingsToggleRow } from "@/components/worker/settings/SettingsToggle";
-import { fieldClass, hintClass, labelClass } from "@/components/worker/settings/ui";
+import { fieldClass, hintClass, labelClass, selectFieldClass } from "@/components/worker/settings/ui";
 import {
   getJiraProjects,
   getKnowledgeIndexStatus,
@@ -186,7 +186,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
           <span className={labelClass}>Project</span>
           {listed ? (
             <select
-              className={`mt-1.5 ${fieldClass}`}
+              className={`mt-1.5 ${selectFieldClass}`}
               value={projectKey}
               onChange={(event) => {
                 const next = listed.find((entry) => entry.key === event.target.value);
@@ -219,7 +219,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
           <label>
             <span className={labelClass}>Request type</span>
             <select
-              className={`mt-1.5 ${fieldClass}`}
+              className={`mt-1.5 ${selectFieldClass}`}
               value={workerChooses ? "" : requestTypes.some((type) => type.id === requestTypeId) ? requestTypeId : ""}
               disabled={workerChooses}
               onChange={(event) => setRequestTypeId(event.target.value)}
@@ -237,7 +237,7 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
             <span className={labelClass}>Issue type</span>
             {listed ? (
               <select
-                className={`mt-1.5 ${fieldClass}`}
+                className={`mt-1.5 ${selectFieldClass}`}
                 value={issueTypes.includes(issueType) ? issueType : ""}
                 disabled={!project}
                 onChange={(event) => setIssueType(event.target.value)}
