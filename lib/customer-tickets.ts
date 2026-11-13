@@ -13,7 +13,7 @@ export type CustomerTicket = {
   about: string | null;
   status: string;
   updated: string;
-  /** A number the customer quoted that is theirs (checked email) and has a helpdesk key: a chase can go on it. */
+  /** A number the customer quoted that is theirs (email checked, or typed and matching) and has a helpdesk key: a chase note can go on it. */
   chaseable?: boolean;
   /** The request being handled in this very conversation: not an earlier one. */
   thisChat?: boolean;
@@ -133,7 +133,8 @@ async function quotedTicket(
     reference: ticketReference(ticketPrefix, row.ticketNumber),
     serviceDeskKey: row.externalTicketKey ?? null,
     about: theirs ? row.ticketSummary ?? row.subject ?? null : null,
-    ...(theirs && row.externalTicketKey ? { chaseable: true } : {}),
+    // The address typed here matches the request's own: enough to add a note that they asked again (it reveals nothing).
+    ...(row.externalTicketKey ? { chaseable: true } : {}),
     status: customerStatusWord(row.status),
     updated: row.updatedAt.toISOString(),
   };

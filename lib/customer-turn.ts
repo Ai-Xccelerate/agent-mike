@@ -251,7 +251,7 @@ export async function runCustomerTurn(input: {
     });
   }
 
-  const raiseTicket = (fromConversation: ConversationRow, answeredByWorker = false) =>
+  const raiseTicket = (fromConversation: ConversationRow, answeredByWorker = false, reachedOutAgain = false) =>
     recordHandoffInJira({
       organizationId,
       workerName: profile.displayName,
@@ -260,6 +260,7 @@ export async function runCustomerTurn(input: {
       latestMessage: message,
       workerReply: result.answer,
       ...(answeredByWorker ? { answeredByWorker: true } : {}),
+      ...(reachedOutAgain ? { reachedOutAgain: true } : {}),
       // Only an email a code was typed back for may be raised on behalf of.
       ...(verified && conversation.customerEmail
         ? { verifiedCustomer: { email: conversation.customerEmail, name: isPlaceholderCustomerName(conversation.customerName) ? null : conversation.customerName } }
@@ -298,11 +299,16 @@ export async function runCustomerTurn(input: {
 
   // A customer chasing an earlier request of theirs (a verified customer who quoted its number): the chase goes
   // on that request as a comment, and the conversation is linked to it, instead of opening a second ticket.
-  const chasedKey = result.escalate && !conversation.externalTicketKey ? result.chasedTicketKey : undefined;
+  // Asking only for the status of it counts too: no second ticket, and a note that they reached out again.
+  const chasedKey = !conversation.externalTicketKey ? result.chasedTicketKey : undefined;
   if (chasedKey) {
     await db.update(conversations).set({ externalTicketKey: chasedKey }).where(eq(conversations.id, conversation.id));
   }
   const withChased = <T extends ConversationRow>(row: T): T => (chasedKey && !row.externalTicketKey ? { ...row, externalTicketKey: chasedKey } : row);
+  // Only asked after it (no handover): the earlier request gets a note that they reached out again, not a second ticket.
+  if (chasedKey && !result.escalate && !dry) {
+    void raiseTicket(withChased(conversation), false, true);
+  }
 
   // A handover whose helpdesk ticket never came to be (the server restarted mid-way, the helpdesk was briefly
   // unreachable) is tried again on the customer's next message. A ticket the helpdesk refused is not: that is
@@ -328,6 +334,7 @@ export async function runCustomerTurn(input: {
     conversation.status !== "needs_human" &&
     !conversation.externalTicketKey &&
     !conversation.externalTicketError &&
+    !chasedKey &&
     !ticketsInFlight.has(conversation.id) &&
     (result.citations.length > 0 || priorMessages.some((row) => row.senderType === "customer")) &&
     (await helpdeskTicketsEveryConversation(organizationId));

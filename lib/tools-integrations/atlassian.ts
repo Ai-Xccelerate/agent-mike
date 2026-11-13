@@ -387,8 +387,8 @@ export const HANDOFF_TICKET_LABEL = "ai-worker-handoff";
 /** On a ticket for a conversation the worker answered by itself: nothing is needed unless the customer writes again. */
 export const ANSWERED_TICKET_LABEL = "ai-worker-answered";
 /** How much of the conversation goes into the ticket. */
-const HANDOFF_TRANSCRIPT_MESSAGES = 20;
-const HANDOFF_MESSAGE_CHARS = 1500;
+const HANDOFF_TRANSCRIPT_MESSAGES = 8;
+const HANDOFF_MESSAGE_CHARS = 700;
 const ISSUE_KEY_PATTERN = /^[A-Z][A-Z0-9_]*-\d+$/;
 
 export type HandoffConversation = {
@@ -419,6 +419,8 @@ export type HandoffTicketInput = {
   raisedByManager?: boolean;
   /** The worker answered this conversation itself and the ticket is only for the desk's records. */
   answeredByWorker?: boolean;
+  /** The customer only asked after this earlier request (a status check): a note that they reached out again, no handover. */
+  reachedOutAgain?: boolean;
 };
 
 export type HandoffTicketResult = {
@@ -473,13 +475,11 @@ export function handoffTicketDescription(input: HandoffTicketInput): string {
         : `${workerName} handed this conversation to a person and raised this ticket automatically.`,
     "",
     `**Customer:** ${customer || "unknown (not given)"}${input.raisedByManager && customer && !input.verifiedCustomer ? " (typed in the chat, not verified by an emailed code)" : ""}`,
-    `**Channel:** ${conversation.channel}`,
-    `**Conversation:** #${conversation.ticketNumber}`,
+    `**Conversation:** #${conversation.ticketNumber} (${conversation.channel})`,
     turns.some((turn) => turn.body.includes("[Attached:")) ? "**Files:** the customer attached files. They are kept in Mike for 30 days: open this conversation in the Inbox to download them." : "",
     conversation.ticketSummary ? `\n**Summary:** ${clip(conversation.ticketSummary, 600)}` : "",
-    conversation.summary ? `\n**Summary so far:** ${clip(conversation.summary, 2000)}` : "",
     "",
-    "**Conversation:**",
+    "**Latest messages:**",
     "",
     transcript,
   ]
@@ -622,9 +622,11 @@ export async function recordHandoffInJira(
       return { failed: error };
     }
     // A ticket logged as answered by the worker now needs a person: swap the label so the team's queue shows it.
-    if (!input.answeredByWorker) {
+    if (!input.answeredByWorker && !input.reachedOutAgain) {
       await callJira(connectedAccountId, "PUT", `/rest/api/3/issue/${conversation.externalTicketKey}`, {
         update: { labels: [{ add: HANDOFF_TICKET_LABEL }, { remove: ANSWERED_TICKET_LABEL }] },
+        // The first line said "nothing is needed": now it needs a person, so the description says that too.
+        fields: { description: toJiraWikiMarkup(handoffTicketDescription(input)) },
       }).catch(() => undefined);
     }
     return { key: conversation.externalTicketKey, created: false };
@@ -784,9 +786,10 @@ export async function setCriticalTicketPriority(organizationId: string, key: str
 }
 
 /** A later handoff on the same conversation: what the customer added, and what the worker passed on. */
-export function handoffComment(input: Pick<HandoffTicketInput, "latestMessage" | "workerReply" | "workerName">): string {
+export function handoffComment(input: Pick<HandoffTicketInput, "latestMessage" | "workerReply" | "workerName" | "reachedOutAgain">): string {
+  const lead = input.reachedOutAgain ? "The customer reached out again in chat about this request." : "The customer needs a person again.";
   return [
-    `The customer needs a person again. Their latest message:\n\n${clip(input.latestMessage, HANDOFF_MESSAGE_CHARS)}`,
+    `${lead} Their latest message:\n\n${clip(input.latestMessage, HANDOFF_MESSAGE_CHARS)}`,
     input.workerReply ? `${input.workerName} replied:\n\n${clip(input.workerReply, HANDOFF_MESSAGE_CHARS)}` : "",
   ]
     .filter(Boolean)
