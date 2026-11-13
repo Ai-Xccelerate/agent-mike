@@ -90,6 +90,11 @@ const SUGGESTED_PROMPTS = [
   { label: "What's in my knowledge base?", prompt: "What topics does my knowledge base cover?" },
 ];
 
+// The home screen leads with one question, shows two more beside it, and keeps the rest one click away.
+const PRIMARY_PROMPT = SUGGESTED_PROMPTS[1];
+const SECONDARY_PROMPTS = [SUGGESTED_PROMPTS[0], SUGGESTED_PROMPTS[3]];
+const MORE_PROMPTS = [SUGGESTED_PROMPTS[2], SUGGESTED_PROMPTS[4], SUGGESTED_PROMPTS[5]];
+
 function greetingForHour(hour: number): string {
   if (hour < 5) return "Good evening";
   if (hour < 12) return "Good morning";
@@ -644,7 +649,7 @@ function AssistantChat() {
           )}
 
           {isBlank && !loading ? (
-            <div className="mx-auto flex min-h-full max-w-xl flex-col items-center justify-center gap-3 py-4 text-center">
+            <div className="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center gap-2 py-2 text-center">
               <AgentAvatar initials={avatarInitials} size="lg" accentColor={accentColor} avatarUrl={avatarUrl} />
               <p className="text-lg font-semibold text-gray-800 dark:text-white/90">
                 {greetingForHour(new Date().getHours())}
@@ -654,37 +659,21 @@ function AssistantChat() {
                 Ask about your conversations, change any setting, draft replies, or attach files for your
                 knowledge base.
               </p>
-              <div className="mt-4 w-full space-y-5 text-left">
-                <section aria-labelledby="assistant-setup-shortcuts">
-                  <h2
-                    id="assistant-setup-shortcuts"
-                    className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500"
-                  >
-                    Your setup
-                  </h2>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {PANEL_SHORTCUTS.map(({ label, kind, icon: Icon }) => (
-                      <button
-                        key={kind}
-                        type="button"
-                        onClick={() => void send(`Show ${label.toLowerCase()}`, { showPanel: kind })}
-                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-300 dark:hover:border-gray-700 dark:hover:bg-white/[0.06]"
-                      >
-                        <Icon className="size-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                        <span className="truncate">{label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-                <section aria-labelledby="assistant-suggested-prompts">
-                  <h2
-                    id="assistant-suggested-prompts"
-                    className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500"
-                  >
+              <div className="mt-3 w-full space-y-4 text-left">
+                <section aria-labelledby="assistant-suggested-prompts" className="space-y-2">
+                  <h2 id="assistant-suggested-prompts" className="sr-only">
                     Try asking
                   </h2>
+                  <button
+                    type="button"
+                    onClick={() => void sendText(PRIMARY_PROMPT.prompt)}
+                    className="flex w-full flex-col items-start rounded-2xl border border-gray-300 bg-white px-4 py-3 text-left transition-colors hover:border-brand-500 dark:border-gray-700 dark:bg-white/[0.03] dark:hover:border-brand-500"
+                  >
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white/90">{PRIMARY_PROMPT.label}</span>
+                    <span className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Open and waiting conversations, in one answer</span>
+                  </button>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {SUGGESTED_PROMPTS.map((item) => (
+                    {SECONDARY_PROMPTS.map((item) => (
                       <button
                         key={item.label}
                         type="button"
@@ -696,6 +685,42 @@ function AssistantChat() {
                     ))}
                   </div>
                 </section>
+                <section aria-labelledby="assistant-setup-shortcuts">
+                  <h2 id="assistant-setup-shortcuts" className="sr-only">
+                    Your setup
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                    <span className="mr-0.5 font-medium text-gray-400 dark:text-gray-500">Your setup</span>
+                    {PANEL_SHORTCUTS.map(({ label, kind, icon: Icon }) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        onClick={() => void send(`Show ${label.toLowerCase()}`, { showPanel: kind })}
+                        className="flex items-center gap-1 rounded-lg px-1.5 py-1 font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+                      >
+                        <Icon className="size-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+                <details className="group text-xs text-gray-500 dark:text-gray-400">
+                  <summary className="cursor-pointer select-none px-1 font-medium text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
+                    More questions to ask
+                  </summary>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {MORE_PROMPTS.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => void sendText(item.prompt)}
+                        className="truncate rounded-lg border border-gray-200 px-3 py-2 text-left text-sm text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800 dark:border-gray-800 dark:text-gray-400 dark:hover:border-gray-700 dark:hover:bg-white/[0.04] dark:hover:text-gray-200"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </details>
               </div>
             </div>
           ) : (
