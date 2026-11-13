@@ -4,6 +4,7 @@ import type { FC } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Tooltip from "@/components/ui/tooltip/Tooltip";
+import { useFeatureFlags, type FeatureFlags } from "@/lib/use-features";
 import {
   BoltIcon,
   BoxCubeIcon,
@@ -26,6 +27,8 @@ type SettingsItem = {
   label: string;
   icon: FC;
   available?: boolean;
+  /** Shown only while the server has this feature switched on. */
+  feature?: keyof FeatureFlags;
 };
 
 type SettingsSection = {
@@ -42,8 +45,8 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       { href: "/settings/agent-configuration", label: "Agent configuration", icon: BoltIcon, available: true },
       { href: "/settings/knowledge", label: "Knowledge", icon: DocsIcon, available: true },
       { href: "/settings/skills", label: "Skills", icon: ShootingStarIcon, available: true },
-      { href: "/settings/canned-replies", label: "Canned replies", icon: ChatIcon, available: true },
-      { href: "/settings/test-cases", label: "Test cases", icon: TaskIcon, available: true },
+      { href: "/settings/canned-replies", label: "Canned replies", icon: ChatIcon, available: true, feature: "cannedReplies" },
+      { href: "/settings/test-cases", label: "Test cases", icon: TaskIcon, available: true, feature: "testCases" },
       { href: "/settings/tickets", label: "Tickets", icon: TicketIcon, available: true },
     ],
   },
@@ -91,14 +94,19 @@ function navItemClass(active: boolean, disabled: boolean) {
 
 export default function SettingsNav() {
   const pathname = usePathname();
-  const activeHref = SETTINGS_SECTIONS.flatMap((section) => section.items)
+  const flags = useFeatureFlags();
+  const sections = SETTINGS_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.feature || flags[item.feature]),
+  }));
+  const activeHref = sections.flatMap((section) => section.items)
     .map((item) => item.href)
     .filter((href) => pathname === href || pathname.startsWith(`${href}/`))
     .sort((a, b) => b.length - a.length)[0];
 
   return (
     <nav aria-label="Settings sections" className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4 lg:block lg:space-y-6">
-      {SETTINGS_SECTIONS.map((section) => (
+      {sections.map((section) => (
         <div key={section.title} className="min-w-0 space-y-0.5">
           <h2 className="mb-1.5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
             {section.title}

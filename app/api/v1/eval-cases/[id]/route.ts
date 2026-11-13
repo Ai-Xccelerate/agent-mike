@@ -1,3 +1,4 @@
+import { featureEnabled, featureOff } from "@/lib/features";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getIdentityAdapter } from "@/lib/identity";
@@ -8,6 +9,7 @@ import { deleteEvalCase, evalCasePatchSchema, updateEvalCase } from "@/lib/eval-
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!featureEnabled("testCases")) return featureOff();
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   if (!isOrgAdmin(tenant.role)) return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
   const parsed = evalCasePatchSchema.safeParse(await req.json().catch(() => null));
@@ -17,6 +19,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!featureEnabled("testCases")) return featureOff();
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
   if (!isOrgAdmin(tenant.role)) return NextResponse.json({ error: "Only org admins can do this" }, { status: 403 });
   return (await deleteEvalCase(tenant.orgId, params.id)) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Not found" }, { status: 404 });

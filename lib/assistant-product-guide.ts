@@ -1,3 +1,4 @@
+import { featureEnabled } from "@/lib/features";
 /**
  * What each Settings section actually does, for the admin Assistant to
  * explain the product accurately. Written against the live code, not the
@@ -201,5 +202,11 @@ const GUIDE: Record<ProductGuideTopic, string> = {
 };
 
 export function productGuide(topic: ProductGuideTopic): string {
+  if (topic === "canned_replies" && !featureEnabled("cannedReplies")) return "Canned replies are switched off for now: there is no Canned replies page and the worker does not use them.";
+  if (topic === "test_cases" && !featureEnabled("testCases")) return "Test cases are switched off for now: there is no Test cases page and nothing is replayed.";
+  if (topic === "overview") {
+    const off = [!featureEnabled("cannedReplies") ? "Canned replies, " : "", !featureEnabled("testCases") ? "Test cases, " : ""];
+    return off.reduce((text, name) => (name ? text.replace(name, "") : text), GUIDE.overview);
+  }
   return GUIDE[topic];
 }

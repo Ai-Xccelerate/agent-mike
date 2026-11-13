@@ -1,4 +1,5 @@
 import { Agent, run } from "@openai/agents";
+import { featureEnabled } from "@/lib/features";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -125,6 +126,8 @@ export type StartResult = { ok: true; runId: string } | { ok: false; status: num
 
 /** Starts a replay of every enabled test case and returns at once; the run row fills in as it goes. */
 export async function startReplay(input: { organizationId: string; triggeredBy: string; changeId?: string | null; awaitFinish?: boolean }): Promise<StartResult> {
+  // Switched off: no replay starts, from a route, after an Assistant change, or after an undo.
+  if (!featureEnabled("testCases")) return { ok: false, status: 404, error: "Test cases are switched off." };
   const unavailable = modelUnavailabilityReason();
   if (unavailable) return { ok: false, status: 503, error: "The AI model is not available, so a replay cannot run." };
   // A run that has been "running" for far too long died with its server; it no longer blocks a new one.
