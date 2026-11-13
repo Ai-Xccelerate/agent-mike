@@ -117,10 +117,10 @@ export default function UserVerificationToggle({
           <p className="mt-3 border-t border-gray-200 pt-3 text-xs leading-5 text-gray-500 dark:border-gray-700 dark:text-gray-400">
             Connect a CRM under{" "}
             <Link
-              href="/settings/integrations"
+              href="/settings/connections?tab=apps"
               className="font-medium text-brand-600 hover:underline dark:text-brand-400"
             >
-              Integrations
+              Connections
             </Link>{" "}
             to use this. Verification works by looking the customer up in it.
           </p>

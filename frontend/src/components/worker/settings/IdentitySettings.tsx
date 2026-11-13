@@ -223,7 +223,7 @@ export default function IdentitySettings() {
               />
             </div>
             <span className="mt-2 block">
-              <MailboxStatusLine />
+              <MailboxStatusLine supportEmail={profile.email} onUseAddress={(address) => update("email", address)} />
             </span>
             <FieldError message={fieldErrors.email} />
           </label>

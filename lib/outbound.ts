@@ -95,7 +95,7 @@ export interface SendOptions {
 
 /**
  * How this org sends: its Nylas mailbox when one is connected, else a Gmail
- * account connected through Composio under Settings > Integrations.
+ * account connected through Composio under Settings > Connections > Apps.
  */
 async function resolveTransport(orgId: string) {
   const mailbox = await getMailbox(orgId);
@@ -153,7 +153,7 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
   const transport = await resolveTransport(options.orgId);
   if (!transport) {
     throw new OutboundBlocked(
-      "No mailbox is connected. Connect Gmail under Settings > Integrations, or a Nylas mailbox under Settings > Tools.",
+      "No mailbox is connected. Connect Gmail or a mailbox under Settings > Connections > Email.",
       [],
       "no_mailbox",
     );

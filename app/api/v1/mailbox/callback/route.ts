@@ -29,11 +29,12 @@ export const dynamic = "force-dynamic";
 function settingsUrl(req: NextRequest, params: Record<string, string>): string {
   // The frontend and this API commonly live on different hosts (split
   // deploy) — req.nextUrl.origin is this API's own origin, which doesn't
-  // serve /settings/tools, so prefer the configured allowed origin.
+  // serve /settings/connections, so prefer the configured allowed origin.
   const base = publicAppUrl() || req.nextUrl.origin;
-  // The mailbox card lives under Tools > External tools, so that is where the
+  // The mailbox card lives under Connections > Email, so that is where the
   // manager must land to see whether the connection took.
-  const url = new URL("/settings/tools", base);
+  const url = new URL("/settings/connections", base);
+  url.searchParams.set("tab", "email");
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   return url.toString();
 }

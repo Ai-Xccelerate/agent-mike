@@ -124,6 +124,22 @@ export async function getAccountSite(connectedAccountId: string): Promise<string
   return null;
 }
 
+/** The address a connected mail account (Gmail) belongs to, when Composio records it. Null otherwise. */
+export async function getAccountEmail(connectedAccountId: string): Promise<string | null> {
+  const account = (await getComposioClient().connectedAccounts.get(connectedAccountId)) as {
+    data?: Record<string, unknown>;
+    params?: Record<string, unknown>;
+    state?: { val?: Record<string, unknown> };
+  };
+  for (const source of [account.data, account.params, account.state?.val]) {
+    for (const key of ["email", "emailAddress", "email_address", "user_email"]) {
+      const value = source?.[key];
+      if (typeof value === "string" && /^[^@\s]+@[^@\s]+$/.test(value.trim())) return value.trim();
+    }
+  }
+  return null;
+}
+
 /**
  * A raw HTTP call made with a connection's credentials, for APIs Composio has
  * no action for (e.g. Jira Service Management's request API). The endpoint

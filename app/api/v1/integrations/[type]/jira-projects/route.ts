@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /**
  * The connected Jira's projects, the issue types each can take a handoff
  * ticket as and, for service desk projects, their request types, for
- * Settings > Integrations > Jira's dropdowns.
+ * Settings > Connections > Apps > Jira's dropdowns.
  */
 export async function GET(req: NextRequest, { params }: { params: { type: string } }) {
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);

@@ -14,7 +14,7 @@ import { chooseRequestType } from "@/lib/request-type-choice";
 /**
  * Jira and Confluence, shared by every agent that talks to them.
  *
- * Both are connected per org through Composio (Settings > Integrations), and
+ * Both are connected per org through Composio (Settings > Connections > Apps), and
  * their per-org settings (which project tickets go to, which space answers
  * come from) live on the connection row's `metadata.settings`, so they go
  * away with the connection rather than outliving it in the worker profile.
@@ -1698,7 +1698,7 @@ export async function managerAccount(
   const connection = await getConnectionForOrg(organizationId, system === "jira" ? "helpdesk" : "knowledge_base");
   const connectedAccountId = activeAccount(connection, system);
   if (!connection || !connectedAccountId) {
-    return `${system === "jira" ? "Jira" : "Confluence"} isn't connected. It's connected in Settings > Integrations.`;
+    return `${system === "jira" ? "Jira" : "Confluence"} isn't connected. It's connected in Settings > Connections > Apps.`;
   }
   return { connection, connectedAccountId };
 }

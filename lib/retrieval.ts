@@ -161,7 +161,7 @@ async function retrieveKnowledgeUncached(
             error: error instanceof AgentWikiError ? error.message : "Agent Wiki lookup failed",
           }))
       : null,
-    // A connected Confluence (Settings > Integrations > Knowledge base) is
+    // A connected Confluence (Settings > Connections > Apps > Knowledge base) is
     // searched full-text before every answer, so grounding never depends on
     // the model deciding to look. Null = not connected or switched off.
     confluenceMatches(profile.organizationId, query, limit)

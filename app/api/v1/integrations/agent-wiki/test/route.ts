@@ -9,7 +9,7 @@ import { checkAgentWikiConnection } from "@/lib/agent-wiki";
 export const dynamic = "force-dynamic";
 
 /**
- * Settings > Tools > Internal tools > Agent Wiki > "Test connection".
+ * Settings > Connections > Tools > Internal tools > Agent Wiki > "Test connection".
  *
  * Always 200 — a failed test is a result to render, not a failed request.
  */

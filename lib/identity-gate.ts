@@ -4,7 +4,7 @@ import { normalizeIdentityMode } from "@/lib/customer-identity";
 /**
  * Whether the website chat must know who is writing before it answers (the "details before the chat" form).
  *
- * Only when the organization has turned on logging every conversation as a ticket (Settings > Integrations > Jira) or
+ * Only when the organization has turned on logging every conversation as a ticket (Settings > Connections > Apps > Jira) or
  * the CRM customer check (Settings > Guardrails > Check customers against the CRM), and an identity check is on to collect the details with.
  * Otherwise a customer may ask general questions without giving anything, and the worker asks for details only when
  * a ticket is needed.

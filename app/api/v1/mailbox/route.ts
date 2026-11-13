@@ -16,6 +16,7 @@ import {
 } from "@/lib/nylas";
 import { describeCredentials } from "@/lib/provider-credentials";
 import { deleteMailbox, getMailbox, markMailboxInvalid, touchMailbox } from "@/lib/mailbox-repository";
+import { getMailConnection } from "@/lib/mail-connection";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -38,6 +39,11 @@ export async function GET(req: NextRequest) {
   const resolved = await resolveNylasCredentials(tenant.orgId);
   const available = Boolean(resolved);
   const mailbox = await getMailbox(tenant.orgId);
+
+  // Additive: which mail platform the worker really sends through (the mailbox, else Gmail connected under Connections),
+  // so Identity and the Connections screen agree with lib/outbound.ts instead of only reading the mailbox.
+  const respond = async <T extends { connected: boolean }>(body: T) =>
+    NextResponse.json({ ...body, mail: await getMailConnection(tenant.orgId, mailbox ? body.connected : undefined) });
 
   const credentials = await describeCredentials(
     tenant.orgId,
@@ -67,7 +73,7 @@ export async function GET(req: NextRequest) {
   };
 
   if (!mailbox) {
-    return NextResponse.json({ ...base, connected: false, mailbox: null, error: null });
+    return respond({ ...base, connected: false, mailbox: null, error: null });
   }
 
   const payload = {
@@ -81,7 +87,7 @@ export async function GET(req: NextRequest) {
   };
 
   if (!available) {
-    return NextResponse.json({ ...base, connected: false, mailbox: payload, error: null });
+    return respond({ ...base, connected: false, mailbox: payload, error: null });
   }
 
   // Re-check the grant so a mailbox revoked upstream stops reading "connected".
@@ -92,7 +98,7 @@ export async function GET(req: NextRequest) {
     if (!live && mailbox.status === "connected") {
       await markMailboxInvalid(mailbox.id);
     }
-    return NextResponse.json({
+    return respond({
       ...base,
       connected: live,
       mailbox: { ...payload, status: live ? "connected" : "invalid", email: grant.email || mailbox.email },
@@ -101,7 +107,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     if (error instanceof NylasError && error.kind === "grant_invalid") {
       await markMailboxInvalid(mailbox.id);
-      return NextResponse.json({
+      return respond({
         ...base,
         connected: false,
         mailbox: { ...payload, status: "invalid" },
@@ -111,7 +117,7 @@ export async function GET(req: NextRequest) {
     // Nylas being unreachable is not the same as the mailbox being gone — say
     // so, and leave the stored status alone.
     const message = error instanceof NylasError ? error.message : "Nylas lookup failed";
-    return NextResponse.json({ ...base, connected: mailbox.status === "connected", mailbox: payload, error: message });
+    return respond({ ...base, connected: mailbox.status === "connected", mailbox: payload, error: message });
   }
 }
 

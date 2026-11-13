@@ -10,7 +10,7 @@ import { agentDbAgentId, agentDbOrgId, checkAgentDbConnection } from "@/lib/agen
 export const dynamic = "force-dynamic";
 
 /**
- * Settings > Integrations > AgentDB > "Test connection".
+ * Settings > Connections > Apps > AgentDB > "Test connection".
  *
  * Proves the whole internal path end to end: the MCP handshake plus the
  * mandatory first `get_agents_md` call. Anything short of that can pass while

@@ -47,7 +47,8 @@ export async function startIntegrationConnection(input: {
     throw new ConnectionFlowError(message, message.endsWith("is not set") ? 500 : 400);
   }
 
-  const callbackUrl = `${input.appOrigin}/settings/integrations`;
+  // Back to the Connections tab the manager started from: mail has its own, everything else is under Apps.
+  const callbackUrl = `${input.appOrigin}/settings/connections?tab=${input.integrationType === "email" ? "email" : "apps"}`;
   let linked: { redirectUrl: string; id: string | null };
   try {
     linked = await linkConnection(input.organizationId, authConfigId, callbackUrl);

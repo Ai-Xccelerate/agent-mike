@@ -7,13 +7,11 @@ import Tooltip from "@/components/ui/tooltip/Tooltip";
 import { useFeatureFlags, type FeatureFlags } from "@/lib/use-features";
 import {
   BoltIcon,
-  BoxCubeIcon,
   ChatIcon,
   DocsIcon,
   EnvelopeIcon,
   GroupIcon,
   LockIcon,
-  LinkIcon,
   PlugInIcon,
   ShootingStarIcon,
   TicketIcon,
@@ -53,9 +51,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     title: "Capabilities",
     items: [
-      { href: "/settings/tools", label: "Tools", icon: BoxCubeIcon, available: true },
-      { href: "/settings/integrations", label: "Integrations", icon: PlugInIcon, available: true },
-      { href: "/settings/connectors", label: "Connectors", icon: LinkIcon, available: true },
+      { href: "/settings/connections", label: "Connections", icon: PlugInIcon, available: true },
       { href: "/settings/channels", label: "Channels", icon: ChatIcon, available: true },
     ],
   },

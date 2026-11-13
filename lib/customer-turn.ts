@@ -316,7 +316,7 @@ export async function runCustomerTurn(input: {
     (await helpdeskRaisesTickets(organizationId));
   const raisesTicket = !dry && ((result.escalate && !holdForIdentity) || missingTicket);
 
-  // "Ticket for every conversation" (Settings > Integrations > Jira): a conversation the worker answers by itself also
+  // "Ticket for every conversation" (Settings > Connections > Apps > Jira): a conversation the worker answers by itself also
   // gets a ticket, marked as answered, for the desk's reporting. It never notifies a manager and says nothing to the
   // customer. A real exchange only: a first message with no answer from the knowledge base ("hi", "thanks", something
   // out of scope) is not logged. Like a handover it needs to know who the customer is: a widget visitor who has not

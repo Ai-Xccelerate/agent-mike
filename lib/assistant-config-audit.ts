@@ -26,7 +26,7 @@ export type ConfigurationSnapshot = {
   atlassian?: { jira: string | null; confluence: string | null };
   /** Handoff tickets Jira refused in the last week: how many, and the latest reason. */
   ticketFailures?: { count: number; latest: string | null };
-  /** Remote MCP servers an admin added under Settings > Connectors, with each tool's permission. */
+  /** Remote MCP servers an admin added under Settings > Connections > Connectors, with each tool's permission. */
   connectors?: {
     name: string;
     enabled: boolean;
@@ -166,7 +166,7 @@ export function formatConfigurationSnapshot(snapshot: ConfigurationSnapshot): st
         .map(([type, status]) => `${type}=${status}`)
         .join(", ") || "(none connected)"
     }`,
-    `Custom connectors (Settings > Connectors): ${
+    `Custom connectors (Settings > Connections > Connectors): ${
       (snapshot.connectors ?? [])
         .map(
           (connector) =>
@@ -280,7 +280,7 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
       issue: snapshot.mailbox
         ? "The Email channel is on but the mailbox connection needs reconnecting, so email can't be sent."
         : "The Email channel is on but no mailbox is connected, so email can't be sent.",
-      fix: "Connect the mailbox in Settings > Tools > External tools, or I can propose turning Email off (propose_channel_change).",
+      fix: "Connect the mailbox in Settings > Connections > Email, or I can propose turning Email off (propose_channel_change).",
     });
   }
   if (profile.channelsConfig.email && snapshot.emailDomains.approved === 0) {
@@ -304,7 +304,7 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
       severity: "warning",
       area: "Skills",
       issue: `The "${skill.name}" skill is on but inactive because ${skill.requires.join(" and ")} isn't connected.`,
-      fix: `Connect ${skill.requires.join(" and ")} in Settings > Integrations, or I can propose turning the skill off (propose_skill_change).`,
+      fix: `Connect ${skill.requires.join(" and ")} in Settings > Connections > Apps, or I can propose turning the skill off (propose_skill_change).`,
     });
   }
   if (profile.requireUserVerification) {
@@ -367,7 +367,7 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
         severity: "warning",
         area: "Integrations",
         issue: `The ${type} integration is ${status === "failed" ? "in a failed state" : "stuck connecting"}.`,
-        fix: "Retry or disconnect it in Settings > Integrations.",
+        fix: "Retry or disconnect it in Settings > Connections > Apps.",
       });
     }
   }
@@ -376,7 +376,7 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
       severity: "blocker",
       area: "Integrations",
       issue: `Jira refused ${snapshot.ticketFailures.count} handoff ticket${snapshot.ticketFailures.count === 1 ? "" : "s"} in the last week, so those customers have no ticket. Latest reason: ${snapshot.ticketFailures.latest}`,
-      fix: "Check the project and issue type under Jira in Settings > Integrations (the gear on the Jira card).",
+      fix: "Check the project and issue type under Jira in Settings > Connections > Apps (the gear on the Jira card).",
     });
   }
   if (snapshot.atlassian?.jira?.startsWith("connected, but")) {
@@ -384,7 +384,7 @@ export function auditWorkerConfiguration(snapshot: ConfigurationSnapshot): Audit
       severity: "warning",
       area: "Integrations",
       issue: "Jira is connected but has no handoff project, so when the worker hands a conversation to a person no ticket is raised.",
-      fix: "Set the project key and issue type under Jira in Settings > Integrations.",
+      fix: "Set the project key and issue type under Jira in Settings > Connections > Apps.",
     });
   }
   if (!profile.assistantActionsEnabled) {

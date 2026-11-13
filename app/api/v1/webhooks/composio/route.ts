@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Composio webhooks: inbound email for every organization's Gmail account
- * connected under Settings > Integrations.
+ * connected under Settings > Connections > Apps.
  *
  * Public (no session): each delivery is verified against the Composio
  * project's webhook secret (COMPOSIO_WEBHOOK_SECRET). Subscribe this URL to

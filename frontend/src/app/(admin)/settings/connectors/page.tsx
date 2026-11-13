@@ -1,14 +1,9 @@
-import ConnectorsSettings from "@/components/worker/settings/ConnectorsSettings";
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { redirectFromOldAddress } from "@/lib/connections";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Connectors | AI Worker" };
-
-export default function ConnectorsSettingsPage() {
-  return (
-    <div className="space-y-5 md:space-y-6" data-aix-id="AIX-167">
-      <ConnectorsSettings />
-    </div>
-  );
+/** Connectors moved into Settings > Connections. Old links and bookmarks land on its Connectors tab. */
+export default async function ConnectorsSettingsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  redirect(redirectFromOldAddress("connectors", await searchParams));
 }
