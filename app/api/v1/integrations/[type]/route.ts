@@ -12,6 +12,7 @@ import {
 } from "@/lib/tools-integrations/connection-repository";
 import {
   clearRequestTypeCatalogCache,
+  confluenceCredentialsRefused,
   connectionSettingsSchema,
   jiraCredentialsRefused,
   jiraSettingsProblem,
@@ -38,9 +39,9 @@ export async function GET(req: NextRequest, { params }: { params: { type: string
     try {
       const composioStatus = await getAccountStatus(row.composioConnectedAccountId);
       const normalized = composioStatus.toUpperCase();
-      if (normalized === "ACTIVE" && params.type === "helpdesk" && row.system === "jira" && (await jiraCredentialsRefused(row.composioConnectedAccountId))) {
-        // The hosted form accepts a blank API key or email as "connected"; Jira then refuses every call. Say so now,
-        // rather than after the manager finds an empty project list.
+      if (normalized === "ACTIVE" && (await credentialsRefused(params.type, row))) {
+        // The hosted form accepts a blank API key or email as "connected"; Atlassian then refuses every call. Say so
+        // now, rather than after the manager finds an empty project list or Eva finds no pages.
         row = await markConnectionFailed(row.id);
       } else if (normalized === "ACTIVE") {
         row = await markConnectionActive(row.id, row.composioConnectedAccountId);
@@ -60,6 +61,15 @@ export async function GET(req: NextRequest, { params }: { params: { type: string
   }
 
   return NextResponse.json(withSettings(row));
+}
+
+/** Whether Atlassian turns away a new Jira or Confluence connection's credentials (a clear 401), so it is not shown as connected. */
+async function credentialsRefused(type: string, row: IntegrationConnection): Promise<boolean> {
+  const account = row.composioConnectedAccountId;
+  if (!account) return false;
+  if (type === "helpdesk" && row.system === "jira") return jiraCredentialsRefused(account);
+  if (type === "knowledge_base" && row.system === "confluence") return confluenceCredentialsRefused(account);
+  return false;
 }
 
 /** The row plus its settings with defaults filled in, so the screen never has to know the defaults. */
