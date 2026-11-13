@@ -1,7 +1,7 @@
 "use client";
 
 import { useWorkerIdentityDisplay } from "@/context/WorkerIdentityContext";
-import { ChatIcon, CheckCircleIcon, ChevronLeftIcon, ChevronDownIcon, TaskIcon, UserCircleIcon } from "@/icons";
+import { ChatIcon, CheckCircleIcon, ChevronLeftIcon, TaskIcon, UserCircleIcon } from "@/icons";
 import { apiFetch, type OverviewFilters, type OverviewPeriod, type OverviewRecentOutcome, type WorkerOverview } from "@/lib/worker-api";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
@@ -29,7 +29,7 @@ const cardClass = "rounded-2xl border border-gray-200 bg-white dark:border-gray-
 const headingClass = "text-base font-semibold text-gray-800 dark:text-white/90";
 const mutedClass = "text-sm text-gray-500 dark:text-gray-400";
 const selectClass =
-  "h-10 rounded-lg border border-gray-300 bg-white pl-3 pr-8 text-sm text-gray-700 outline-none transition-colors hover:bg-gray-50 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-white/[0.03] dark:text-gray-300 dark:[color-scheme:dark]";
+  "h-10 rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-gray-700 outline-none transition-colors hover:bg-gray-50 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-white/[0.03] dark:text-gray-300 dark:[color-scheme:dark]";
 
 const CHANNEL_LABELS: Record<string, string> = { widget: "Website chat", email: "Email", chat: "Playground" };
 
@@ -89,7 +89,7 @@ function FilterSelect({
   return (
     <label className="relative">
       <span className="sr-only">{label}</span>
-      <select value={value ?? ""} onChange={(event) => onChange(event.target.value || null)} className={`${selectClass} appearance-none ${value ? "border-brand-500 text-brand-600 dark:text-brand-400" : ""}`}>
+      <select value={value ?? ""} onChange={(event) => onChange(event.target.value || null)} className={`${selectClass} ${value ? "border-brand-500 text-brand-600 dark:text-brand-400" : ""}`}>
         <option value="">{label}</option>
         {options.map((option) => (
           <option key={option} value={option}>
@@ -97,7 +97,6 @@ function FilterSelect({
           </option>
         ))}
       </select>
-      <ChevronDownIcon className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-gray-500" />
     </label>
   );
 }

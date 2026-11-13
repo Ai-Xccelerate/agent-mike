@@ -370,7 +370,7 @@ export default function SkillRepositoryCard() {
                 onChange={(event) =>
                   void patch({ category: event.target.value === "" ? null : event.target.value })
                 }
-                className="mt-1 h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-white/90"
+                className="mt-1 h-10 w-full rounded-lg border border-gray-200 bg-white pl-3 pr-9 text-sm text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-white/90"
               >
                 <option value="">Every category</option>
                 {integration.categories.map((category) => (
@@ -390,7 +390,7 @@ export default function SkillRepositoryCard() {
                 value={integration.settings.max_results}
                 disabled={saving}
                 onChange={(event) => void patch({ maxResults: Number(event.target.value) })}
-                className="mt-1 h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-white/90"
+                className="mt-1 h-10 w-full rounded-lg border border-gray-200 bg-white pl-3 pr-9 text-sm text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:text-white/90"
               >
                 {RESULT_CHOICES.map((choice) => (
                   <option key={choice} value={choice}>

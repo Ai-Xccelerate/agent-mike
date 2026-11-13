@@ -5,7 +5,7 @@ import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import AvatarUploadCard from "@/components/worker/settings/AvatarUploadCard";
 import MailboxStatusLine from "@/components/worker/settings/MailboxStatusLine";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import { cardClass, counterClass, fieldClass, textareaClass } from "@/components/worker/settings/ui";
+import { cardClass, counterClass, fieldClass, textareaClass, selectFieldClass } from "@/components/worker/settings/ui";
 import { EnvelopeIcon } from "@/icons";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 import type { WorkerProfile } from "@/lib/worker-api";
@@ -271,7 +271,7 @@ export default function IdentitySettings() {
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className={labelClass}>
             Time zone
-            <select value={profile.timezone} onChange={(e) => update("timezone", e.target.value)} className={`${fieldClass} mt-2`}>
+            <select value={profile.timezone} onChange={(e) => update("timezone", e.target.value)} className={`${selectFieldClass} mt-2`}>
               {zones.map((zone) => (
                 <option key={zone} value={zone}>
                   {zone}
@@ -282,7 +282,7 @@ export default function IdentitySettings() {
           </label>
           <label className={labelClass}>
             Language and region
-            <select value={profile.locale} onChange={(e) => update("locale", e.target.value)} className={`${fieldClass} mt-2`}>
+            <select value={profile.locale} onChange={(e) => update("locale", e.target.value)} className={`${selectFieldClass} mt-2`}>
               {locales.map((code) => (
                 <option key={code} value={code}>
                   {localeLabel(code)}

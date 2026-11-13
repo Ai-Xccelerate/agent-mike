@@ -1555,6 +1555,27 @@ span.flatpickr-weekday,
   cursor: grabbing; /* Changes the cursor to indicate dragging */
 }
 
+/* Every native <select>: one chevron, drawn by the app and inset from the edge, instead of the browser's own arrow flush
+   against the border (which differed per browser and ran under the text). Padding stays at the call site: a select
+   needs room on the right, `selectFieldClass` (settings/ui.ts) or `pr-8`/`pr-9`. In the base layer so a utility can
+   still override it. A long value ends in an ellipsis rather than running under the arrow. */
+@layer base {
+  select:not([multiple]):not([size]) {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5l5 5 5-5' stroke='%23667085' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .dark select:not([multiple]):not([size]) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5l5 5 5-5' stroke='%2398a2b3' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
 /* Native <select>s that remain follow the theme:
    the browser draws their open list in light or dark with the app's colours,
    so options never come out white-on-white. The template's own pickers use the

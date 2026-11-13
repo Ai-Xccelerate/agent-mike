@@ -60,7 +60,7 @@ export function StagedAttachmentChips({
               value={file.intent}
               onChange={(event) => onIntentChange(file.localId, event.target.value as AttachmentIntent)}
               aria-label={`What to do with ${file.filename}`}
-              className="rounded-md border border-gray-200 bg-transparent py-0.5 pl-1.5 pr-6 text-xs text-gray-700 outline-none focus:border-brand-400 dark:border-gray-700 dark:text-gray-300 [&>option]:text-gray-800"
+              className="rounded-md border border-gray-200 bg-transparent py-0.5 pl-1.5 pr-8 text-xs text-gray-700 outline-none focus:border-brand-400 dark:border-gray-700 dark:text-gray-300 [&>option]:text-gray-800"
             >
               {(Object.keys(ATTACHMENT_INTENT_LABELS) as AttachmentIntent[]).map((intent) => {
                 const unsupported = intent === "knowledge" && !KNOWLEDGE_FILE.test(file.filename);

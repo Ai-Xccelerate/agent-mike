@@ -3,14 +3,7 @@
 import Link from "next/link";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
-import {
-  cardClass,
-  counterClass,
-  fieldClass,
-  sectionHintClass,
-  sectionTitleClass,
-  textareaClass,
-} from "@/components/worker/settings/ui";
+import { cardClass, counterClass, fieldClass, sectionHintClass, sectionTitleClass, textareaClass, selectFieldClass } from "@/components/worker/settings/ui";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
 const MODELS = ["gpt-5.6-luna", "gpt-5.6-sol"];
@@ -53,7 +46,7 @@ export default function AgentConfigurationSettings() {
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Model
-            <select value={profile.model} onChange={(e) => update("model", e.target.value)} className={`${fieldClass} mt-2`}>
+            <select value={profile.model} onChange={(e) => update("model", e.target.value)} className={`${selectFieldClass} mt-2`}>
               {MODELS.map((model) => (
                 <option key={model} value={model}>
                   {model}

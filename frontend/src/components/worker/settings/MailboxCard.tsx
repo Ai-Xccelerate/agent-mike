@@ -369,7 +369,7 @@ export default function MailboxCard() {
               <select
                 value={apiUri}
                 onChange={(event) => setApiUri(event.target.value)}
-                className="mt-1.5 h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90"
+                className="mt-1.5 h-10 w-full rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-xs text-gray-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90"
               >
                 <option value="https://api.us.nylas.com">United States</option>
                 <option value="https://api.eu.nylas.com">Europe</option>
