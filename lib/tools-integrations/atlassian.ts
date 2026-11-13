@@ -180,6 +180,8 @@ export function wasRefused(result: unknown): boolean {
 }
 
 export async function executeConfluenceSearch(query: string, organizationId: string, connectedAccountId: string) {
+  const viaGateway = await confluenceCqlViaGateway(connectedAccountId, `type = page AND title ~ ${cqlString(query)}`, { limit: CONFLUENCE_SEARCH_LIMIT });
+  if (viaGateway) return JSON.stringify({ data: { results: viaGateway.results } });
   const result = await runReadTool(
     CONFLUENCE_SEARCH_TOOL_NAME,
     CONFLUENCE_SEARCH_SLUG,
@@ -201,14 +203,15 @@ export async function executeConfluencePageRead(
   connectedAccountId: string,
   onReferenceMaterial?: () => void,
 ) {
-  const result = (await runReadTool(
-    CONFLUENCE_READ_TOOL_NAME,
-    CONFLUENCE_GET_PAGE_SLUG,
-    { id: pageId },
-    organizationId,
-    connectedAccountId,
-    CONFLUENCE_TOOLKIT_VERSION,
-  )) as { data?: { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } } } | null;
+  const result = ((await confluencePageViaGateway(connectedAccountId, pageId)) ??
+    (await runReadTool(
+      CONFLUENCE_READ_TOOL_NAME,
+      CONFLUENCE_GET_PAGE_SLUG,
+      { id: pageId },
+      organizationId,
+      connectedAccountId,
+      CONFLUENCE_TOOLKIT_VERSION,
+    ))) as { data?: { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } } } | null;
   if (result === null) return CONFLUENCE_FAILURE_MESSAGE;
   const page = result.data ?? {};
   const text = confluenceStorageToText(page.body?.storage?.value ?? "");
@@ -995,7 +998,14 @@ export function buildKnowledgeCql(keywords: string[], spaceKeys: string[]): stri
 type CqlResult = {
   title?: string;
   excerpt?: string;
-  content?: { id?: string; title?: string; body?: { storage?: { value?: string } } };
+  url?: string;
+  content?: {
+    id?: string;
+    title?: string;
+    body?: { storage?: { value?: string } };
+    version?: { number?: number };
+    _links?: { webui?: string };
+  };
 };
 
 function cqlResultsFrom(result: unknown): CqlResult[] {
@@ -1034,6 +1044,98 @@ function nextCursor(data: unknown): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+// ---------------------------------------------------------------------------
+// Confluence through Atlassian's gateway, for an API-token connection only. A service account's key is refused on the
+// site's own address (where Composio's actions call), and on Confluence's page and page-list endpoints with the scopes
+// it is usually given; Confluence's search endpoint accepts it and returns the full text of each page. So every read
+// below is a search. An OAuth connection keeps reading through Composio's actions, exactly as before.
+// ---------------------------------------------------------------------------
+
+const GATEWAY_BODY_PAGE = 50; // the most pages one search returns when it includes their text
+const GATEWAY_META_PAGE = 100;
+/** Pages of results to follow at most, so a runaway listing stops (60 x 50 = 3,000 pages). */
+const GATEWAY_MAX_ROUNDS = 60;
+
+/** Confluence's REST base through the gateway for this connection, or null unless it is an API-token connection. */
+async function confluenceGatewayBase(connectedAccountId: string): Promise<string | null> {
+  const jira = await jiraApiBase(connectedAccountId);
+  if (!jira || !tokenConnections.has(connectedAccountId)) return null;
+  const match = /^https:\/\/api\.atlassian\.com\/ex\/jira\/(.+)$/.exec(jira);
+  return match ? `https://api.atlassian.com/ex/confluence/${match[1]}/wiki` : null;
+}
+
+/** One CQL search through the gateway. Null when this isn't an API-token connection or Confluence refuses the call. */
+async function confluenceCqlViaGateway(
+  connectedAccountId: string,
+  cql: string,
+  options: { limit: number; cursor?: string; expand?: string },
+): Promise<{ results: CqlResult[]; next: string | null } | null> {
+  try {
+    const base = await confluenceGatewayBase(connectedAccountId);
+    if (!base) return null;
+    const params = new URLSearchParams({ cql, limit: String(options.limit) });
+    // The search ignores `start`: a later page is only reached with the cursor the page before it gave.
+    if (options.cursor) params.set("cursor", options.cursor);
+    if (options.expand) params.set("expand", options.expand);
+    const response = await proxyRequest({ connectedAccountId, endpoint: `${base}/rest/api/search?${params.toString()}`, method: "GET" });
+    if (response.status >= 400) return null;
+    const data = response.data as { results?: unknown; _links?: { next?: unknown } } | null;
+    return {
+      results: Array.isArray(data?.results) ? (data.results as CqlResult[]) : [],
+      next: nextCursor(data),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function pagesInSpacesCql(spaceKeys: string[]): string {
+  return spaceKeys.length > 0 ? `type = page AND space in (${spaceKeys.map(cqlString).join(", ")})` : "type = page";
+}
+
+/** Every hit of a search, one page after another by cursor. Null when the first page can't be read; a later page that fails ends the list there. */
+async function allCqlHitsViaGateway(connectedAccountId: string, cql: string, expand: string, pageSize: number): Promise<CqlResult[] | null> {
+  const hits: CqlResult[] = [];
+  let cursor: string | null = null;
+  for (let round = 0; round < GATEWAY_MAX_ROUNDS; round += 1) {
+    const page = await confluenceCqlViaGateway(connectedAccountId, cql, { limit: pageSize, expand, ...(cursor ? { cursor } : {}) });
+    if (!page) return round === 0 ? null : hits;
+    hits.push(...page.results);
+    cursor = page.next;
+    if (!cursor || page.results.length === 0) break;
+  }
+  return hits;
+}
+
+/** Every current page in the spaces, with its text, read through the gateway. Null when it can't be read this way. */
+async function listSpacePagesViaGateway(spaceKeys: string[], connectedAccountId: string): Promise<CatalogPage[] | null> {
+  const hits = await allCqlHitsViaGateway(connectedAccountId, pagesInSpacesCql(spaceKeys), "content.body.storage", GATEWAY_BODY_PAGE);
+  if (hits === null) return null;
+  const pages: CatalogPage[] = [];
+  const seen = new Set<string>();
+  for (const hit of hits) {
+    const title = hit.content?.title ?? hit.title ?? "";
+    const text = confluenceStorageToText(hit.content?.body?.storage?.value ?? "");
+    const id = hit.content?.id ?? title;
+    if (!title || !text || seen.has(id)) continue;
+    seen.add(id);
+    pages.push({ id, title, text, link: hit.content?._links?.webui ?? hit.url ?? null });
+  }
+  return pages;
+}
+
+/** One page, read through the gateway and shaped like Composio's answer so the callers read both the same way. Null when it can't be read this way. */
+async function confluencePageViaGateway(
+  connectedAccountId: string,
+  pageId: string,
+): Promise<{ data: { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } } } | null> {
+  if (!/^\d+$/.test(pageId)) return null;
+  const found = await confluenceCqlViaGateway(connectedAccountId, `id = ${pageId} AND type = page`, { limit: 1, expand: "content.body.storage" });
+  const content = found?.results[0]?.content;
+  if (!content) return null;
+  return { data: { id: content.id, title: content.title, body: content.body, _links: content._links } };
+}
+
 /** Every current page the connection can read, in the configured spaces, with its text. Null when listing fails. */
 async function listSpacePages(
   toolId: string,
@@ -1041,6 +1143,8 @@ async function listSpacePages(
   organizationId: string,
   connectedAccountId: string,
 ): Promise<CatalogPage[] | null> {
+  const viaGateway = await listSpacePagesViaGateway(spaceKeys, connectedAccountId);
+  if (viaGateway) return viaGateway;
   const inSpaces = spaceKeys.map((key) => `/spaces/${key}/`.toLowerCase());
   const pages: CatalogPage[] = [];
   const seen = new Set<string>();
@@ -1272,14 +1376,21 @@ export async function searchConfluenceKnowledge(
 
   // Two searches at once, merged: Confluence's own text search, and every page of the configured spaces ranked
   // here. Either can miss on its own (Confluence's order, or words in another form); together they rarely do.
+  const knowledgeCql = buildKnowledgeCql(searchWords, settings.spaceKeys);
+  const knowledgeLimit = Math.max(limit, CONFLUENCE_CANDIDATES);
   const [result, catalog] = await Promise.all([
-    runReadTool(
-      CONFLUENCE_KNOWLEDGE_TOOL_ID,
-      CONFLUENCE_CQL_SEARCH_SLUG,
-      { cql: buildKnowledgeCql(searchWords, settings.spaceKeys), limit: Math.max(limit, CONFLUENCE_CANDIDATES), expand: "content.body.storage" },
-      organizationId,
-      connectedAccountId,
-      CONFLUENCE_TOOLKIT_VERSION,
+    confluenceCqlViaGateway(connectedAccountId, knowledgeCql, { limit: Math.min(knowledgeLimit, GATEWAY_BODY_PAGE), expand: "content.body.storage" }).then(
+      (found) =>
+        found
+          ? { data: { results: found.results } }
+          : runReadTool(
+              CONFLUENCE_KNOWLEDGE_TOOL_ID,
+              CONFLUENCE_CQL_SEARCH_SLUG,
+              { cql: knowledgeCql, limit: knowledgeLimit, expand: "content.body.storage" },
+              organizationId,
+              connectedAccountId,
+              CONFLUENCE_TOOLKIT_VERSION,
+            ),
     ),
     // A cold start must not hold the customer up: after a few seconds search alone answers, and the catalog keeps loading.
     Promise.race([
@@ -1379,6 +1490,20 @@ export async function confluenceIndexSource(organizationId: string): Promise<Ind
   const inSpaces = settings.spaceKeys.map((key) => `/spaces/${key}/`.toLowerCase());
 
   const listMetadata = async (): Promise<IndexPageMeta[]> => {
+    const hits = await allCqlHitsViaGateway(connectedAccountId, pagesInSpacesCql(settings.spaceKeys), "content.version", GATEWAY_META_PAGE);
+    if (hits) {
+      const listed: IndexPageMeta[] = [];
+      const known = new Set<string>();
+      for (const hit of hits) {
+        const id = hit.content?.id ?? "";
+        const title = hit.content?.title ?? hit.title ?? "";
+        if (!id || !title || known.has(id)) continue;
+        known.add(id);
+        const version = hit.content?.version?.number;
+        listed.push({ id, title, version: typeof version === "number" ? version : null, link: hit.content?._links?.webui ?? hit.url ?? null });
+      }
+      return listed;
+    }
     const pages: IndexPageMeta[] = [];
     const seen = new Set<string>();
     let cursor: string | null = null;
@@ -1425,14 +1550,15 @@ export async function confluenceIndexSource(organizationId: string): Promise<Ind
     const worker = async () => {
       while (queue.length > 0) {
         const id = queue.shift() as string;
-        const result = (await runReadTool(
-          CONFLUENCE_READ_TOOL_NAME,
-          CONFLUENCE_GET_PAGE_SLUG,
-          { id },
-          organizationId,
-          connectedAccountId,
-          CONFLUENCE_TOOLKIT_VERSION,
-        )) as { data?: { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } } } | null;
+        const result = ((await confluencePageViaGateway(connectedAccountId, id)) ??
+          (await runReadTool(
+            CONFLUENCE_READ_TOOL_NAME,
+            CONFLUENCE_GET_PAGE_SLUG,
+            { id },
+            organizationId,
+            connectedAccountId,
+            CONFLUENCE_TOOLKIT_VERSION,
+          ))) as { data?: { id?: string; title?: string; body?: { storage?: { value?: string } }; _links?: { webui?: string } } } | null;
         if (result === null || wasRefused(result)) throw new ConfluenceKnowledgeError(`Confluence page ${id} could not be read`);
         const page = result.data ?? {};
         out.push({
@@ -1511,14 +1637,15 @@ async function readBestPagesInFull<T extends KnowledgeMatch & { full: boolean }>
     matches.map(async (match, index) => {
       const id = match.documentId.startsWith("confluence:") ? match.documentId.slice("confluence:".length) : "";
       if (match.full || index >= CONFLUENCE_FULL_READS || !/^\d+$/.test(id)) return match;
-      const result = (await runReadTool(
-        CONFLUENCE_READ_TOOL_NAME,
-        CONFLUENCE_GET_PAGE_SLUG,
-        { id },
-        organizationId,
-        connectedAccountId,
-        CONFLUENCE_TOOLKIT_VERSION,
-      ).catch(() => null)) as { data?: { body?: { storage?: { value?: string } } } } | null;
+      const result = ((await confluencePageViaGateway(connectedAccountId, id)) ??
+        (await runReadTool(
+          CONFLUENCE_READ_TOOL_NAME,
+          CONFLUENCE_GET_PAGE_SLUG,
+          { id },
+          organizationId,
+          connectedAccountId,
+          CONFLUENCE_TOOLKIT_VERSION,
+        ).catch(() => null))) as { data?: { body?: { storage?: { value?: string } } } } | null;
       const text = confluenceStorageToText(result?.data?.body?.storage?.value ?? "");
       return text.length > match.content.length
         ? { ...match, content: pickRelevantText(text, keywords, CONFLUENCE_FULL_PAGE_CHARS) }
@@ -1616,14 +1743,18 @@ export async function executeConfluenceTextSearch(
 ): Promise<string> {
   const keywords = searchKeywords(query);
   if (keywords.length === 0) return JSON.stringify({ pages: [], note: "Give a few words to search for." });
-  const result = await runReadTool(
-    MANAGER_CONFLUENCE_SEARCH_TOOL_NAME,
-    CONFLUENCE_CQL_SEARCH_SLUG,
-    { cql: buildKnowledgeCql(keywords, spaceKeys), limit: CONFLUENCE_SEARCH_LIMIT },
-    organizationId,
-    connectedAccountId,
-    CONFLUENCE_TOOLKIT_VERSION,
-  );
+  const viaGateway = await confluenceCqlViaGateway(connectedAccountId, buildKnowledgeCql(keywords, spaceKeys), { limit: CONFLUENCE_SEARCH_LIMIT });
+  const result =
+    viaGateway !== null
+      ? { data: { results: viaGateway.results } }
+      : await runReadTool(
+          MANAGER_CONFLUENCE_SEARCH_TOOL_NAME,
+          CONFLUENCE_CQL_SEARCH_SLUG,
+          { cql: buildKnowledgeCql(keywords, spaceKeys), limit: CONFLUENCE_SEARCH_LIMIT },
+          organizationId,
+          connectedAccountId,
+          CONFLUENCE_TOOLKIT_VERSION,
+        );
   if (result === null) return "Confluence search failed. Try again in a moment.";
   if (wasRefused(result)) {
     const ranked = await rankPagesByKeywords(
@@ -1744,6 +1875,8 @@ const ATLASSIAN_SITES_URL = "https://api.atlassian.com/oauth/token/accessible-re
 type JiraCall = { ok: true; data: unknown } | { ok: false; error: string; /** The HTTP status when Jira answered; absent when the call itself failed or timed out. */ status?: number };
 
 const jiraApiBases = new Map<string, string>();
+/** Connections made with an API token (a service account), which have no list of OAuth sites. */
+const tokenConnections = new Set<string>();
 
 function siteKey(url: string): string {
   return url.replace(/\/+$/, "").toLowerCase();
@@ -1789,6 +1922,7 @@ export async function jiraApiBase(connectedAccountId: string): Promise<string | 
     if (site && listed.length === 0) {
       const cloudId = await cloudIdForSite(site);
       const own = cloudId ? `https://api.atlassian.com/ex/jira/${cloudId}` : siteKey(site);
+      if (cloudId) tokenConnections.add(connectedAccountId);
       jiraApiBases.set(connectedAccountId, own);
       return own;
     }

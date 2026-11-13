@@ -40,6 +40,8 @@ import {
   issueKeyFrom,
   jiraSettingsProblem,
   listJiraProjects,
+  executeConfluencePageRead,
+  loadConfluenceCatalog,
   jiraCredentialsRefused,
   JIRA_CREATE_ISSUE_SLUG,
   JIRA_GET_ISSUE_SLUG,
@@ -1989,6 +1991,114 @@ describe("what the helpdesk lets the worker do for a customer", () => {
     expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: false, looksUpTickets: false });
     getConnectionMock.mockRejectedValue(new Error("db down"));
     expect(await helpdeskCapabilities(orgId)).toEqual({ raisesTickets: false, looksUpTickets: false });
+  });
+});
+
+describe("Confluence through Atlassian's gateway for an API-token connection", () => {
+  const SEARCH = "https://api.atlassian.com/ex/confluence/cloud-acme/wiki/rest/api/search";
+  const hit = (id: string, title: string, html: string, version = 1) => ({
+    title,
+    url: `/spaces/SK/pages/${id}/${title.replace(/ /g, "+")}`,
+    content: { id, title, body: { storage: { value: html } }, version: { number: version }, _links: { webui: `/spaces/SK/pages/${id}/${title.replace(/ /g, "+")}` } },
+  });
+  /** A connection with no OAuth site list (an API token), answering Confluence's search with `answer`. */
+  function tokenConnection(answer: (url: URL) => { status: number; data: unknown }) {
+    getAccountSiteMock.mockResolvedValue("https://acme.atlassian.net/");
+    proxyRequestMock.mockImplementation(async ({ endpoint }) => {
+      if (endpoint.endsWith("/accessible-resources")) return { status: 401, data: { code: 401, message: "Unauthorized" } };
+      return answer(new URL(endpoint));
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ cloudId: "cloud-acme" }), { status: 200 })));
+  }
+  const confluenceFor = (account: string) =>
+    connectionsFor({ knowledge_base: connection("knowledge_base", "confluence", { composioConnectedAccountId: account, metadata: { settings: { spaceKey: "SK" } } }) });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("answers a customer's question from searches alone, and never asks Composio's action", async () => {
+    confluenceFor("ca_conf_token_search");
+    tokenConnection(() => ({ status: 200, data: { results: [hit("123", "How to reset your password", "<p>Go to <b>Settings</b>.</p><p>Click Reset.</p>")] } }));
+
+    const matches = await searchConfluenceKnowledge(orgId, "How do I reset my password?", 3);
+
+    expect(executeToolMock).not.toHaveBeenCalled();
+    expect(matches).toEqual([
+      { documentId: "confluence:123", title: "How to reset your password", heading: null, content: "Go to Settings.\nClick Reset.", rank: 1 },
+    ]);
+    const searched = proxyRequestMock.mock.calls.map(([call]) => call.endpoint).filter((endpoint) => endpoint.startsWith(SEARCH));
+    expect(searched.length).toBeGreaterThan(0);
+    expect(new URL(searched[0]).searchParams.get("cql")).toContain('space in ("SK")');
+  });
+
+  it("lists every page of the spaces by following the cursor, because the search ignores `start`", async () => {
+    const ids = Array.from({ length: 120 }, (_, i) => String(1000 + i));
+    const asked: (string | null)[] = [];
+    tokenConnection((url) => {
+      const cursor = url.searchParams.get("cursor");
+      asked.push(cursor);
+      expect(url.searchParams.has("start")).toBe(false);
+      const from = cursor === null ? 0 : cursor === "c1" ? 50 : 100;
+      const next = cursor === null ? "c1" : cursor === "c1" ? "c2" : null;
+      return {
+        status: 200,
+        data: {
+          results: ids.slice(from, from + 50).map((id) => hit(id, `Page ${id}`, `<p>Text of page ${id}</p>`)),
+          ...(next ? { _links: { next: `/rest/api/search?next=true&cursor=${next}&limit=50` } } : {}),
+        },
+      };
+    });
+
+    const pages = await loadConfluenceCatalog("tool", ["SK"], orgId, "ca_conf_token_list");
+
+    expect(asked).toEqual([null, "c1", "c2"]);
+    expect(pages).toHaveLength(120);
+    expect(pages![0]).toMatchObject({ id: "1000", title: "Page 1000", text: "Text of page 1000", link: "/spaces/SK/pages/1000/Page+1000" });
+    expect(executeToolMock).not.toHaveBeenCalled();
+  });
+
+  it("reads one page by its id, in full", async () => {
+    confluenceFor("ca_conf_token_page");
+    tokenConnection((url) => {
+      expect(url.searchParams.get("cql")).toBe("id = 4242 AND type = page");
+      return { status: 200, data: { results: [hit("4242", "Registration", "<p>Share the link.</p>")] } };
+    });
+
+    const read = JSON.parse(await executeConfluencePageRead("4242", orgId, "ca_conf_token_page"));
+
+    expect(read).toMatchObject({ id: "4242", title: "Registration", text: "Share the link.", link: "/spaces/SK/pages/4242/Registration" });
+    expect(executeToolMock).not.toHaveBeenCalled();
+  });
+
+  it("lists page versions for the saved copy without reading any text", async () => {
+    confluenceFor("ca_conf_token_index");
+    tokenConnection((url) => {
+      expect(url.searchParams.get("expand")).toBe("content.version");
+      return { status: 200, data: { results: [hit("1", "One", "", 3), hit("2", "Two", "", 1)] } };
+    });
+
+    const source = await confluenceIndexSource(orgId);
+    const listed = await source!.listMetadata();
+
+    expect(listed).toEqual([
+      { id: "1", title: "One", version: 3, link: "/spaces/SK/pages/1/One" },
+      { id: "2", title: "Two", version: 1, link: "/spaces/SK/pages/2/Two" },
+    ]);
+    expect(executeToolMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves an OAuth connection reading through Composio's action, as before", async () => {
+    getAccountSiteMock.mockResolvedValue("https://acme.atlassian.net");
+    proxyRequestMock.mockImplementation(async ({ endpoint }) =>
+      endpoint.endsWith("/accessible-resources") ? { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] } : { status: 200, data: {} },
+    );
+    executeToolMock.mockResolvedValue({ successful: true, error: null, data: { id: "9", title: "Old way", body: { storage: { value: "<p>Same as ever.</p>" } } } });
+
+    const read = JSON.parse(await executeConfluencePageRead("9", orgId, "ca_conf_oauth"));
+
+    expect(read.text).toBe("Same as ever.");
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+    expect(proxyRequestMock.mock.calls.some(([call]) => call.endpoint.includes("/ex/confluence/"))).toBe(false);
   });
 });
 
