@@ -3,6 +3,7 @@
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import Button from "@/components/ui/button/Button";
 import { AlertIcon, CheckLineIcon, CopyIcon, DocsIcon } from "@/icons";
+import { clearDismissed, isDismissed, markDismissed } from "@/lib/dismissed-suggestions";
 import { apiFetch, WorkerApiError } from "@/lib/worker-api";
 import { useEffect, useRef, useState } from "react";
 
@@ -47,6 +48,8 @@ export default function SuggestedReplyCard({
   const requestRef = useRef("");
 
   async function write() {
+    // Asking for a draft (Suggest or Rewrite) means one is wanted, even for a message whose draft was dismissed.
+    clearDismissed(key);
     requestRef.current = key;
     setState("loading");
     setError("");
@@ -79,7 +82,8 @@ export default function SuggestedReplyCard({
     setText("");
     setMeta({ sources: [], needsCheck: false });
     setState("idle");
-    if (autoStart) void write();
+    // A dismissed draft stays dismissed: coming back to the conversation offers one instead of writing it again.
+    if (autoStart && !isDismissed(key)) void write();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
@@ -170,6 +174,7 @@ export default function SuggestedReplyCard({
             variant="outline"
             disabled={sending}
             onClick={() => {
+              markDismissed(key);
               drafts.delete(key);
               setState("idle");
               setText("");
