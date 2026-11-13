@@ -20,6 +20,13 @@ const TRANSCRIPT_TURNS = 12;
 const TURN_CHARS = 700;
 const STYLE_EXAMPLES = 5;
 const STYLE_CHARS = 400;
+/** Recent replies read to find five worth copying: test messages and one-word replies are skipped. */
+const STYLE_CANDIDATES = 40;
+/** A reply shorter than this says nothing about how the team writes. */
+const STYLE_MIN_CHARS = 40;
+/** A customer message with fewer words than this ("yes", "that didn't work") is searched together with what they asked before. */
+const SHORT_MESSAGE_WORDS = 8;
+const QUERY_CHARS = 600;
 const MAX_DRAFT_CHARS = 3900;
 
 type Profile = Awaited<ReturnType<typeof import("@/lib/bootstrap").getOrCreateProfile>>;
@@ -42,6 +49,37 @@ function clip(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max).trimEnd()}…` : flat;
 }
 
+/**
+ * What to look up in the help articles for the customer's latest message. A short follow-up says little by itself, so the
+ * customer's two earlier messages are searched with it: "that didn't work" finds nothing, but with the question it
+ * answers, it finds the article.
+ */
+export function retrievalQueryFor(transcript: Pick<MessageRow, "senderType" | "body">[]): string {
+  const customer = transcript.filter((message) => message.senderType === "customer").map((message) => message.body.trim()).filter(Boolean);
+  const last = customer[customer.length - 1] ?? "";
+  if (last.split(/\s+/).filter(Boolean).length >= SHORT_MESSAGE_WORDS) return last;
+  const earlier = customer.slice(0, -1).slice(-2).join(" ");
+  return `${earlier} ${last}`.trim().slice(0, QUERY_CHARS);
+}
+
+/**
+ * Replies worth showing the drafter as "how the team writes": long enough to have a voice, not a test message, and with
+ * no email address, link or phone number, which would belong to another customer's conversation.
+ */
+export function usableStyleExamples(bodies: string[], max = STYLE_EXAMPLES): string[] {
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const body of bodies) {
+    const text = clip(body, STYLE_CHARS);
+    const flat = text.toLowerCase().replace(/\s+/g, " ");
+    if (text.length < STYLE_MIN_CHARS || /^test\b/i.test(text) || /@|https?:\/\/|\d{7,}/i.test(text) || seen.has(flat)) continue;
+    seen.add(flat);
+    kept.push(text);
+    if (kept.length >= max) break;
+  }
+  return kept;
+}
+
 /** The manager's own recent replies on this organization's customer conversations: how the team writes. */
 async function recentManagerReplies(organizationId: string): Promise<string[]> {
   const rows = await db
@@ -56,8 +94,8 @@ async function recentManagerReplies(organizationId: string): Promise<string[]> {
       ),
     )
     .orderBy(desc(messages.createdAt))
-    .limit(STYLE_EXAMPLES);
-  return rows.map((row) => clip(row.body, STYLE_CHARS)).filter(Boolean);
+    .limit(STYLE_CANDIDATES);
+  return usableStyleExamples(rows.map((row) => row.body));
 }
 
 export function draftInstructions(input: {
@@ -109,7 +147,7 @@ export async function suggestReply(input: {
   if (!lastCustomer) return { ok: false, reason: "no_customer_message" };
 
   try {
-    const { matches } = await retrieveKnowledge(input.profile, lastCustomer.body);
+    const { matches } = await retrieveKnowledge(input.profile, retrievalQueryFor(input.transcript));
     const styleExamples = await recentManagerReplies(input.organizationId);
     const cannedWording = await cannedRepliesBlock(input.organizationId);
     const instructions = draftInstructions({
