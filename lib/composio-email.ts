@@ -2,6 +2,7 @@ import {
   GMAIL_REPLY_TO_THREAD_SLUG,
   GMAIL_SEND_EMAIL_SLUG,
   GMAIL_TOOLKIT_VERSION,
+  OUTLOOK_TOOLKIT_VERSION,
 } from "@/lib/agent";
 import { executeTool, getComposioClient } from "@/lib/tools-integrations/composio-client";
 
@@ -18,6 +19,8 @@ import { executeTool, getComposioClient } from "@/lib/tools-integrations/composi
  * The connected account says which organization a delivery belongs to:
  * Mike links every Composio account with the org id as the Composio user id.
  */
+
+export const OUTLOOK_SEND_EMAIL_SLUG = "OUTLOOK_SEND_EMAIL";
 
 export const GMAIL_NEW_MESSAGE_TRIGGER = "GMAIL_NEW_GMAIL_MESSAGE";
 
@@ -99,10 +102,10 @@ export function isAutomatedEmail(email: Pick<GmailInboundEmail, "senderEmail" | 
   return false;
 }
 
-function successfulData(result: unknown, action: string): Record<string, unknown> {
+function successfulData(result: unknown, action: string, platform = "Gmail"): Record<string, unknown> {
   const outcome = result as { successful?: boolean; error?: unknown; data?: unknown } | null;
   if (!outcome || outcome.successful === false) {
-    throw new Error(`Gmail ${action} failed: ${String(outcome?.error ?? "no response")}`);
+    throw new Error(`${platform} ${action} failed: ${String(outcome?.error ?? "no response")}`);
   }
   return (outcome.data as Record<string, unknown>) ?? {};
 }
@@ -136,6 +139,35 @@ export async function sendWithGmail(input: {
   // The sent message comes back as a Gmail message, sometimes wrapped.
   const id = str(data.id) || str((data.response_data as { id?: unknown } | undefined)?.id);
   return { id: id || `gmail-${Date.now()}` };
+}
+
+/**
+ * Sends through the connected Outlook account. Always a new message: Outlook's reply tool needs a Microsoft Graph
+ * message id, and Mike does not receive Outlook mail yet, so there is no thread to reply into. The subject carries "Re:"
+ * when the caller wants it.
+ */
+export async function sendWithOutlook(input: {
+  organizationId: string;
+  connectedAccountId: string;
+  to: string;
+  toName?: string;
+  subject: string;
+  html: string;
+}): Promise<{ id: string }> {
+  const result = await executeTool(
+    OUTLOOK_SEND_EMAIL_SLUG,
+    {
+      to: input.to,
+      ...(input.toName ? { to_name: input.toName } : {}),
+      subject: input.subject,
+      body: input.html,
+      is_html: true,
+    },
+    { connectedAccountId: input.connectedAccountId, userId: input.organizationId, version: OUTLOOK_TOOLKIT_VERSION },
+  );
+  // Graph's sendMail returns no message, so there is rarely an id to read.
+  const data = successfulData(result, "send", "Outlook");
+  return { id: str(data.id) || `outlook-${Date.now()}` };
 }
 
 /**

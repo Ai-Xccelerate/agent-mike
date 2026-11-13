@@ -13,7 +13,7 @@ import { apiFetch, type MailConnection, type MailboxStatus } from "@/lib/worker-
 
 const iconClass = "size-6";
 
-const PLATFORM_NAME: Record<NonNullable<MailConnection["platform"]>, string> = { mailbox: "your mailbox", gmail: "Gmail" };
+const PLATFORM_NAME: Record<NonNullable<MailConnection["platform"]>, string> = { mailbox: "your mailbox", gmail: "Gmail", outlook: "Outlook" };
 
 /** What the worker is connected to for email, whichever of the two ways it was connected. */
 function MailSummary() {
@@ -48,11 +48,11 @@ function MailSummary() {
           ? `Connected through ${PLATFORM_NAME[mail.platform!]}${mail.address ? ` as ${mail.address}` : ""}. Identity shows the same.`
           : mail.state === "reconnect"
             ? "The connection stopped working. Reconnect below."
-            : "No email is connected yet. Connect the mailbox or Gmail below."}
+            : "No email is connected yet. Connect the mailbox, Gmail or Outlook below."}
       </p>
-      {mail.outlookReadOnly && (
-        <p className="text-sm text-warning-700 dark:text-warning-400">
-          Outlook can read messages but cannot send. To send the verification code and handoff emails, connect the mailbox or Gmail.
+      {mail.platform === "outlook" && (
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          Outlook sends the verification code and handoff emails and looks up messages. It does not receive customer email yet, so connect the mailbox or Gmail for that.
         </p>
       )}
     </section>
@@ -88,7 +88,7 @@ export default function EmailConnections() {
           { system: "outlook", label: "Outlook", icon: <OutlookIcon className={iconClass} /> },
         ]}
         title="Gmail or Outlook"
-        description="Gmail can send and receive. Outlook can only read messages, so use the mailbox above to send."
+        description="Gmail sends and receives. Outlook sends and looks up messages, but does not receive yet."
       />
 
       <SettingsSection

@@ -12,7 +12,7 @@ import {
 } from "@/lib/nylas";
 import { getMailbox } from "@/lib/mailbox-repository";
 import { textToEmailHtml } from "@/lib/email-text";
-import { sendWithGmail } from "@/lib/composio-email";
+import { sendWithGmail, sendWithOutlook } from "@/lib/composio-email";
 import { getConnectionForOrg } from "@/lib/tools-integrations/connection-repository";
 
 /**
@@ -94,8 +94,8 @@ export interface SendOptions {
 }
 
 /**
- * How this org sends: its Nylas mailbox when one is connected, else a Gmail
- * account connected through Composio under Settings > Connections > Apps.
+ * How this org sends: its Nylas mailbox when one is connected, else the Gmail or Outlook
+ * account connected through Composio under Settings > Connections > Email.
  */
 async function resolveTransport(orgId: string) {
   const mailbox = await getMailbox(orgId);
@@ -103,6 +103,9 @@ async function resolveTransport(orgId: string) {
   const gmail = await getConnectionForOrg(orgId, "email");
   if (gmail?.system === "gmail" && gmail.status === "active" && gmail.composioConnectedAccountId) {
     return { kind: "gmail" as const, connectedAccountId: gmail.composioConnectedAccountId };
+  }
+  if (gmail?.system === "outlook" && gmail.status === "active" && gmail.composioConnectedAccountId) {
+    return { kind: "outlook" as const, connectedAccountId: gmail.composioConnectedAccountId };
   }
   return null;
 }
@@ -153,7 +156,7 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
   const transport = await resolveTransport(options.orgId);
   if (!transport) {
     throw new OutboundBlocked(
-      "No mailbox is connected. Connect Gmail or a mailbox under Settings > Connections > Email.",
+      "No mailbox is connected. Connect Gmail, Outlook or a mailbox under Settings > Connections > Email.",
       [],
       "no_mailbox",
     );
@@ -194,6 +197,22 @@ export async function sendAsWorker(options: SendOptions): Promise<SendResult> {
       subject: options.subject,
       html: body,
       threadId: options.threadId ?? null,
+    });
+    return { id: sent.id, to: [recipients[0].email], demo: false };
+  }
+
+  if (transport.kind === "outlook") {
+    // One primary recipient per send, as with Gmail.
+    if (recipients.length > 1) {
+      throw new OutboundBlocked("Outlook sends to one recipient at a time.", [], "no_mailbox");
+    }
+    const sent = await sendWithOutlook({
+      organizationId: options.orgId,
+      connectedAccountId: transport.connectedAccountId,
+      to: recipients[0].email,
+      toName: recipients[0].name,
+      subject: options.subject,
+      html: body,
     });
     return { id: sent.id, to: [recipients[0].email], demo: false };
   }
