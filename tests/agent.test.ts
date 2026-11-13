@@ -1641,6 +1641,24 @@ describe("agent instructions — KB grounding", () => {
     managerName: "Charan",
   };
 
+  it("tells the worker to ask which meaning, offer the closest pages at a handover, and hand over an outage at once", async () => {
+    const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
+    // Ambiguous questions: ask which one, with tap options, instead of guessing.
+    expect(instructions).toContain("could reasonably mean two or more different things");
+    expect(instructions).toContain("do not pick one and answer it");
+    expect(instructions).toContain("[[CHOICES: first meaning | second meaning]]");
+    // A handover names the closest pages, never as the answer, always with the caveat.
+    expect(instructions).toContain("name up to three of them by their exact titles");
+    expect(instructions).toContain("never copy steps from it into that reply");
+    expect(instructions).toContain("not sure they cover it");
+    // The per-turn reminder after the material repeats both.
+    expect(instructions).toContain("ask which instead of answering one");
+    expect(instructions).toContain("closest pages above");
+    // An outage is handed over in the same reply, with nothing asked first.
+    expect(instructions).toContain("nobody in their office can use it");
+    expect(instructions).toContain("ask them nothing first");
+  });
+
   it("forbids general-knowledge support answers and requires a handoff when no KB matched", async () => {
     const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
     expect(instructions).toContain("No matching reference material was found for this question.");

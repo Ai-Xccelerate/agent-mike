@@ -6,6 +6,7 @@ import { modelUnavailabilityReason } from "@/lib/env";
 import { knowledgeBySection, withoutEmDashes } from "@/lib/agent";
 import { cannedRepliesBlock } from "@/lib/canned-replies";
 import { retrieveKnowledge } from "@/lib/retrieval";
+import { retrievalQueryFor } from "@/lib/retrieval-query";
 import { citedTitles, groundedTitles } from "@/lib/citations";
 import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
 
@@ -24,14 +25,13 @@ const STYLE_CHARS = 400;
 const STYLE_CANDIDATES = 40;
 /** A reply shorter than this says nothing about how the team writes. */
 const STYLE_MIN_CHARS = 40;
-/** A customer message with fewer words than this ("yes", "that didn't work") is searched together with what they asked before. */
-const SHORT_MESSAGE_WORDS = 8;
-const QUERY_CHARS = 600;
 const MAX_DRAFT_CHARS = 3900;
 
 type Profile = Awaited<ReturnType<typeof import("@/lib/bootstrap").getOrCreateProfile>>;
 type ConversationRow = typeof conversations.$inferSelect;
 type MessageRow = typeof messages.$inferSelect;
+
+export { retrievalQueryFor };
 
 export type SuggestedReply =
   | {
@@ -47,19 +47,6 @@ export type SuggestedReply =
 function clip(text: string, max: number): string {
   const flat = text.trim();
   return flat.length > max ? `${flat.slice(0, max).trimEnd()}…` : flat;
-}
-
-/**
- * What to look up in the help articles for the customer's latest message. A short follow-up says little by itself, so the
- * customer's two earlier messages are searched with it: "that didn't work" finds nothing, but with the question it
- * answers, it finds the article.
- */
-export function retrievalQueryFor(transcript: Pick<MessageRow, "senderType" | "body">[]): string {
-  const customer = transcript.filter((message) => message.senderType === "customer").map((message) => message.body.trim()).filter(Boolean);
-  const last = customer[customer.length - 1] ?? "";
-  if (last.split(/\s+/).filter(Boolean).length >= SHORT_MESSAGE_WORDS) return last;
-  const earlier = customer.slice(0, -1).slice(-2).join(" ");
-  return `${earlier} ${last}`.trim().slice(0, QUERY_CHARS);
 }
 
 /**

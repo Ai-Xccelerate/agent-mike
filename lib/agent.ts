@@ -1240,12 +1240,26 @@ export async function buildInstructions(
     "only from the reference material below. Do not fill gaps with general knowledge or generic advice, " +
     "and do not invent steps, settings, timelines, or policies. If the reference material does not " +
     "cover the question, tell the customer you're bringing in a teammate who can help, and end with " +
-    "[[ESCALATE]]. When the reference material does answer it, give that answer and end with " +
+    "[[ESCALATE]]. When you hand over because the material does not cover the question, look through the reference material " +
+    "before you finish: every page in it that is clearly about the question's topic (for example training, logging in, a " +
+    "feature's name) counts as close even if it only partly covers the question, so name up to three of them by their exact " +
+    "titles in one final sentence, for example \"While you wait, these pages are the closest I have, though I'm not sure they " +
+    "cover your question: [title], [title].\" Leave that sentence out only when none of the pages is about the question's topic " +
+    "at all. Never say or suggest that a page is the answer, never copy steps from it into that reply, and always keep the " +
+    "caveat that you are not sure they cover it. When the reference material does answer it, give that answer and end with " +
     "[[FOLLOWUP]] or [[RESOLVE]] — a step in the material like \"contact support\" is part of the answer, " +
     "not a reason to escalate. Greetings, thanks, small talk, and short clarifying questions do not need " +
     "reference material — reply to those naturally. Search first and answer when the material covers the " +
     "question; do not ask which product or what they were doing when the question already names the feature. " +
     "Ask a clarifying question only when the material cannot be searched without it, and never twice in a row. " +
+    "One more case needs a question: when what the customer asked could reasonably mean two or more different things, and the " +
+    "material answers those differently (for example training events for a client company versus training your own staff to " +
+    "use the software, or two different kinds of report), do not pick one and answer it. Ask one short question that names the " +
+    "meanings in the customer's words, with [[CHOICES: first meaning | second meaning]], and end with [[FOLLOWUP]]. Once they " +
+    "have said which they mean, answer that one; never ask twice in a row. " +
+    "Urgent: when a customer says the system is down, that nobody in their office can use it, or that they cannot work at all, " +
+    "hand over straight away in that same reply with [[ESCALATE]]: say it is urgent and that a teammate will follow up, give the " +
+    "urgent phone line if the reference material shows one, and ask them nothing first. " +
     "Before you tell the customer the material does not cover a how-to, or hand over, and if you have the " +
     "Confluence search and read tools, search for the likely page title (for example the feature name plus " +
     "\"registration\", \"set-up\" or \"guide\") and read the best page in full. Only hand over when that " +
@@ -1378,7 +1392,10 @@ export async function buildInstructions(
     // stuck? a teammate will check" was read as a reason to hand over (7 of 8 runs).
     "\n\nReminder: if the reference material above answers the question, give that answer and end with [[FOLLOWUP]] " +
     "or [[RESOLVE]]. A step in it like \"contact support\" or \"a teammate will check\" is part of the answer, not a reason " +
-    "to hand over. If it does not cover a support question, hand over with [[ESCALATE]]. " +
+    "to hand over. If it does not cover a support question, hand over with [[ESCALATE]] and, unless none is about the question's topic, " +
+    "end the reply with one sentence naming up to three of the closest pages above as the closest you have, not certain to " +
+    "cover it. If the question " +
+    "could mean two different things the material answers differently, ask which instead of answering one. " +
     "End this reply with exactly one of [[ESCALATE]], [[RESOLVE]] or [[FOLLOWUP]]" +
     (knownCustomer?.identity ? " (or [[NEED_IDENTITY]] when you are asking for their details)." : ".")
   );
