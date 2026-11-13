@@ -13,6 +13,7 @@ import {
 import {
   clearRequestTypeCatalogCache,
   connectionSettingsSchema,
+  jiraCredentialsRefused,
   jiraSettingsProblem,
   listJiraProjects,
   listServiceDesks,
@@ -37,7 +38,11 @@ export async function GET(req: NextRequest, { params }: { params: { type: string
     try {
       const composioStatus = await getAccountStatus(row.composioConnectedAccountId);
       const normalized = composioStatus.toUpperCase();
-      if (normalized === "ACTIVE") {
+      if (normalized === "ACTIVE" && params.type === "helpdesk" && row.system === "jira" && (await jiraCredentialsRefused(row.composioConnectedAccountId))) {
+        // The hosted form accepts a blank API key or email as "connected"; Jira then refuses every call. Say so now,
+        // rather than after the manager finds an empty project list.
+        row = await markConnectionFailed(row.id);
+      } else if (normalized === "ACTIVE") {
         row = await markConnectionActive(row.id, row.composioConnectedAccountId);
         // A connected Gmail is also the worker's inbox: start receiving.
         await startReceivingIfGmail(row);

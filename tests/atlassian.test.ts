@@ -40,6 +40,7 @@ import {
   issueKeyFrom,
   jiraSettingsProblem,
   listJiraProjects,
+  jiraCredentialsRefused,
   JIRA_CREATE_ISSUE_SLUG,
   JIRA_GET_ISSUE_SLUG,
   lookupCustomerTickets,
@@ -357,6 +358,66 @@ describe("raising a Jira ticket on handoff", () => {
       '"Support" isn\'t an issue type in SUP. Choose one of: [System] Service request, Task.',
     );
     expect(jiraSettingsProblem(projects!, "NOPE", "Task")).toContain("There's no project NOPE");
+  });
+
+  describe("reads through Atlassian's gateway (a service account's API key is refused on the site's own address)", () => {
+    const GATEWAY = "https://api.atlassian.com/ex/jira/cloud-acme";
+    /** The site list, then `answer` for whatever else is asked of the gateway. */
+    function gatewayAnswers(answer: (endpoint: string, method: string) => { status: number; data: unknown }) {
+      proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+        if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net/" }] };
+        return answer(endpoint, method);
+      });
+    }
+    const composioProjects = {
+      successful: true,
+      error: null,
+      data: { projects: [{ key: "OLD", name: "Via Composio", issueTypes: [{ name: "Task" }] }] },
+    };
+
+    it("lists projects from the gateway, and never asks Composio when it answers", async () => {
+      gatewayAnswers(() => ({
+        status: 200,
+        data: { isLast: true, values: [{ key: "SDS", name: "Sandbox", issueTypes: [{ name: "Task" }, { name: "Sub-task", subtask: true }] }] },
+      }));
+      const projects = await listJiraProjects(orgId, "ca_jira_gw");
+      expect(projects).toEqual([{ key: "SDS", name: "Sandbox", issueTypes: ["Task"] }]);
+      expect(executeToolMock).not.toHaveBeenCalled();
+      const asked = proxyRequestMock.mock.calls.map(([call]) => call.endpoint).find((endpoint) => endpoint.includes("/project/search"))!;
+      expect(asked.startsWith(`${GATEWAY}/rest/api/3/project/search`)).toBe(true);
+      expect(asked).toContain("expand=issueTypes");
+    });
+
+    it("reads every page of projects", async () => {
+      gatewayAnswers((endpoint) =>
+        endpoint.includes("startAt=0")
+          ? { status: 200, data: { isLast: false, values: [{ key: "AD", name: "A", issueTypes: [] }] } }
+          : { status: 200, data: { isLast: true, values: [{ key: "QA", name: "Q", issueTypes: [] }] } },
+      );
+      expect((await listJiraProjects(orgId, "ca_jira_gw_pages"))!.map((project) => project.key)).toEqual(["AD", "QA"]);
+    });
+
+    it("falls back to Composio's action when the gateway refuses, or lists nothing", async () => {
+      executeToolMock.mockResolvedValue(composioProjects);
+      gatewayAnswers(() => ({ status: 401, data: null }));
+      expect((await listJiraProjects(orgId, "ca_jira_gw_401"))!.map((project) => project.key)).toEqual(["OLD"]);
+
+      gatewayAnswers(() => ({ status: 200, data: { isLast: true, values: [] } }));
+      expect((await listJiraProjects(orgId, "ca_jira_gw_empty"))!.map((project) => project.key)).toEqual(["OLD"]);
+    });
+
+    it("tells a refused credential (401) from a permission refusal, a good answer, or a call that never got through", async () => {
+      gatewayAnswers(() => ({ status: 401, data: null }));
+      expect(await jiraCredentialsRefused("ca_check_401")).toBe(true);
+      gatewayAnswers(() => ({ status: 403, data: null }));
+      expect(await jiraCredentialsRefused("ca_check_403")).toBe(false);
+      gatewayAnswers(() => ({ status: 200, data: { values: [] } }));
+      expect(await jiraCredentialsRefused("ca_check_200")).toBe(false);
+      proxyRequestMock.mockImplementation(async () => {
+        throw new Error("network down");
+      });
+      expect(await jiraCredentialsRefused("ca_check_down")).toBe(false);
+    });
   });
 
   describe("as a Jira Service Management request", () => {
@@ -977,6 +1038,19 @@ describe("the customer's own tickets", () => {
     expect(result.tickets).toEqual([
       { key: "SUP-1", summary: "Invoice wrong", status: "In Progress", resolution: null, updated: null },
     ]);
+  });
+
+  it("reads them through the gateway when it answers, so a service account's key works", async () => {
+    const mine = await newConversation({ externalTicketKey: "SUP-1" });
+    proxyRequestMock.mockImplementation(async ({ endpoint }) => {
+      if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net/" }] };
+      return { status: 200, data: { key: "SUP-1", fields: { summary: "Invoice wrong", status: { name: "Waiting for support" }, resolution: null } } };
+    });
+
+    const result = JSON.parse(await lookupCustomerTickets(orgId, mine.id, "ca_jira_gw_tickets"));
+
+    expect(executeToolMock).not.toHaveBeenCalled();
+    expect(result.tickets).toEqual([{ key: "SUP-1", summary: "Invoice wrong", status: "Waiting for support", resolution: null, updated: null }]);
   });
 });
 

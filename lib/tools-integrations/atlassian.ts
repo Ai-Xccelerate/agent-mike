@@ -869,14 +869,17 @@ export async function lookupCustomerTickets(
   }
   const tickets = await Promise.all(
     keys.map(async (key) => {
-      const result = await runReadTool(
-        CUSTOMER_TICKETS_TOOL_NAME,
-        JIRA_GET_ISSUE_SLUG,
-        { issue_id_or_key: key, fields: ["summary", "status", "resolution", "updated"] },
-        organizationId,
-        connectedAccountId,
-        JIRA_TOOLKIT_VERSION,
-      );
+      const ticketFields = ["summary", "status", "resolution", "updated"];
+      const result =
+        (await readIssueViaGateway(connectedAccountId, key, ticketFields)) ??
+        (await runReadTool(
+          CUSTOMER_TICKETS_TOOL_NAME,
+          JIRA_GET_ISSUE_SLUG,
+          { issue_id_or_key: key, fields: ticketFields },
+          organizationId,
+          connectedAccountId,
+          JIRA_TOOLKIT_VERSION,
+        ));
       if (result === null) return { key, error: "couldn't be read right now" };
       const fields = issueFieldsFrom(result);
       return {
@@ -1565,6 +1568,12 @@ export async function executeJiraIssueSearch(
   organizationId: string,
   connectedAccountId: string,
 ): Promise<string> {
+  const search = await callJira(connectedAccountId, "POST", "/rest/api/3/search/jql", {
+    jql: buildManagerJiraJql(query, projectKey),
+    fields: ["summary", "status", "assignee", "priority", "updated", "labels"],
+    maxResults: MANAGER_SEARCH_LIMIT,
+  });
+  if (search.ok) return capped({ data: search.data });
   const result = await runReadTool(
     MANAGER_JIRA_SEARCH_TOOL_NAME,
     JIRA_SEARCH_ISSUES_SLUG,
@@ -1581,6 +1590,9 @@ export async function executeJiraIssueSearch(
 }
 
 export async function executeJiraIssueRead(key: string, organizationId: string, connectedAccountId: string): Promise<string> {
+  const managerFields = ["summary", "status", "assignee", "reporter", "priority", "description", "comment", "labels", "created", "updated"];
+  const viaGateway = await readIssueViaGateway(connectedAccountId, key, managerFields);
+  if (viaGateway) return capped(viaGateway);
   const result = await runReadTool(
     MANAGER_JIRA_READ_TOOL_NAME,
     JIRA_GET_ISSUE_SLUG,
@@ -1648,6 +1660,11 @@ type RawProject = { key?: string; name?: string; issueTypes?: { name?: string; s
 
 /** Every project the connection can see, with the issue types a ticket can be raised as. Null if Jira can't be reached. */
 export async function listJiraProjects(organizationId: string, connectedAccountId: string): Promise<JiraProject[] | null> {
+  // A service account's API token is only accepted on Atlassian's gateway; Composio's own action calls the site's
+  // address, where such a token sees no projects at all. So ask the gateway first, and keep Composio's action for
+  // a connection the gateway can't answer for.
+  const viaGateway = await listJiraProjectsViaGateway(connectedAccountId);
+  if (viaGateway && viaGateway.length > 0) return viaGateway;
   const result = await runReadTool(
     JIRA_PROJECTS_TOOL_ID,
     JIRA_LIST_PROJECTS_SLUG,
@@ -1659,14 +1676,45 @@ export async function listJiraProjects(organizationId: string, connectedAccountI
   if (result === null || wasRefused(result)) return null;
   const data = (result as { data?: { projects?: unknown } | unknown[] }).data;
   const raw = Array.isArray(data) ? data : Array.isArray((data as { projects?: unknown })?.projects) ? (data as { projects: unknown[] }).projects : [];
-  return (raw as RawProject[])
-    .filter((project) => project.key)
-    .map((project) => ({
-      key: project.key as string,
-      name: project.name ?? (project.key as string),
-      // Sub-tasks need a parent ticket, so a handoff can't be raised as one.
-      issueTypes: (project.issueTypes ?? []).filter((type) => !type.subtask && type.name).map((type) => type.name as string),
-    }));
+  return (raw as RawProject[]).filter((project) => project.key).map(toJiraProject);
+}
+
+function toJiraProject(project: RawProject): JiraProject {
+  return {
+    key: project.key as string,
+    name: project.name ?? (project.key as string),
+    // Sub-tasks need a parent ticket, so a handoff can't be raised as one.
+    issueTypes: (project.issueTypes ?? []).filter((type) => !type.subtask && type.name).map((type) => type.name as string),
+  };
+}
+
+const PROJECT_PAGE_SIZE = 50;
+const PROJECT_MAX_PAGES = 10;
+
+/** The projects the connection can see, read through the gateway. Null when the gateway can't answer at all. */
+async function listJiraProjectsViaGateway(connectedAccountId: string): Promise<JiraProject[] | null> {
+  const found: JiraProject[] = [];
+  let startAt = 0;
+  for (let page = 0; page < PROJECT_MAX_PAGES; page += 1) {
+    const response = await callJira(
+      connectedAccountId,
+      "GET",
+      `/rest/api/3/project/search?expand=issueTypes&maxResults=${PROJECT_PAGE_SIZE}&startAt=${startAt}`,
+    );
+    if (!response.ok) return page === 0 ? null : found;
+    const data = response.data as { values?: unknown; isLast?: boolean } | null;
+    const values = Array.isArray(data?.values) ? (data.values as RawProject[]) : [];
+    found.push(...values.filter((project) => project.key).map(toJiraProject));
+    if (data?.isLast !== false || values.length === 0) break;
+    startAt += values.length;
+  }
+  return found;
+}
+
+/** One issue's fields read through the gateway, shaped like Composio's answer so both can be read the same way. Null when it can't be read. */
+async function readIssueViaGateway(connectedAccountId: string, key: string, fields: string[]): Promise<{ data: unknown } | null> {
+  const response = await callJira(connectedAccountId, "GET", `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${fields.map(encodeURIComponent).join(",")}`);
+  return response.ok ? { data: response.data } : null;
 }
 
 /** Why this project/issue type pair can't take handoff tickets, or null when it can. */
@@ -2565,4 +2613,14 @@ export async function ensureJiraCustomer(input: {
   });
   await logCustomerCall(organizationId, "create", { email }, { ok: true, detail: added.ok ? "Created and added to the desk" : `Created; adding to the desk failed: ${added.error}` });
   return { accountId, created: true };
+}
+
+/**
+ * Whether a freshly made Jira connection's credentials are accepted: a connection made with no API key or no email (the
+ * hosted form lets them be left blank) is refused with 401 on every call. Only a clear 401 is a failure; a permission
+ * refusal or a call that couldn't be made is not, so a scope-limited key or a network blip never blocks a connection.
+ */
+export async function jiraCredentialsRefused(connectedAccountId: string): Promise<boolean> {
+  const response = await callJira(connectedAccountId, "GET", "/rest/api/3/project/search?maxResults=1");
+  return !response.ok && response.status === 401;
 }
