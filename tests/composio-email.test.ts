@@ -13,11 +13,12 @@ import {
   isAutomatedEmail,
   parseAddress,
   sendWithGmail,
+  sendWithOutlook,
   startReceivingIfGmail,
   stopReceivingIfGmail,
   toGmailInbound,
 } from "@/lib/composio-email";
-import { GMAIL_TOOLKIT_VERSION } from "@/lib/agent";
+import { GMAIL_TOOLKIT_VERSION, OUTLOOK_TOOLKIT_VERSION } from "@/lib/agent";
 
 beforeEach(() => {
   executeToolMock.mockReset();
@@ -78,6 +79,26 @@ describe("sending through Gmail", () => {
   it("throws when Composio reports the action failed", async () => {
     executeToolMock.mockResolvedValue({ successful: false, error: "invalid_grant", data: {} });
     await expect(sendWithGmail(base)).rejects.toThrow("invalid_grant");
+  });
+});
+
+describe("sending through Outlook", () => {
+  const base = { organizationId: "org-1", connectedAccountId: "ca_o", to: "anna@customer.com", subject: "Your code", html: "<p>1</p>" };
+
+  it("sends one HTML message with OUTLOOK_SEND_EMAIL, naming the recipient when known", async () => {
+    executeToolMock.mockResolvedValue({ successful: true, data: {} });
+    const sent = await sendWithOutlook({ ...base, toName: "Anna" });
+    expect(sent.id).toMatch(/^outlook-/);
+    expect(executeToolMock).toHaveBeenCalledWith(
+      "OUTLOOK_SEND_EMAIL",
+      { to: "anna@customer.com", to_name: "Anna", subject: "Your code", body: "<p>1</p>", is_html: true },
+      { connectedAccountId: "ca_o", userId: "org-1", version: OUTLOOK_TOOLKIT_VERSION },
+    );
+  });
+
+  it("throws, naming Outlook, when Composio reports the action failed", async () => {
+    executeToolMock.mockResolvedValue({ successful: false, error: "Mail.Send denied", data: {} });
+    await expect(sendWithOutlook(base)).rejects.toThrow("Outlook send failed: Mail.Send denied");
   });
 });
 

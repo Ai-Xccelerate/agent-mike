@@ -1038,17 +1038,15 @@ export type MailboxStatus = {
   unavailableReason: string | null;
   /** Nylas was unreachable, as distinct from the mailbox being gone. */
   error: string | null;
-  /** Which mail platform the worker really sends through: the mailbox, else Gmail connected under Connections. */
+  /** Which mail platform the worker really sends through: the mailbox, else Gmail or Outlook connected under Connections. */
   mail?: MailConnection;
 };
 
 /** The worker's mail connection in one answer (see lib/mail-connection.ts on the API). */
 export type MailConnection = {
-  platform: "mailbox" | "gmail" | null;
+  platform: "mailbox" | "gmail" | "outlook" | null;
   state: "connected" | "reconnect" | "none";
   address: string | null;
-  /** Outlook is connected as an integration: it can read messages but cannot send. */
-  outlookReadOnly: boolean;
 };
 
 export type MailboxMessage = {

@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 
 const sendWithGmailMock = vi.hoisted(() => vi.fn());
+const sendWithOutlookMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/composio-email", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/composio-email")>();
-  return { ...actual, sendWithGmail: sendWithGmailMock };
+  return { ...actual, sendWithGmail: sendWithGmailMock, sendWithOutlook: sendWithOutlookMock };
 });
 
 import { db } from "@/lib/db";
@@ -201,6 +202,8 @@ describe("which mailbox sends (db)", () => {
     demo = process.env.DEMO_MODE;
     process.env.DEMO_MODE = "false";
     sendWithGmailMock.mockReset();
+    sendWithOutlookMock.mockReset();
+    sendWithOutlookMock.mockResolvedValue({ id: "outlook-sent-1" });
     sendWithGmailMock.mockResolvedValue({ id: "gmail-sent-1" });
     await db.insert(organizations).values({ id: GMAIL_ORG, name: "Gmail Outbound Test" }).onConflictDoNothing();
     await getOrCreateProfile(GMAIL_ORG);
@@ -245,6 +248,47 @@ describe("which mailbox sends (db)", () => {
       sendAsWorker({ orgId: GMAIL_ORG, to: [{ email: "a@x.com" }, { email: "b@x.com" }], subject: "s", body: "b" }),
     ).rejects.toBeInstanceOf(OutboundBlocked);
     expect(sendWithGmailMock).not.toHaveBeenCalled();
+  });
+
+  it("sends through a connected Outlook when there is no mailbox, one recipient, with the signature and no thread", async () => {
+    await db
+      .update(integrationConnections)
+      .set({ system: "outlook", composioConnectedAccountId: "ca_outlook" })
+      .where(eq(integrationConnections.organizationId, GMAIL_ORG));
+    await db.update(workerProfiles).set({ emailSignature: "Eva" }).where(eq(workerProfiles.organizationId, GMAIL_ORG));
+    const sent = await sendAsWorker({
+      orgId: GMAIL_ORG,
+      to: [{ email: "anna@customer.com", name: "Anna" }],
+      subject: "Your code",
+      body: "123456",
+      threadId: "ignored",
+    });
+    expect(sent).toEqual({ id: "outlook-sent-1", to: ["anna@customer.com"], demo: false });
+    expect(sendWithOutlookMock).toHaveBeenCalledWith({
+      organizationId: GMAIL_ORG,
+      connectedAccountId: "ca_outlook",
+      to: "anna@customer.com",
+      toName: "Anna",
+      subject: "Your code",
+      html: "<p>123456</p>\n<p>Eva</p>",
+    });
+    expect(sendWithGmailMock).not.toHaveBeenCalled();
+
+    await expect(
+      sendAsWorker({ orgId: GMAIL_ORG, to: [{ email: "a@x.com" }, { email: "b@x.com" }], subject: "s", body: "b" }),
+    ).rejects.toBeInstanceOf(OutboundBlocked);
+  });
+
+  it("refuses Outlook to a domain that is not approved, before sending", async () => {
+    await db
+      .update(integrationConnections)
+      .set({ system: "outlook", composioConnectedAccountId: "ca_outlook" })
+      .where(eq(integrationConnections.organizationId, GMAIL_ORG));
+    await db.update(workerProfiles).set({ restrictEmailDomains: true }).where(eq(workerProfiles.organizationId, GMAIL_ORG));
+    await expect(
+      sendAsWorker({ orgId: GMAIL_ORG, to: [{ email: "a@x.com" }], subject: "s", body: "b" }),
+    ).rejects.toMatchObject({ reason: "domain_not_approved" });
+    expect(sendWithOutlookMock).not.toHaveBeenCalled();
   });
 
   it("refuses when the Gmail connection is not active", async () => {

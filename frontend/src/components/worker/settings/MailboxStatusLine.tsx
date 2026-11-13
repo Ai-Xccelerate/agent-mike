@@ -56,9 +56,6 @@ export default function MailboxStatusLine({
           </button>
         )}
       </div>
-      {view.outlookNote && (
-        <p className="text-xs text-warning-700 dark:text-warning-400">Outlook can read messages but cannot send. Connect the mailbox or Gmail to send.</p>
-      )}
     </div>
   );
 }

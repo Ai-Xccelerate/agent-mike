@@ -25,7 +25,6 @@ describe("which mail platform the worker is connected to", () => {
       platform: "mailbox",
       state: "connected",
       address: "support@acme.com",
-      outlookReadOnly: false,
     });
   });
 
@@ -34,7 +33,6 @@ describe("which mail platform the worker is connected to", () => {
       platform: "gmail",
       state: "connected",
       address: "help@acme.com",
-      outlookReadOnly: false,
     });
     expect(describeMailConnection({ mailbox: null, email: gmail }).address).toBeNull();
   });
@@ -55,12 +53,12 @@ describe("which mail platform the worker is connected to", () => {
   });
 
   it("is none with nothing connected", () => {
-    expect(describeMailConnection({ mailbox: null, email: null })).toEqual({ platform: null, state: "none", address: null, outlookReadOnly: false });
+    expect(describeMailConnection({ mailbox: null, email: null })).toEqual({ platform: null, state: "none", address: null });
   });
 
-  it("never counts Outlook under Connections as something the worker can send through, and says it can only read", () => {
-    expect(describeMailConnection({ mailbox: null, email: outlook })).toEqual({ platform: null, state: "none", address: null, outlookReadOnly: true });
-    expect(describeMailConnection({ mailbox, mailboxLive: true, email: outlook })).toMatchObject({ platform: "mailbox", outlookReadOnly: true });
+  it("counts Outlook under Connections as a platform the worker sends through, after the mailbox", () => {
+    expect(describeMailConnection({ mailbox: null, email: outlook, outlookAddress: "eva@acme.com" })).toEqual({ platform: "outlook", state: "connected", address: "eva@acme.com" });
+    expect(describeMailConnection({ mailbox, mailboxLive: true, email: outlook })).toMatchObject({ platform: "mailbox" });
   });
 });
 
@@ -80,7 +78,7 @@ describe("GET /api/v1/mailbox says what is connected, whichever platform it is",
     await db.delete(organizations).where(eq(organizations.id, orgId));
   });
 
-  const read = async () => (await (await getMailbox(new NextRequest("http://localhost/api/v1/mailbox"))).json()) as { connected: boolean; mail: { platform: string | null; state: string; address: string | null; outlookReadOnly: boolean } };
+  const read = async () => (await (await getMailbox(new NextRequest("http://localhost/api/v1/mailbox"))).json()) as { connected: boolean; mail: { platform: string | null; state: string; address: string | null } };
 
   it("reports Gmail connected under Connections, with its address, although no mailbox exists", async () => {
     const row = await upsertPendingConnection({ organizationId: orgId, integrationType: "email", system: "gmail", composioAuthConfigId: "ac_gmail" });
@@ -90,14 +88,15 @@ describe("GET /api/v1/mailbox says what is connected, whichever platform it is",
     const body = await read();
 
     expect(body.connected).toBe(false); // the mailbox itself: unchanged
-    expect(body.mail).toEqual({ platform: "gmail", state: "connected", address: "help@acme.com", outlookReadOnly: false });
+    expect(body.mail).toEqual({ platform: "gmail", state: "connected", address: "help@acme.com" });
   });
 
-  it("reports nothing connected when nothing is, and Outlook as read-only when that is all there is", async () => {
-    expect((await read()).mail).toMatchObject({ platform: null, state: "none", outlookReadOnly: false });
+  it("reports nothing connected when nothing is, and Outlook as the platform when that is all there is", async () => {
+    expect((await read()).mail).toMatchObject({ platform: null, state: "none" });
+    vi.mocked(getAccountEmail).mockResolvedValue("eva@acme.com");
     const row = await upsertPendingConnection({ organizationId: orgId, integrationType: "email", system: "outlook", composioAuthConfigId: "ac_outlook" });
     await markConnectionActive(row.id, "ca_outlook_test");
-    expect((await read()).mail).toMatchObject({ platform: null, state: "none", outlookReadOnly: true });
+    expect((await read()).mail).toEqual({ platform: "outlook", state: "connected", address: "eva@acme.com" });
   });
 
   it("still answers when Composio cannot say the address", async () => {
