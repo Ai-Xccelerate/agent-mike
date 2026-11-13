@@ -7,6 +7,7 @@ import AnswerFeedbackControls from "@/components/worker/AnswerFeedbackControls";
 import AgentAvatar from "@/components/aix/AgentAvatar";
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import InboxApprovals from "@/components/worker/InboxApprovals";
+import { useFeatureFlags } from "@/lib/use-features";
 import SuggestedReplyCard from "@/components/worker/SuggestedReplyCard";
 import Markdown from "@/components/worker/Markdown";
 import Button from "@/components/ui/button/Button";
@@ -244,6 +245,7 @@ const outlineControl =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white/60 text-sm font-medium text-gray-700 transition-colors hover:bg-white disabled:opacity-50 dark:border-white/[0.12] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]";
 
 export default function WorkerInbox() {
+  const features = useFeatureFlags();
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -834,7 +836,7 @@ export default function WorkerInbox() {
                   </div>
                 ) : (
                   <>
-                  {selected.messages.some((message) => message.senderType === "customer") && (
+                  {features.suggestedReplies && selected.messages.some((message) => message.senderType === "customer") && (
                     <SuggestedReplyCard
                       conversationId={selected.id}
                       lastMessageKey={selected.messages[selected.messages.length - 1]?.id ?? "none"}

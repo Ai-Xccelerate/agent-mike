@@ -6,12 +6,14 @@ import { NextResponse } from "next/server";
  *
  * - cannedReplies  FEATURE_CANNED_REPLIES  approved wording the worker leads with, and its settings page
  * - testCases      FEATURE_TEST_CASES      saved test questions, replays and their scores, and the "Make test case" button
+ * - suggestedReplies FEATURE_SUGGESTED_REPLIES the "Suggest a reply" draft in the Inbox and on the ticket page
  */
-export type Feature = "cannedReplies" | "testCases";
+export type Feature = "cannedReplies" | "testCases" | "suggestedReplies";
 
 const VARIABLE: Record<Feature, string> = {
   cannedReplies: "FEATURE_CANNED_REPLIES",
   testCases: "FEATURE_TEST_CASES",
+  suggestedReplies: "FEATURE_SUGGESTED_REPLIES",
 };
 
 export function featureEnabled(feature: Feature): boolean {
@@ -20,7 +22,11 @@ export function featureEnabled(feature: Feature): boolean {
 }
 
 export function featureFlags(): Record<Feature, boolean> {
-  return { cannedReplies: featureEnabled("cannedReplies"), testCases: featureEnabled("testCases") };
+  return {
+    cannedReplies: featureEnabled("cannedReplies"),
+    testCases: featureEnabled("testCases"),
+    suggestedReplies: featureEnabled("suggestedReplies"),
+  };
 }
 
 /** The answer an API route gives for a switched-off feature: as if the route did not exist. */

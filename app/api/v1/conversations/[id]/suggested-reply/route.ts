@@ -6,6 +6,7 @@ import { conversations, messages } from "@/db/schema";
 import { getIdentityAdapter } from "@/lib/identity";
 import { getOrCreateProfile, getOrganizationName } from "@/lib/bootstrap";
 import { INTERNAL_CONVERSATION_CHANNELS } from "@/lib/assistant-agent";
+import { featureEnabled, featureOff } from "@/lib/features";
 import { suggestReply } from "@/lib/suggested-reply";
 
 // Reads the DB and calls the model per request, never prerender or cache.
@@ -16,6 +17,7 @@ export const dynamic = "force-dynamic";
  * sending still goes through POST /conversations/:id/messages like any manager reply.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!featureEnabled("suggestedReplies")) return featureOff();
   const tenant = await getIdentityAdapter().resolveManagerRequest(req);
 
   const [conversation] = await db.select().from(conversations).where(eq(conversations.id, params.id)).limit(1);

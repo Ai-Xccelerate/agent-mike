@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/worker-api";
 
 /** Features the server has switched off until they are tested properly (see lib/features.ts on the API). */
-export type FeatureFlags = { cannedReplies: boolean; testCases: boolean };
+export type FeatureFlags = { cannedReplies: boolean; testCases: boolean; suggestedReplies: boolean };
 
 let known: FeatureFlags | null = null;
 let inflight: Promise<FeatureFlags | null> | null = null;
@@ -33,5 +33,10 @@ export function useFeatureFlags(): FeatureFlags & { loaded: boolean } {
       cancelled = true;
     };
   }, []);
-  return { cannedReplies: flags?.cannedReplies ?? false, testCases: flags?.testCases ?? false, loaded: flags !== null };
+  return {
+    cannedReplies: flags?.cannedReplies ?? false,
+    testCases: flags?.testCases ?? false,
+    suggestedReplies: flags?.suggestedReplies ?? false,
+    loaded: flags !== null,
+  };
 }

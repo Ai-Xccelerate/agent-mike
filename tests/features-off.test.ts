@@ -16,10 +16,15 @@ import { GET as getCases, POST as postCases } from "@/app/api/v1/eval-cases/rout
 import { DELETE as deleteCase, PATCH as patchCase } from "@/app/api/v1/eval-cases/[id]/route";
 import { GET as getRuns, POST as postRuns } from "@/app/api/v1/eval-runs/route";
 import { GET as getRun } from "@/app/api/v1/eval-runs/[id]/route";
+import { POST as postSuggested } from "@/app/api/v1/conversations/[id]/suggested-reply/route";
 import { GET as getFeatures } from "@/app/api/v1/features/route";
 
 const previousAdapter = getIdentityAdapter();
-const saved = { canned: process.env.FEATURE_CANNED_REPLIES, cases: process.env.FEATURE_TEST_CASES };
+const saved = {
+  canned: process.env.FEATURE_CANNED_REPLIES,
+  cases: process.env.FEATURE_TEST_CASES,
+  suggested: process.env.FEATURE_SUGGESTED_REPLIES,
+};
 let orgId: string;
 
 const request = (method = "GET", body?: unknown) =>
@@ -39,7 +44,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   setIdentityAdapter(previousAdapter);
-  for (const [key, value] of [["FEATURE_CANNED_REPLIES", saved.canned], ["FEATURE_TEST_CASES", saved.cases]] as const) {
+  for (const [key, value] of [["FEATURE_CANNED_REPLIES", saved.canned], ["FEATURE_TEST_CASES", saved.cases], ["FEATURE_SUGGESTED_REPLIES", saved.suggested]] as const) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
@@ -50,7 +55,8 @@ describe("canned replies and test cases are off unless the server switches them 
   it("are off when the variables are not set, and on for 1, true or on", () => {
     delete process.env.FEATURE_CANNED_REPLIES;
     delete process.env.FEATURE_TEST_CASES;
-    expect(featureFlags()).toEqual({ cannedReplies: false, testCases: false });
+    delete process.env.FEATURE_SUGGESTED_REPLIES;
+    expect(featureFlags()).toEqual({ cannedReplies: false, testCases: false, suggestedReplies: false });
     for (const value of ["1", "true", "on", " TRUE "]) {
       process.env.FEATURE_TEST_CASES = value;
       expect(featureEnabled("testCases")).toBe(true);
@@ -102,9 +108,14 @@ describe("canned replies and test cases are off unless the server switches them 
     expect(productGuide("overview")).not.toMatch(/Canned replies|Test cases/);
   });
 
+  it("suggested replies: the API answers 404 when off", async () => {
+    delete process.env.FEATURE_SUGGESTED_REPLIES;
+    expect((await postSuggested(request("POST"), ctx)).status).toBe(404);
+  });
+
   it("tells the manager's screens which to hide", async () => {
     delete process.env.FEATURE_CANNED_REPLIES;
     process.env.FEATURE_TEST_CASES = "true";
-    expect(await (await getFeatures(request())).json()).toEqual({ cannedReplies: false, testCases: true });
+    expect(await (await getFeatures(request())).json()).toEqual({ cannedReplies: false, testCases: true, suggestedReplies: true });
   });
 });
