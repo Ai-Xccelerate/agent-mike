@@ -1089,6 +1089,26 @@ async function confluenceCqlViaGateway(
   }
 }
 
+/**
+ * Whether a freshly made Confluence connection's credentials are accepted. Like Jira's check, only a clear 401 counts (a
+ * connection made with a blank API key or email), and only for an API-token connection: an OAuth sign-in has no such
+ * blank-field failure, and a scope-limited key or a failed call must never block a connection.
+ */
+export async function confluenceCredentialsRefused(connectedAccountId: string): Promise<boolean> {
+  try {
+    const base = await confluenceGatewayBase(connectedAccountId);
+    if (!base) return false;
+    const response = await proxyRequest({
+      connectedAccountId,
+      endpoint: `${base}/rest/api/search?${new URLSearchParams({ cql: "type = page", limit: "1" }).toString()}`,
+      method: "GET",
+    });
+    return response.status === 401;
+  } catch {
+    return false;
+  }
+}
+
 function pagesInSpacesCql(spaceKeys: string[]): string {
   return spaceKeys.length > 0 ? `type = page AND space in (${spaceKeys.map(cqlString).join(", ")})` : "type = page";
 }
