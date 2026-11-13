@@ -36,7 +36,7 @@ import {
 } from "@/lib/tools-integrations/composio-actions";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
 import { buildConnectorTools, connectorGuidance } from "@/lib/mcp-connectors/agent-tools";
-import { customerTickets } from "@/lib/customer-tickets";
+import { customerTickets, customerTicketsForWorker } from "@/lib/customer-tickets";
 import {
   CONFLUENCE_READ_TOOL_NAME,
   CONFLUENCE_SEARCH_TOOL_NAME,
@@ -1035,11 +1035,7 @@ export async function buildAgentTools(
           return JSON.stringify({
             ...(noteForQuoted ? { note: noteForQuoted } : {}),
             // `number` is the one the customer was told: the helpdesk key when there is one, else the reference.
-            tickets: own.map((ticket) => ({
-              number: ticket.serviceDeskKey ?? ticket.reference,
-              ...ticket,
-              serviceDesk: ticket.serviceDeskKey ? deskByKey.get(ticket.serviceDeskKey) ?? null : null,
-            })),
+            tickets: customerTicketsForWorker(own, deskByKey),
           });
         },
       }),
