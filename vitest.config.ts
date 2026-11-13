@@ -11,7 +11,7 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     // The switched-off features (lib/features.ts) are on for the tests that cover them; tests/features-off.test.ts turns them off.
-    env: { FEATURE_CANNED_REPLIES: "true", FEATURE_TEST_CASES: "true" },
+    env: { FEATURE_CANNED_REPLIES: "true", FEATURE_TEST_CASES: "true", FEATURE_SUGGESTED_REPLIES: "true" },
   },
   resolve: {
     alias: {

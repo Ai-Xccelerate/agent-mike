@@ -3,6 +3,7 @@
 import AutoGrowTextarea from "@/components/aix/AutoGrowTextarea";
 import Button from "@/components/ui/button/Button";
 import Markdown from "@/components/worker/Markdown";
+import { useFeatureFlags } from "@/lib/use-features";
 import SuggestedReplyCard from "@/components/worker/SuggestedReplyCard";
 import { PriorityPill, StatusPill } from "@/components/worker/WorkerTickets";
 import { AlertIcon, ChevronLeftIcon, ChevronDownIcon, ChevronUpIcon, DocsIcon, JiraIcon } from "@/icons";
@@ -72,6 +73,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export default function WorkerTicketDetail({ id }: { id: string }) {
+  const features = useFeatureFlags();
   const router = useRouter();
   const [profile, setProfile] = useState<WorkerProfile | null>(null);
   const [ticket, setTicket] = useState<Conversation | null>(null);
@@ -370,7 +372,7 @@ export default function WorkerTicketDetail({ id }: { id: string }) {
 
           {!closed && (
             <Section title="Reply to the customer">
-              {ticket.messages.some((message) => message.senderType === "customer") && (
+              {features.suggestedReplies && ticket.messages.some((message) => message.senderType === "customer") && (
                 <SuggestedReplyCard
                   conversationId={ticket.id}
                   lastMessageKey={ticket.messages[ticket.messages.length - 1]?.id ?? "none"}
