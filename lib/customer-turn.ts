@@ -370,6 +370,39 @@ export async function runCustomerTurn(input: {
         summary: conversation.ticketSummary ?? conversation.summary,
       }).catch(() => null)
     : null;
+  // A handover is not always critical when it starts: a customer can say later that nobody in their office can work.
+  // While the ticket is not yet at the top priority, each further handover message is looked at again, and a Critical
+  // one raises the ticket's priority and tells the Critical group once. It never lowers a priority.
+  const alreadyCritical = /critical|highest|blocker|urgent|\bp1\b/i.test(conversation.externalTicketPriority ?? "");
+  const laterCriticalCheck =
+    result.escalate && !firstHandoff && conversation.status === "needs_human" && Boolean(conversation.externalTicketKey) && !result.checkedTickets && !alreadyCritical && !dry
+      ? routeHandover({
+          organizationId,
+          fallback: { name: profile.managerName, email: profile.managerEmail },
+          transcript: [...toHistoryTurns([...priorMessages, userMessage]), { speaker: profile.displayName, body: result.answer }],
+          summary: conversation.ticketSummary ?? conversation.summary,
+        }).catch(() => null)
+      : null;
+  if (laterCriticalCheck) {
+    void laterCriticalCheck
+      .then(async (route) => {
+        if (!route?.critical) return;
+        const [fresh] = await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1);
+        const key = fresh?.externalTicketKey ?? conversation.externalTicketKey;
+        if (key) {
+          await setCriticalTicketPriority(organizationId, key);
+          await addInternalTicketNote(organizationId, key, "Marked Critical: the customer said later in the chat that they cannot work.");
+        }
+        await notifyManager(
+          fresh ?? conversation,
+          organizationId,
+          `${profile.displayName}: this conversation is now Critical, the customer cannot work.`,
+          "handoff",
+          route,
+        );
+      })
+      .catch((error: unknown) => console.warn("[handoff] critical re-check failed:", error instanceof Error ? error.message : error));
+  }
   /** The suggested assignee goes on the new ticket as an internal note, never in front of the customer. */
   const noteSuggestedAssignee = async (ticket: { key: string }) => {
     // Also on a ticket logged earlier as answered by the worker: the first handover is when it needs a person.
