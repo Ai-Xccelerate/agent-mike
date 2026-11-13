@@ -20,6 +20,22 @@ export type CustomerTicket = {
 };
 
 /**
+ * A customer's requests as the worker is shown them. Each has ONE `number`: the helpdesk key when there is one (the
+ * number on the service desk), else Mike's own reference. The other number is left out on purpose: shown both, the
+ * worker sometimes told a customer "TCK-1004" for a request they had just been given as "SDS-3".
+ */
+export function customerTicketsForWorker(
+  tickets: CustomerTicket[],
+  deskByKey: Map<string, unknown> = new Map(),
+): Record<string, unknown>[] {
+  return tickets.map(({ reference, serviceDeskKey, ...rest }) => ({
+    number: serviceDeskKey ?? reference,
+    ...rest,
+    serviceDesk: serviceDeskKey ? deskByKey.get(serviceDeskKey) ?? null : null,
+  }));
+}
+
+/**
  * The requests this customer has with the worker: the one they are chatting in, and others under the same email
  * only when that email can be relied on (the sender of an email, or a code was typed back). A visitor's typed
  * address never opens other people's requests.
