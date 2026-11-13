@@ -13,7 +13,7 @@ import {
 import { describeCredentials, type CredentialSummary } from "@/lib/provider-credentials";
 
 /**
- * Settings > Integrations.
+ * Settings > Connections > Apps.
  *
  * An integration is an externally-connected system (R6): the Foundation talks
  * to it over its own API and never bakes it into the harness. State lives in

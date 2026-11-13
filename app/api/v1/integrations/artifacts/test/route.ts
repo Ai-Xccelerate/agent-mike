@@ -9,7 +9,7 @@ import { checkArtifactsConnection } from "@/lib/artifacts";
 export const dynamic = "force-dynamic";
 
 /**
- * Settings > Tools > Internal tools > Agent Artifacts > "Test connection".
+ * Settings > Connections > Tools > Internal tools > Agent Artifacts > "Test connection".
  *
  * Always 200 — a failed test is a result to render, not a failed request.
  */

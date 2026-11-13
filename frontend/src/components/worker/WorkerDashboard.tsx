@@ -270,8 +270,8 @@ export default function WorkerDashboard() {
             hint={
               <>
                 Connect a helpdesk under{" "}
-                <Link href="/settings/integrations" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
-                  Integrations
+                <Link href="/settings/connections?tab=apps" className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400">
+                  Connections
                 </Link>{" "}
                 to see these by request type and priority.
               </>

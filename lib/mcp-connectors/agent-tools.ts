@@ -208,9 +208,9 @@ export async function checkConnector(
   const connector = connectors.find((entry) => entry.name.toLowerCase() === wanted);
   if (!connector) {
     const names = connectors.map((entry) => entry.name).join(", ");
-    return `No connector named "${connectorName}". ${names ? `Connectors: ${names}.` : "There are no custom connectors yet (Settings > Connectors)."}`;
+    return `No connector named "${connectorName}". ${names ? `Connectors: ${names}.` : "There are no custom connectors yet (Settings > Connections > Connectors)."}`;
   }
-  if (!connector.enabled) return `${connector.name} is switched off in Settings > Connectors.`;
+  if (!connector.enabled) return `${connector.name} is switched off in Settings > Connections > Connectors.`;
 
   if (!toolName) {
     try {
@@ -229,7 +229,7 @@ export async function checkConnector(
   }
   const permission = permissionFor(connector, definition.name);
   if (permission !== "auto") {
-    return `${definition.name} is set to "${permission}" in Settings > Connectors, so the Assistant will not run it. Only tools set to always allow can be tested here.`;
+    return `${definition.name} is set to "${permission}" in Settings > Connections > Connectors, so the Assistant will not run it. Only tools set to always allow can be tested here.`;
   }
   if (!definition.readOnly) {
     return `${definition.name} is not marked read-only by ${connector.name}, so the Assistant will not run it. Test it from the customer chat instead.`;

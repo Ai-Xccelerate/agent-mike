@@ -28,7 +28,7 @@ const VERIFY_CUSTOMER_SKILL_ID = "verify-customer";
 
 // Same set the backend's requirementsMet gating checks against
 // (lib/tools-integrations/registry.ts's INTEGRATION_TYPES) — kept in sync
-// manually, same as the hardcoded vendor cards on Settings > Integrations.
+// manually, same as the hardcoded vendor cards on Settings > Connections > Apps.
 const INTEGRATION_TYPE_OPTIONS = [
   { value: "crm", label: "CRM" },
   { value: "helpdesk", label: "Helpdesk" },

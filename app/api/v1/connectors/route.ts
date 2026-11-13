@@ -20,7 +20,7 @@ import { createConnectorSchema } from "@/lib/mcp-connectors/validation";
 export const dynamic = "force-dynamic";
 
 /**
- * Settings > Connectors: remote MCP servers an admin plugs in.
+ * Settings > Connections > Connectors: remote MCP servers an admin plugs in.
  *
  * GET  → every connector (secrets never included) plus the connector calls
  *        still waiting on approval. Any manager may read; members see it

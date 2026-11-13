@@ -25,7 +25,7 @@ import {
 } from "@/lib/worker-api";
 
 /**
- * Settings > Connectors.
+ * Settings > Connections > Connectors.
  *
  * Remote MCP servers an owner or admin plugs in, so the worker can use the
  * organization's own tools without us building an integration for each one.

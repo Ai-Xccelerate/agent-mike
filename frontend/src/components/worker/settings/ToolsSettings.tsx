@@ -1,10 +1,8 @@
 "use client";
 
-import { Suspense } from "react";
 import ArtifactsIntegrationCard from "@/components/worker/settings/ArtifactsIntegrationCard";
 import AgentDbIntegrationCard from "@/components/worker/settings/AgentDbIntegrationCard";
 import AgentWikiIntegrationCard from "@/components/worker/settings/AgentWikiIntegrationCard";
-import MailboxCard from "@/components/worker/settings/MailboxCard";
 import ParchmentIntegrationCard from "@/components/worker/settings/ParchmentIntegrationCard";
 import ScribeIntegrationCard from "@/components/worker/settings/ScribeIntegrationCard";
 import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
@@ -15,7 +13,8 @@ import { useWorkerProfile } from "@/lib/use-worker-profile";
 import type { ToolsConfig } from "@/lib/worker-api";
 
 /**
- * Two kinds of tool live on this screen, and they save differently.
+ * Two kinds of tool live on this screen (Settings > Connections > Tools), and they save differently. The mailbox moved to
+ * Connections > Email.
  *
  * General capabilities are plain flags on the worker profile, so they follow
  * the page's dirty/save/discard header like every other settings form.
@@ -82,19 +81,6 @@ export default function ToolsSettings() {
           <ParchmentIntegrationCard />
           <ScribeIntegrationCard />
           <ArtifactsIntegrationCard />
-        </div>
-      </SettingsSection>
-
-      <SettingsSection
-        title="External tools"
-        description="Third-party tools this worker connects to directly. These save automatically when you use them, not with the button above."
-        aixId="AIX-163.3"
-        interactive={false}
-      >
-        <div className="space-y-4">
-          <Suspense fallback={null}>
-            <MailboxCard />
-          </Suspense>
         </div>
       </SettingsSection>
     </>

@@ -876,7 +876,7 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
               return `Can't propose that: there's no skill "${skillId}". Available: ${skills.map((item) => `${item.name} [${item.id}]`).join(", ")}.`;
             }
             if (enabled && !skill.requirementsMet) {
-              return `Can't propose that: "${skill.name}" needs ${skill.requires.join(" and ")} connected first (Settings > Integrations).`;
+              return `Can't propose that: "${skill.name}" needs ${skill.requires.join(" and ")} connected first (Settings > Connections > Apps).`;
             }
           }
           const skillName = skills?.find((item) => item.id === skillId)?.name;
@@ -962,7 +962,7 @@ function buildConfigureTools(organizationId: string, conversationId: string, pro
           if (picked.requireUserVerification === true) {
             const crm = await getConnectionForOrg(organizationId, "crm").catch(() => null);
             if (crm?.status !== "active") {
-              return "Can't propose that: checking customers against the CRM needs an active CRM connection. Connect one in Settings > Integrations first.";
+              return "Can't propose that: checking customers against the CRM needs an active CRM connection. Connect one in Settings > Connections > Apps first.";
             }
           }
           const current = await readProfileForPreview(organizationId);
@@ -2080,7 +2080,7 @@ export function buildAssistantTools(
     tool({
       name: "check_connector",
       description:
-        "Check a custom connector (Settings > Connectors, a remote MCP server) for the manager. With only the " +
+        "Check a custom connector (Settings > Connections > Connectors, a remote MCP server) for the manager. With only the " +
         "connector name it asks the server which tools it has right now, which proves it is reachable. With a " +
         "tool name it runs that tool and returns what it read, but only for tools set to always allow that the " +
         "server marks read-only; anything else is refused. Use it for \"is my connector working?\" or \"is it " +
@@ -2303,7 +2303,7 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     `use ${MANAGER_JIRA_SEARCH_TOOL_NAME} or ${MANAGER_JIRA_READ_TOOL_NAME} for that, since they return raw ticket text. ` +
     "The customer-facing " +
     "worker raises a Jira ticket by itself when it hands a conversation over, if a handoff project is set in " +
-    "Settings > Integrations.\n\n" +
+    "Settings > Connections > Apps.\n\n" +
     "Permission rules for 4 and 5: propose in one turn and STOP - never call confirm_pending_change in the same " +
     "reply. The manager sees Approve / Cancel buttons for what you proposed, or can reply in words. Only call " +
     "confirm_pending_change in a LATER turn when their new message is a clear, explicit yes to what you just " +
@@ -2335,8 +2335,8 @@ function buildAssistantInstructions(profile: Profile, managerName: string, readO
     "Where things live (use these exact paths): Settings > Identity (names, avatar, tone, status, timezone, locale); " +
     "Settings > Role; Settings > Agent configuration (model, max turns, additional instructions); " +
     "Settings > Guardrails (confidence threshold, escalation phrases, check customers against the CRM, \"Let the " +
-    "Assistant take actions\"); Settings > Human manager; Settings > Channels (channels on or off, the widget's welcome message and quick actions); Settings > Identity (name, title, photo, short bio, tone, support email address, email signature, time zone, language); Settings > Connectors (custom MCP servers and which of their tools may run, and the calls waiting for approval); Settings > Canned replies (approved wording the worker leads with, which also shapes the suggested replies in Inbox); Settings > Test cases (saved questions and replay scores); Settings > Tickets (the request types, tiers and labels tickets are sorted with); Playground (a test chat with the worker, opened from Settings > Channels, not a customer conversation); Settings > Tools (internet, internal " +
-    "tools, mailbox under External tools); Settings > Skills; Settings > Knowledge; Settings > Integrations; " +
+    "Assistant take actions\"); Settings > Human manager; Settings > Channels (channels on or off, the widget's welcome message and quick actions); Settings > Identity (name, title, photo, short bio, tone, support email address, email signature, time zone, language); Settings > Connections > Connectors (custom MCP servers and which of their tools may run, and the calls waiting for approval); Settings > Canned replies (approved wording the worker leads with, which also shapes the suggested replies in Inbox); Settings > Test cases (saved questions and replay scores); Settings > Tickets (the request types, tiers and labels tickets are sorted with); Playground (a test chat with the worker, opened from Settings > Channels, not a customer conversation); Settings > Connections > Tools (internet, internal " +
+    "tools, mailbox under Connections > Email); Settings > Skills; Settings > Knowledge; Settings > Connections > Apps; " +
     "Settings > Email domains; Settings > Team. Inbox is where customer conversations are read, taken over or handed " +
     "back, replied to by hand, and marked resolved or closed. Tickets (in the sidebar) lists every customer conversation as a ticket in queues (all open, needs a person, with the worker, with a person, closed) with its request type, priority and helpdesk key; replying happens in Inbox. Overview shows the numbers and charts. Customer conversations can't be deleted anywhere. For anything more detailed, call get_product_guide.\n\n" +
     "Knowledge follows the Knowledge page's OKF rules: one concept per article, organized with headings (an " +

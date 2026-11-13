@@ -80,7 +80,7 @@ function withSettings(row: IntegrationConnection | null) {
 }
 
 /**
- * Settings > Integrations: the settings a connection has of its own (Jira's
+ * Settings > Connections > Apps: the settings a connection has of its own (Jira's
  * project and issue or request type for handoff tickets, Confluence's space). Body:
  * { settings: { ...only the fields being changed } }.
  */

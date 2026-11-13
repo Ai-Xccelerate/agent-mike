@@ -30,7 +30,7 @@ import { notifyManager } from "@/lib/handoff-notify";
  * Everything is scoped by the mailbox the email arrived at. A webhook carries
  * no session, so the mailbox is the only thing that says which organization
  * it belongs to: the Nylas grant id, or the Composio connected account for a
- * Gmail account connected under Settings > Integrations.
+ * Gmail account connected under Settings > Connections > Email.
  */
 
 type ConversationRow = typeof conversations.$inferSelect;
@@ -213,7 +213,7 @@ export async function receiveNylasWebhook(rawBody: string, signature: string | n
 
 /**
  * Verifies and stores one Composio trigger delivery for a Gmail account
- * connected under Settings > Integrations. Same contract as the Nylas
+ * connected under Settings > Connections > Apps. Same contract as the Nylas
  * receiver: fast, and the agent turn runs afterwards.
  */
 export async function receiveComposioWebhook(request: Request): Promise<InboundOutcome> {

@@ -9,7 +9,7 @@ import { checkScribeConnection } from "@/lib/scribe";
 export const dynamic = "force-dynamic";
 
 /**
- * Settings > Integrations > Scribe > "Test connection".
+ * Settings > Connections > Apps > Scribe > "Test connection".
  *
  * Always 200 — a failed test is a result to render, not a failed request.
  */

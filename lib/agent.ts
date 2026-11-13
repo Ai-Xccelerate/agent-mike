@@ -1124,7 +1124,7 @@ export async function buildAgentTools(
     );
   }
 
-  // Custom MCP connectors an admin added (Settings > Connectors). A broken
+  // Custom MCP connectors an admin added (Settings > Connections > Connectors). A broken
   // connector table must not take chat down with it, so a failure here
   // drops the connector tools for this turn rather than throwing.
   try {

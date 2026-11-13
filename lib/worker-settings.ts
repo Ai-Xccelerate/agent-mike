@@ -66,7 +66,7 @@ export async function applyWorkerPatch(organizationId: string, body: unknown): P
         status: 422,
         error: "Skill requirements not met",
         errors: {
-          enabledSkills: `${names.join(", ")} needs an integration that is not connected. Connect it under Settings > Integrations first.`,
+          enabledSkills: `${names.join(", ")} needs an integration that is not connected. Connect it under Settings > Connections > Apps first.`,
         },
       };
     }
@@ -88,7 +88,7 @@ export async function applyWorkerPatch(organizationId: string, body: unknown): P
         error: "Verification requires a CRM",
         errors: {
           requireUserVerification:
-            "Connect a CRM under Settings > Integrations first — verification works by looking the customer up in it.",
+            "Connect a CRM under Settings > Connections > Apps first — verification works by looking the customer up in it.",
         },
       };
     }

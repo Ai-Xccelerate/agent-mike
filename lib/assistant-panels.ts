@@ -225,7 +225,7 @@ async function integrationsPanel(organizationId: string): Promise<Panel> {
     kind: "integrations",
     title: "Integrations",
     description: "Business systems the worker can look things up in. Connecting opens a sign-in window.",
-    settingsHref: "/settings/integrations",
+    settingsHref: "/settings/connections?tab=apps",
     items,
   };
 }
@@ -274,7 +274,7 @@ async function toolsPanel(organizationId: string): Promise<Panel> {
     kind: "tools",
     title: "Tools",
     description: "Extra abilities the worker can use while answering.",
-    settingsHref: "/settings/tools",
+    settingsHref: "/settings/connections?tab=tools",
     items,
   };
 }

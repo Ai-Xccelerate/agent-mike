@@ -87,14 +87,14 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   channels: [
     "Settings > Channels (/settings/channels).",
     "- Chat: Playground and the embeddable website widget. When on, the page offers 'Open playground' and 'Copy widget snippet'. Note: turning it off does not currently stop the widget from answering.",
-    "- Email (off by default): the worker answers email sent to its connected mailbox (Settings > Tools > External tools > Mailbox). Each email thread becomes one Inbox conversation, the worker replies in the same thread, and it emails the human manager when it hands over. Once a manager replies from the Inbox (or clicks Take over), the worker stops replying on that conversation until it's handed back. With Role > Automatic replies off, the worker drafts replies in the Inbox without sending them. Receiving needs a Nylas webhook for message.created pointing at the webhook URL shown on the Mailbox card, with its secret saved there. Emails sent through the Gmail integration are separate and go through the approval queue.",
+    "- Email (off by default): the worker answers email sent to its connected mailbox (Settings > Connections > Email). Each email thread becomes one Inbox conversation, the worker replies in the same thread, and it emails the human manager when it hands over. Once a manager replies from the Inbox (or clicks Take over), the worker stops replying on that conversation until it's handed back. With Role > Automatic replies off, the worker drafts replies in the Inbox without sending them. Receiving needs a Nylas webhook for message.created pointing at the webhook URL shown on the Mailbox card, with its secret saved there. Emails sent through the Gmail integration are separate and go through the approval queue.",
     "- Email settings (under the Email switch): the mailbox status, with a link to Settings > Identity where the support email address and email signature are now edited.",
     "- Chat settings (under the Chat switch): the widget's welcome message (up to 300 characters, '{name}' becomes the worker's customer-facing name; empty keeps the built-in greeting) and up to six quick actions, the tap-to-send buttons under it (empty keeps the built-in four).",
     "- Voice: coming soon; the switch is disabled.",
   ].join("\n"),
 
   tools: [
-    "Settings > Tools (/settings/tools).",
+    "Settings > Connections > Tools (/settings/connections?tab=tools).",
     "- Internet: gives the worker general web search.",
     "- Browser use: stored but NOT yet wired; it does nothing today.",
     "- Internal tools (each needs server credentials to be 'available'; active = available and switched on):",
@@ -102,7 +102,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "  - Scribe: searches internal meeting transcripts (lookback window configurable).",
     "  - Agent Wiki: searches a wiki space (write access is stored but unused).",
     "  - AgentDB and Agent Artifacts: can be switched on but are NOT yet used by the worker.",
-    "- External tools > Mailbox (Nylas): the mailbox for the Email channel, one per organization. Connect by signing in with Google/Outlook, or paste the grant ID of a mailbox that already exists in Nylas (e.g. a Nylas agent account). Each organization can use the shared Nylas application or its own (client ID, API key, optional webhook secret). States: Not configured, Not connected, Reconnect needed, Connected.",
+    "- Connections > Email > Mailbox (Nylas): the mailbox for the Email channel, one per organization. Connect by signing in with Google/Outlook, or paste the grant ID of a mailbox that already exists in Nylas (e.g. a Nylas agent account). Each organization can use the shared Nylas application or its own (client ID, API key, optional webhook secret). States: Not configured, Not connected, Reconnect needed, Connected.",
   ].join("\n"),
 
   skills: [
@@ -122,11 +122,11 @@ const GUIDE: Record<ProductGuideTopic, string> = {
     "- Articles can be viewed, edited in place (id, description and tags are kept), or deleted from the page.",
     "- Answers are grounded in this knowledge plus any active Parchment / Scribe / Agent Wiki source and a connected Confluence. With none of those, the worker has nothing to cite and will escalate or hedge.",
     "- From this Assistant: attach a file and choose 'Add to knowledge base' to add or update an article (same rules), or ask to change wording in an article (edited in place). Always with your confirmation.",
-    "- An external knowledge base can be connected under Settings > Integrations > Knowledge base (Confluence).",
+    "- An external knowledge base can be connected under Settings > Connections > Apps > Knowledge base (Confluence).",
   ].join("\n"),
 
   integrations: [
-    "Settings > Integrations (/settings/integrations). One connection per type, via OAuth.",
+    "Settings > Connections > Apps (/settings/connections?tab=apps). One connection per type, via OAuth.",
     "- CRM (Zoho): contact lookup; required by the verify-customer skill.",
     "- Helpdesk (Jira): once a project key and an issue type (or, for a Jira Service Management project, a request type, so tickets land in the service desk's queues) are set under Jira, every handoff raises a ticket there with the conversation, and the customer is told its key (e.g. SUP-12). A later handoff on the same conversation adds a comment instead. Customers can check the status of their own tickets (the ones raised for their conversations or email), never anyone else's.",
     "- Project management (Linear): issue search.",
@@ -167,7 +167,7 @@ const GUIDE: Record<ProductGuideTopic, string> = {
   ].join("\n"),
 
   connectors: [
-    "Settings > Connectors (/settings/connectors): remote MCP servers the worker can use as tools.",
+    "Settings > Connections > Connectors (/settings/connections?tab=connectors): remote MCP servers the worker can use as tools.",
     "- Only owners and admins can add or change them. For each connector you choose which of its tools run on their own and which need approval; calls set to needs approval wait on that page until an owner or admin approves them.",
     "- The Assistant can check a connector's health (check_connector) but cannot add or edit one.",
   ].join("\n"),

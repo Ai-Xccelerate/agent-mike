@@ -16,7 +16,7 @@ const attachSchema = z.object({
 });
 
 /**
- * Settings > Tools > Mailbox > "Use an existing Nylas mailbox".
+ * Settings > Connections > Email > "Use an existing Nylas mailbox".
  *
  * For a mailbox that already exists in the org's Nylas application (a Nylas
  * agent account such as support@yourdomain, or a grant made outside this

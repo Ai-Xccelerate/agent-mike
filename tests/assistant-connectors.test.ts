@@ -93,7 +93,7 @@ describe("the admin Assistant and custom connectors", () => {
     await ensureOrganization(orgId, "Empty org");
     await getOrCreateProfile(orgId);
     const snapshot = await loadConfigurationSnapshot(orgId);
-    expect(formatConfigurationSnapshot(snapshot!)).toContain("Custom connectors (Settings > Connectors): (none added)");
+    expect(formatConfigurationSnapshot(snapshot!)).toContain("Custom connectors (Settings > Connections > Connectors): (none added)");
     expect(await checkConnector(orgId, "Knowledge")).toMatch(/no custom connectors yet/);
   });
 

@@ -399,7 +399,7 @@ export type WidgetSite = {
 };
 
 /**
- * Settings > Integrations. Two separate things decide whether an integration
+ * Settings > Connections > Apps. Two separate things decide whether an integration
  * runs: `available` (the server holds its credentials — not user-editable) and
  * `enabled` (this worker's own toggle). `active` is both, and is the only one
  * that means "it is actually running".
@@ -1038,6 +1038,17 @@ export type MailboxStatus = {
   unavailableReason: string | null;
   /** Nylas was unreachable, as distinct from the mailbox being gone. */
   error: string | null;
+  /** Which mail platform the worker really sends through: the mailbox, else Gmail connected under Connections. */
+  mail?: MailConnection;
+};
+
+/** The worker's mail connection in one answer (see lib/mail-connection.ts on the API). */
+export type MailConnection = {
+  platform: "mailbox" | "gmail" | null;
+  state: "connected" | "reconnect" | "none";
+  address: string | null;
+  /** Outlook is connected as an integration: it can read messages but cannot send. */
+  outlookReadOnly: boolean;
 };
 
 export type MailboxMessage = {
@@ -1254,7 +1265,7 @@ export function getReplyTrace(messageId: string): Promise<{ trace: import("@/lib
   return apiFetch<{ trace: import("@/lib/reply-trace").ReplyTrace; text: string }>(`/messages/${encodeURIComponent(messageId)}/trace`);
 }
 
-// ── Custom connectors (Settings > Connectors): remote MCP servers an admin adds ──
+// ── Custom connectors (Settings > Connections > Connectors): remote MCP servers an admin adds ──
 
 /** auto = runs on its own; approval = waits for a person; off = the worker never sees it. */
 export type ConnectorToolPermission = "auto" | "approval" | "off";
