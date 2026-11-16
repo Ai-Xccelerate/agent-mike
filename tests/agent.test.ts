@@ -1659,6 +1659,16 @@ describe("agent instructions — KB grounding", () => {
     expect(instructions).toContain("ask them nothing first");
   });
 
+  it("tells the worker to ask which version, and not to hand over when the customer will check on their side", async () => {
+    const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
+    expect(instructions).toContain("desktop, cloud or a local install");
+    expect(instructions).toContain("ask which they use before giving steps");
+    expect(instructions).toContain("I'll check internally");
+    expect(instructions).toContain("do not hand over and do not raise a ticket");
+    expect(instructions).toContain("who holds a role inside the customer's own organisation");
+    expect(instructions).toContain("Never state who holds the role or who it is not");
+  });
+
   it("forbids general-knowledge support answers and requires a handoff when no KB matched", async () => {
     const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
     expect(instructions).toContain("No matching reference material was found for this question.");
