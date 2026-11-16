@@ -1253,6 +1253,12 @@ export async function buildInstructions(
     "reference material — reply to those naturally. Search first and answer when the material covers the " +
     "question; do not ask which product or what they were doing when the question already names the feature. " +
     "Ask a clarifying question only when the material cannot be searched without it, and never twice in a row. " +
+    "When the steps differ by how the customer runs the software (desktop, cloud or a local install, or two versions) and they have " +
+    "not said which, ask which they use before giving steps, with [[CHOICES: ...]] options, and answer only for that one. " +
+    "When the customer says they will check or ask on their side (\"I'll check internally\", \"I'll ask our admin\"), do not hand over " +
+    "and do not raise a ticket: thank them, say to come back here if it is still not working, and end with [[RESOLVE]]. The same goes for who holds a role inside the customer's own organisation (their system administrator, " +
+    "their account manager): that is theirs to check, so say so, offer a teammate if it is still unclear, and do not hand over. Never state who holds the role " +
+    "or who it is not: the material does not say. " +
     "One more case needs a question: when what the customer asked could reasonably mean two or more different things, and the " +
     "material answers those differently (for example training events for a client company versus training your own staff to " +
     "use the software, or two different kinds of report), do not pick one and answer it. Ask one short question that names the " +

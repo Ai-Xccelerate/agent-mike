@@ -239,6 +239,9 @@ export async function classifyCustomerIntent(args: {
       "and job description — e.g. general programming homework, unrelated life advice, or using the " +
       "worker as a free general-purpose assistant. Product how-tos, account issues, and questions " +
       "answerable from this company's support knowledge are in scope even without a knowledge hit yet. " +
+      "Trouble logging in, getting access, or connecting to the product, including the tools its customers use to reach it " +
+      "(a remote desktop or virtual machine such as Parallels, a VPN, a browser setup), is support work and in scope even when " +
+      "that tool is made by someone else. Asking for a ticket, a request to be raised, or a person is always in scope. " +
       "Questions about the worker itself (who or what it is, its name, what it can help with), greetings, thanks, " +
       "and messages that are simply unclear or garbled are NOT out of scope: set outOfScope=false and let the worker answer or ask what they need.\n" +
       "Set escalate if the message matches an escalation theme in spirit (billing disputes, legal threats, " +
@@ -392,6 +395,16 @@ export async function classifyCustomerOutput(args: {
   }
 }
 
+/** The customer asks for a ticket to be raised or for a person: support work on any topic. */
+export function asksForTicketOrPerson(message: string | undefined): boolean {
+  const text = (message || "").toLowerCase();
+  return (
+    /\b(create|raise|open|log|make|file|submit|put in)\b.{0,24}\b(a |the |my |an )?(support )?(ticket|request|case)\b/.test(text) ||
+    /\b(speak|talk|chat)\b.{0,16}\b(to|with)\b.{0,16}\b(a |an |the )?(person|human|someone|agent|teammate|team|support)\b/.test(text) ||
+    /\b(real|live) (person|human|agent)\b/.test(text)
+  );
+}
+
 /** Whether an intent classification should trip the input guardrail. */
 export function shouldTripInputGuardrail(
   classification: IntentClassification,
@@ -402,8 +415,10 @@ export function shouldTripInputGuardrail(
   // chatting to collect intake.
   if (classification.injectionSuspected) return true;
 
-  // Outside this worker's role — stop before the agent fulfills freeform work.
-  if (classification.outOfScope) return true;
+  // Outside this worker's role — stop before the agent fulfills freeform work. Asking for a ticket or a person is
+  // never out of scope, whatever the topic: a customer who asks for one gets one (a decline here left EAP's client
+  // asking "can you create a ticket for me" five times with no ticket and no next step).
+  if (classification.outOfScope && !asksForTicketOrPerson(options?.message)) return true;
 
   // Classifier outage / invalid output: fail closed (unlike retrieval degrade).
   if (classification.reason.startsWith("Guardrail classifier")) return true;
