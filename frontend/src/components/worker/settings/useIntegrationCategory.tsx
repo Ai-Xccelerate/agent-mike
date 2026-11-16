@@ -2,8 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import Button from "@/components/ui/button/Button";
-import { IntegrationCard, IntegrationCategoryHeading, type IntegrationCardStatus } from "@/components/worker/settings/IntegrationCard";
+import type { IntegrationCardStatus } from "@/components/worker/settings/IntegrationCard";
 import ConnectMethodDialog, { type ConnectMethod } from "@/components/worker/settings/ConnectMethodDialog";
 import ConnectionSettingsDialog, {
   connectionSettingsNote,
@@ -17,13 +16,35 @@ import {
   type IntegrationConnection,
 } from "@/lib/worker-api";
 
-export type VendorOption = { system: string; label: string; icon: ReactNode };
+export type VendorOption = { system: string; label: string; icon: ReactNode; /** What this vendor does, when it differs from the category's line. */ description?: string };
 
-type IntegrationCategorySectionProps = {
+export type CategoryInput = {
   integrationType: string;
   vendors: VendorOption[];
+  /** The category's name, shown under each vendor: "Helpdesk", "Knowledge base". */
   title: string;
   description: string;
+};
+
+/** One vendor as the Connections page shows it: where it stands and what can be done with it. */
+export type VendorState = {
+  vendor: VendorOption;
+  integrationType: string;
+  category: string;
+  description: string;
+  status: IntegrationCardStatus;
+  /** Why it cannot be connected right now, or what to do next. */
+  note?: string;
+  /** Label of the connect button; undefined when there is nothing to press. */
+  connectLabel?: string;
+  connect: () => void;
+  connecting: boolean;
+  /** Any connect in this category is in flight, so the others wait. */
+  busy: boolean;
+  disconnect: () => Promise<void>;
+  disconnecting: boolean;
+  /** Opens this connection's own settings; undefined when it has none. */
+  openSettings?: () => void;
 };
 
 /**
@@ -40,12 +61,17 @@ const STUCK_AFTER_MS = 20_000;
 /** Systems that ask how to connect first: a person's sign-in, or a service account's API key or client credentials. */
 const API_KEY_SYSTEMS = new Set(["jira", "confluence"]);
 
-export default function IntegrationCategorySection({
-  integrationType,
-  vendors,
-  title,
-  description,
-}: IntegrationCategorySectionProps) {
+/**
+ * The state behind one category. It was a section that drew its own cards (one category per block); the Connections
+ * page now lists connected vendors and available ones separately, so the state is a hook and the page does the drawing.
+ * `dialogs` must be rendered once: the settings dialog and the "how to connect" chooser live there.
+ */
+export function useIntegrationCategory({ integrationType, vendors, title, description }: CategoryInput): {
+  vendors: VendorState[];
+  dialogs: ReactNode;
+  error: string;
+  loaded: boolean;
+} {
   const [connection, setConnection] = useState<IntegrationConnection>(null);
   const [loaded, setLoaded] = useState(false);
   const [connectingSystem, setConnectingSystem] = useState<string | null>(null);
@@ -102,7 +128,7 @@ export default function IntegrationCategorySection({
     try {
       const { redirectUrl } = await connectIntegration(integrationType, vendor.system, authMethod);
       if (redirectUrl) {
-        window.location.href = redirectUrl;
+        window.location.assign(redirectUrl);
         return;
       }
       // Composio already had an active account for this vendor (e.g. one made
@@ -150,81 +176,58 @@ export default function IntegrationCategorySection({
 
   const activeSystem = connection?.status === "active" || connection?.status === "pending" ? connection.system : null;
 
-  return (
-    <section>
-      <IntegrationCategoryHeading title={title} description={description} />
-      <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(260px,320px))]">
-        {vendors.map((vendor) => {
-          const isActiveSlot = activeSystem === vendor.system;
-          const status: IntegrationCardStatus = !loaded
-            ? "disconnected"
-            : isActiveSlot && connection?.status === "active"
-              ? "connected"
-              : isActiveSlot && connection?.status === "pending"
-                ? "pending"
-                : failedSystem === vendor.system
-                  ? "failed"
-                  : activeSystem
-                    ? "unavailable"
-                    : "disconnected";
+  const states: VendorState[] = vendors.map((vendor) => {
+    const isActiveSlot = activeSystem === vendor.system;
+    const status: IntegrationCardStatus = !loaded
+      ? "disconnected"
+      : isActiveSlot && connection?.status === "active"
+        ? "connected"
+        : isActiveSlot && connection?.status === "pending"
+          ? "pending"
+          : failedSystem === vendor.system
+            ? "failed"
+            : activeSystem
+              ? "unavailable"
+              : "disconnected";
+    const note =
+      status === "unavailable"
+        ? `Disconnect ${vendors.find((v) => v.system === activeSystem)?.label ?? "the current connection"} first to switch.`
+        : status === "pending"
+          ? stuckPending
+            ? "This is taking a while. Try again."
+            : `Finish signing in to ${vendor.label} in the popup or redirected tab.`
+          : status === "failed"
+            ? "The previous attempt failed. Try again."
+            : status === "connected" && hasConnectionSettings(connection)
+              ? connectionSettingsNote(connection)
+              : undefined;
+    const connectLabel =
+      status === "connected" || status === "unavailable"
+        ? undefined
+        : status === "pending" && !stuckPending
+          ? "Connecting…"
+          : status === "failed" || stuckPending
+            ? `Retry connecting ${vendor.label}`
+            : `Connect ${vendor.label}`;
+    return {
+      vendor,
+      integrationType,
+      category: title,
+      description: vendor.description ?? description,
+      status,
+      note,
+      connectLabel,
+      connect: () => (API_KEY_SYSTEMS.has(vendor.system) ? void openChooser(vendor) : void handleConnect(vendor)),
+      connecting: connectingSystem === vendor.system || (status === "pending" && !stuckPending),
+      busy: connectingSystem !== null,
+      disconnect: () => handleDisconnect(vendor.label),
+      disconnecting,
+      openSettings: status === "connected" && hasConnectionSettings(connection) ? () => setSettingsOpen(true) : undefined,
+    };
+  });
 
-          const note =
-            status === "unavailable"
-              ? `Disconnect ${vendors.find((v) => v.system === activeSystem)?.label ?? "the current connection"} first to switch.`
-              : status === "pending"
-                ? stuckPending
-                  ? "This is taking a while. Try again."
-                  : `Finish signing in to ${vendor.label} in the popup or redirected tab.`
-                : status === "failed"
-                  ? "The previous attempt failed. Try again."
-                  : status === "connected" && hasConnectionSettings(connection)
-                    ? connectionSettingsNote(connection)
-                    : undefined;
-
-          const action =
-            status === "connected" ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                onClick={() => void handleDisconnect(vendor.label)}
-                loading={disconnecting}
-                disabled={disconnecting}
-              >
-                Disconnect
-              </Button>
-            ) : status === "pending" && !stuckPending ? (
-              <Button size="sm" className="w-full" disabled loading>
-                Connecting…
-              </Button>
-            ) : status === "unavailable" ? undefined : (
-              <Button
-                size="sm"
-                className="w-full"
-                onClick={() => (API_KEY_SYSTEMS.has(vendor.system) ? void openChooser(vendor) : void handleConnect(vendor))}
-                loading={connectingSystem === vendor.system}
-                disabled={connectingSystem !== null}
-              >
-                {status === "failed" || stuckPending ? `Retry connecting ${vendor.label}` : `Connect ${vendor.label}`}
-              </Button>
-            );
-
-          return (
-            <IntegrationCard
-              key={vendor.system}
-              icon={vendor.icon}
-              title={vendor.label}
-              description={description}
-              status={status}
-              note={note}
-              action={action}
-              onSettings={
-                status === "connected" && hasConnectionSettings(connection) ? () => setSettingsOpen(true) : undefined
-              }
-            />
-          );
-        })}
-      </div>
+  const dialogs = (
+    <>
       {connection?.status === "active" && hasConnectionSettings(connection) && (
         <ConnectionSettingsDialog
           integrationType={integrationType}
@@ -243,7 +246,8 @@ export default function IntegrationCategorySection({
           if (chooserFor) void handleConnect(chooserFor, method === "oauth" ? undefined : method);
         }}
       />
-      {error && <p className="mt-2 text-xs font-medium text-error-600 dark:text-error-400">{error}</p>}
-    </section>
+    </>
   );
+
+  return { vendors: states, dialogs, error, loaded };
 }

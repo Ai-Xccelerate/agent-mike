@@ -106,6 +106,52 @@ function useSave(integrationType: string, onSaved: (row: IntegrationConnection) 
   return { saving, error, save };
 }
 
+/** The request type value that means the worker picks one per conversation. */
+const WORKER_CHOOSES = "__worker_chooses__";
+
+/**
+ * One question with a few answers, where two switches used to stand in for it (and allowed combinations that meant
+ * nothing). Each answer says what it does.
+ */
+function ChoiceGroup<T extends string>({
+  legend,
+  name,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  legend: string;
+  name: string;
+  value: T;
+  options: { value: T; label: string; hint: string }[];
+  onChange: (value: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <fieldset className="min-w-0" disabled={disabled}>
+      <legend className={labelClass}>{legend}</legend>
+      <div className="mt-1.5 divide-y divide-gray-100 rounded-lg border border-gray-300 dark:divide-gray-800 dark:border-gray-700">
+        {options.map((option) => (
+          <label key={option.value} className="flex cursor-pointer items-start gap-3 px-3 py-2.5">
+            <input
+              type="radio"
+              name={name}
+              checked={option.value === value}
+              onChange={() => onChange(option.value)}
+              className="mt-1 size-4 shrink-0 accent-brand-500"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-gray-800 dark:text-white/90">{option.label}</span>
+              <span className="mt-0.5 block text-xs leading-5 text-gray-500 dark:text-gray-400">{option.hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 function DialogHeader({ title, description }: { title: string; description: string }) {
   return (
     <div className="pr-8">
@@ -220,11 +266,15 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
             <span className={labelClass}>Request type</span>
             <select
               className={`mt-1.5 ${selectFieldClass}`}
-              value={workerChooses ? "" : requestTypes.some((type) => type.id === requestTypeId) ? requestTypeId : ""}
-              disabled={workerChooses}
-              onChange={(event) => setRequestTypeId(event.target.value)}
+              value={workerChooses ? WORKER_CHOOSES : requestTypes.some((type) => type.id === requestTypeId) ? requestTypeId : ""}
+              onChange={(event) => {
+                const picked = event.target.value;
+                setWorkerChooses(picked === WORKER_CHOOSES);
+                if (picked !== WORKER_CHOOSES) setRequestTypeId(picked);
+              }}
             >
-              <option value="">{workerChooses ? "Chosen per conversation" : "Choose a request type"}</option>
+              <option value="">Choose a request type</option>
+              <option value={WORKER_CHOOSES}>Let the worker choose</option>
               {requestTypes.map((type) => (
                 <option key={type.id} value={type.id}>
                   {type.name}
@@ -271,28 +321,24 @@ function JiraForm({ integrationType, settings, onClose, onSaved }: FormProps<Jir
             : "Only issue types that exist in the chosen project are listed."}
       </p>
       <div className="mt-5 space-y-4 border-t border-gray-100 pt-4 dark:border-gray-800">
-        {asRequest && (
-          <SettingsToggleRow
-            title="Let the worker choose the request type"
-            description="It reads what each request type is for and what it needs. If its choice can't be used, the ticket fails in the Inbox instead of going in as the wrong type."
-            checked={workerChooses}
-            disabled={saving}
-            onChange={() => setWorkerChooses((value) => !value)}
-          />
-        )}
-        <SettingsToggleRow
-          title="Raise a ticket on handoff"
-          description="The ticket gets the conversation, and the customer is told its number. Customers only ever see their own tickets."
-          checked={createTicketOnHandoff}
+        <ChoiceGroup
+          legend="Raise a ticket"
+          name="jira-raise"
           disabled={saving}
-          onChange={() => setCreateTicketOnHandoff((value) => !value)}
-        />
-        <SettingsToggleRow
-          title="Also raise a ticket for conversations the worker answers"
-          description="For the desk's reporting. The ticket is marked as answered, nobody is emailed, and the customer is told nothing. Visitors give their name and email (and the emailed code, if Customer identity under Guardrails is set to it) before they can chat, so every conversation has a customer. It needs a Customer identity check turned on there. Greetings and out-of-scope questions are not logged. Needs ticket raising above."
-          checked={ticketEveryConversation}
-          disabled={saving || !createTicketOnHandoff}
-          onChange={() => setTicketEveryConversation((value) => !value)}
+          value={!createTicketOnHandoff ? "never" : ticketEveryConversation ? "every" : "handover"}
+          onChange={(value) => {
+            setCreateTicketOnHandoff(value !== "never");
+            setTicketEveryConversation(value === "every");
+          }}
+          options={[
+            {
+              value: "every",
+              label: "For every conversation",
+              hint: "Answered ones are marked as answered and nobody is emailed. Visitors give their name and email before they can chat. Needs a Customer identity check under Guardrails. Greetings and out-of-scope questions are not logged.",
+            },
+            { value: "handover", label: "Only when the worker hands over", hint: "The ticket gets the conversation, and the customer is told its number." },
+            { value: "never", label: "Never", hint: "Jira is only used to look up a customer's own tickets." },
+          ]}
         />
         <SettingsToggleRow
           title="Create Jira customers"
@@ -354,19 +400,24 @@ function ConfluenceForm({ integrationType, settings, onClose, onSaved }: FormPro
       </div>
       <p className={hintClass}>The short key in each space&rsquo;s address, e.g. EAPX. Answers come from all of them.</p>
       <div className="mt-5 border-t border-gray-100 pt-4 dark:border-gray-800">
-        <SettingsToggleRow
-          title="Search before every answer"
-          description="The worker searches the pages' text for each question and answers from what it finds."
-          checked={searchBeforeAnswering}
+        <ChoiceGroup
+          legend="How the worker searches"
+          name="confluence-search"
           disabled={saving}
-          onChange={() => setSearchBeforeAnswering((value) => !value)}
-        />
-        <SettingsToggleRow
-          title="Search a saved copy"
-          description="Answers come from a copy of these pages kept in sections and updated every few minutes. It finds more and answers faster. If the copy is empty or fails, the worker searches Confluence directly."
-          checked={searchIndex}
-          disabled={saving || !searchBeforeAnswering}
-          onChange={() => setSearchIndex((value) => !value)}
+          value={!searchBeforeAnswering ? "off" : searchIndex ? "copy" : "live"}
+          onChange={(value) => {
+            setSearchBeforeAnswering(value !== "off");
+            setSearchIndex(value === "copy");
+          }}
+          options={[
+            {
+              value: "copy",
+              label: "Saved copy",
+              hint: "A copy of these pages kept in sections and updated every few minutes. It finds more and answers faster. If the copy is empty or fails, the worker searches Confluence directly.",
+            },
+            { value: "live", label: "Live search", hint: "The worker searches Confluence directly for each question." },
+            { value: "off", label: "Off", hint: "The worker does not answer from these pages." },
+          ]}
         />
         <KnowledgeIndexPanel />
       </div>

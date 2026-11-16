@@ -5,7 +5,7 @@ import Badge from "@/components/ui/badge/Badge";
 import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
 import { IntegrationStatusPill } from "@/components/worker/settings/IntegrationCard";
-import SettingsPageHeader from "@/components/worker/settings/SettingsPageHeader";
+import DirectoryHeading from "@/components/worker/settings/DirectoryHeading";
 import SettingsSection from "@/components/worker/settings/SettingsSection";
 import SettingsToggle from "@/components/worker/settings/SettingsToggle";
 import { dividerClass, fieldClass, hintClass, labelClass, panelClass } from "@/components/worker/settings/ui";
@@ -650,6 +650,7 @@ export default function ConnectorsSettings() {
   const addButton = canManage ? (
     <Button
       size="sm"
+      variant="outline"
       startIcon={<PlusIcon className="size-4" />}
       onClick={() => {
         setEditing(null);
@@ -662,11 +663,6 @@ export default function ConnectorsSettings() {
 
   return (
     <>
-      <SettingsPageHeader
-        title="Connectors"
-        description="Connect this worker to your own tools through remote MCP servers. You decide which tools run on their own and which wait for approval."
-      />
-
       {notice && (
         <p
           role="status"
@@ -676,25 +672,26 @@ export default function ConnectorsSettings() {
         </p>
       )}
 
-      <SettingsSection
-        title="Custom connectors"
-        description="Each one is a remote MCP server. Only owners and admins can add or change them. Changes save as you make them."
-        action={addButton}
-        aixId="AIX-167.1"
-        interactive={false}
-      >
+      <div className="space-y-3">
+        <DirectoryHeading
+          id="connections-custom"
+          title="Custom connectors"
+          count={phase === "ready" ? connectors.length : undefined}
+          hint="Remote MCP servers for your own tools. Only owners and admins can change them."
+        >
+          {phase === "ready" && connectors.length > 0 ? addButton : null}
+        </DirectoryHeading>
+        <div className="rounded-2xl border border-gray-300/70 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]" data-aix-id="AIX-167.1">
         {phase === "loading" && <p className="text-sm text-gray-500 dark:text-gray-400">Loading connectors…</p>}
         {phase === "failed" && (
           <p className="text-sm text-error-600 dark:text-error-400">Could not load connectors. Check that the API is running.</p>
         )}
         {phase === "ready" && connectors.length === 0 && (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-gray-300 px-6 py-10 text-center dark:border-gray-700">
-            <span className="flex size-10 items-center justify-center rounded-lg bg-gray-100 text-gray-500 dark:bg-white/5 dark:text-gray-400 [&>svg]:size-5">
-              <LinkIcon />
-            </span>
-            <p className="max-w-md text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+            <p className="min-w-0 flex-[1_1_18rem] text-sm text-gray-500 dark:text-gray-400">
               No connectors yet. Add a remote MCP server to give this worker tools from your own systems.
             </p>
+            {addButton}
           </div>
         )}
         {phase === "ready" && connectors.length > 0 && (
@@ -714,32 +711,35 @@ export default function ConnectorsSettings() {
             ))}
           </div>
         )}
-      </SettingsSection>
+        </div>
+      </div>
 
-      <SettingsSection
-        title="Waiting for approval"
-        description="Calls to tools set to needs approval. Nothing runs until an owner or admin approves it here."
-        aixId="AIX-167.2"
-        interactive={false}
-      >
-        {pending.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Nothing is waiting.</p>
-        ) : (
-          <div className={dividerClass}>
-            {pending.map((approval) => (
-              <ApprovalRow
-                key={approval.id}
-                approval={approval}
-                canManage={canManage}
-                onDecided={(message, error) => {
-                  say(message, error);
-                  void load();
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </SettingsSection>
+      {(pending.length > 0 || connectors.length > 0) && (
+        <SettingsSection
+          title="Waiting for approval"
+          description="Calls to tools set to needs approval. Nothing runs until an owner or admin approves it here."
+          aixId="AIX-167.2"
+          interactive={false}
+        >
+          {pending.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Nothing is waiting.</p>
+          ) : (
+            <div className={dividerClass}>
+              {pending.map((approval) => (
+                <ApprovalRow
+                  key={approval.id}
+                  approval={approval}
+                  canManage={canManage}
+                  onDecided={(message, error) => {
+                    say(message, error);
+                    void load();
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </SettingsSection>
+      )}
 
       <ConnectorFormModal
         isOpen={formOpen}
