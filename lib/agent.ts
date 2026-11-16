@@ -1650,6 +1650,7 @@ export async function runAgent(
     role: profile.role,
     jobDescription: profile.jobDescription ?? null,
     referenceMaterialFound: knowledge.length > 0,
+    knowledgeTitles: knowledge.map((match) => (match.heading ? `${match.title}: ${match.heading}` : match.title)),
   };
 
   const instructions = await timed("agent.instructions", () =>

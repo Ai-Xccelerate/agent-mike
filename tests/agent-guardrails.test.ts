@@ -106,6 +106,8 @@ describe("runAgent guardrail tripwires", () => {
     expect(result).toEqual(declineOutOfScopeReply(profile));
     expect(result.escalate).toBe(false);
     expect(result.answer).toContain("outside what I can help with");
+    // A decline still gives a way forward: say what is happening and it is helped or passed to the team.
+    expect(result.answer).toContain("pass it to the team");
     expect(result.answer).not.toContain("—");
   });
 
