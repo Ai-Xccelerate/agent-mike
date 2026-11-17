@@ -15,6 +15,7 @@ import { classifyConversation, summarizeForHandoff } from "@/lib/ticket-classifi
 import { timed, traceSnapshot } from "@/lib/timing";
 import { citedTitles, groundedTitles, looksUngrounded, withoutSourceLine } from "@/lib/citations";
 import { referenceCard, referenceNotice, ticketReference } from "@/lib/ticket-reference";
+import { logChatTurnOnTicket } from "@/lib/ticket-chat-log";
 import { buildReplyTrace } from "@/lib/reply-trace";
 import { isPlaceholderCustomerName } from "@/lib/customer-name";
 import { normalizeIdentityMode, trustedCustomerEmail } from "@/lib/customer-identity";
@@ -421,12 +422,12 @@ export async function runCustomerTurn(input: {
     // customer isn't told a number that doesn't exist.
     if (isHandoffTicket(ticket)) {
       void noteSuggestedAssignee(ticket).catch(() => undefined);
-      result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket)}` };
+      result = { ...result, answer: `${result.answer}\n\n${handoffTicketNotice(ticket, { link: !showsCards })}` };
       if (showsCards) {
         cards.push({
           id: crypto.randomUUID(),
           kind: "helpdesk_ticket",
-          data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created },
+          data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created, ...(ticket.url ? { url: ticket.url } : {}) },
         });
       }
     } else if (firstHandoff && !holdForIdentity) {
@@ -449,6 +450,20 @@ export async function runCustomerTurn(input: {
       cards,
     })
     .returning();
+
+  // A conversation that already has a ticket keeps adding to it: what is said after it was raised goes on as a staff-only
+  // note, so whoever picks it up has the whole conversation. A turn that comments on the ticket anyway (a handover, or a
+  // customer reaching out again about an earlier request) already carries its own message, so it is not added twice.
+  if (!dry && conversation.externalTicketKey && !result.escalate && !chasedKey) {
+    void logChatTurnOnTicket({
+      organizationId,
+      ticketKey: conversation.externalTicketKey,
+      channel: conversation.channel,
+      workerName: profile.displayName,
+      customerMessage: message,
+      workerReply: reply.body,
+    });
+  }
 
   // Why she replied this way, for the manager's "Why this reply?". Its own table, so it is never sent to a customer, and
   // never allowed to hold up or break the reply.
@@ -531,7 +546,7 @@ export async function runCustomerTurn(input: {
             {
               id: crypto.randomUUID(),
               kind: "helpdesk_ticket",
-              data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created },
+              data: { key: ticket.key, title: ticket.title ?? null, requestType: ticket.requestType ?? null, created: ticket.created, ...(ticket.url ? { url: ticket.url } : {}) },
             },
           ] satisfies CustomerCard[],
         })

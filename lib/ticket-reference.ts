@@ -10,7 +10,7 @@ export function ticketReference(prefix: string | null | undefined, ticketNumber:
 
 /** What the customer is told when a request is handed to the team and no helpdesk ticket was raised. */
 export function referenceNotice(reference: string): string {
-  return `I've logged this for the team as ${reference}, so you can quote that number if you follow up. You can ask me to check it any time.`;
+  return `I've logged this for the team as ${reference}, so you can quote that number if you follow up. You can ask me to check it any time. Is there anything else I can help with?`;
 }
 
 export function referenceCard(reference: string): CustomerCard {

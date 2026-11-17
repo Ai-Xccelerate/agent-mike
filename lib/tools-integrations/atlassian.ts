@@ -430,6 +430,11 @@ export type HandoffTicketResult = {
   title?: string;
   /** The service desk request type it went in as, if it's a request. */
   requestType?: string | null;
+  /**
+   * Where the customer opens the request on the service desk portal. Only set for a request raised on their behalf:
+   * a request in the connected account's name is not theirs to open, so no link is given for it.
+   */
+  url?: string;
 };
 
 function clip(text: string, max: number): string {
@@ -729,6 +734,34 @@ export async function addInternalTicketNote(organizationId: string, key: string,
   }
 }
 
+/**
+ * What was said in the chat after the ticket was raised, added so whoever picks the ticket up has the whole
+ * conversation without logging in here. A staff-only note on a service desk request (the customer is not emailed);
+ * a plain comment on a ticket that is not one. Never throws; false when it could not be added.
+ */
+export async function addChatNoteToTicket(organizationId: string, key: string, text: string): Promise<boolean> {
+  try {
+    const connection = await getConnectionForOrg(organizationId, "helpdesk");
+    const connectedAccountId = activeAccount(connection, "jira");
+    if (!connection || !connectedAccountId) return false;
+    const body = toJiraWikiMarkup(text);
+    let note = await callJira(connectedAccountId, "POST", `/rest/servicedeskapi/request/${key}/comment`, { body, public: false });
+    if (!note.ok) note = await callJira(connectedAccountId, "POST", `/rest/api/2/issue/${key}/comment`, { body });
+    await logToolCall({
+      organizationId,
+      toolId: HANDOFF_COMMENT_TOOL_ID,
+      calledBy: "system",
+      input: { key, chat: true },
+      output: note.ok ? toLogOutput(note.data) : null,
+      status: note.ok ? "success" : "error",
+      errorMessage: note.ok ? null : note.error,
+    });
+    return note.ok;
+  } catch {
+    return false;
+  }
+}
+
 const priorityCache = new Map<string, { names: string[]; at: number }>();
 const PRIORITY_CACHE_MS = 60 * 60 * 1000;
 
@@ -796,11 +829,19 @@ export function handoffComment(input: Pick<HandoffTicketInput, "latestMessage" |
     .join("\n\n");
 }
 
-/** The line added to the customer's reply once their ticket exists. */
-export function handoffTicketNotice(result: HandoffTicketResult): string {
-  return result.created
+/** Asked at the end of every handover message, so the chat does not just stop at "added to your ticket". */
+export const ANYTHING_ELSE = "Is there anything else I can help with?";
+
+/**
+ * The line added to the customer's reply once their ticket exists. A channel that cannot show the ticket card (email)
+ * passes `link` so the address is in the text.
+ */
+export function handoffTicketNotice(result: HandoffTicketResult, options: { link?: boolean } = {}): string {
+  const lead = result.created
     ? `I've logged this for the team as ${result.key}, so you can quote that number if you follow up.`
     : `I've added this to your ticket ${result.key} for the team.`;
+  const link = options.link && result.url ? ` You can see it here: ${result.url}` : "";
+  return `${lead}${link} ${ANYTHING_ELSE}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2612,6 +2653,7 @@ async function raiseServiceRequest(
     ...(raiseOnBehalfOf ? { raiseOnBehalfOf } : {}),
   };
   let created = await callJira(connectedAccountId, "POST", "/rest/servicedeskapi/request", request);
+  let raisedForCustomer = Boolean(raiseOnBehalfOf);
   // Jira answering 4xx means nothing was created (typically the connected
   // account may not raise on behalf of others), so raising as ourselves is safe.
   // A call that failed without an answer may have created it, so it is not repeated.
@@ -2619,6 +2661,7 @@ async function raiseServiceRequest(
     const { raiseOnBehalfOf: _dropped, ...plain } = request;
     void _dropped;
     created = await callJira(connectedAccountId, "POST", "/rest/servicedeskapi/request", plain);
+    raisedForCustomer = false;
   }
   const issueKey = created.ok ? (created.data as { issueKey?: unknown } | null)?.issueKey : null;
   const key = typeof issueKey === "string" && ISSUE_KEY_PATTERN.test(issueKey) ? issueKey : null;
@@ -2643,7 +2686,14 @@ async function raiseServiceRequest(
     type: target.requestTypeName ?? null,
     priority: await ticketPriority(connectedAccountId, key),
   });
-  return { key, created: true, title: request.requestFieldValues.summary, requestType: target.requestTypeName ?? null };
+  const url = raisedForCustomer ? portalLinkFrom(created.ok ? created.data : null) : null;
+  return { key, created: true, title: request.requestFieldValues.summary, requestType: target.requestTypeName ?? null, ...(url ? { url } : {}) };
+}
+
+/** The customer portal address in Jira's answer to a new request (`_links.web`), when it is a web address. */
+export function portalLinkFrom(data: unknown): string | null {
+  const web = (data as { _links?: { web?: unknown } } | null)?._links?.web;
+  return typeof web === "string" && /^https:\/\//i.test(web) ? web : null;
 }
 
 

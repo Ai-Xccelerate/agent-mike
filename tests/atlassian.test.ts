@@ -1778,7 +1778,7 @@ describe("a handoff in chat", () => {
     const body = (await (await chat("My invoice is wrong")).json()) as { message: { body: string } };
 
     expect(body.message.body).toBe(
-      "I'm sorry, that sounds frustrating. I'm bringing in a teammate, they'll follow up.\n\nI've logged this for the team as SUP-12, so you can quote that number if you follow up.",
+      "I'm sorry, that sounds frustrating. I'm bringing in a teammate, they'll follow up.\n\nI've logged this for the team as SUP-12, so you can quote that number if you follow up. Is there anything else I can help with?",
     );
     const description = String((executeToolMock.mock.calls[0][1] as { description: string }).description);
     expect(description).not.toContain("—");
@@ -1802,7 +1802,7 @@ describe("a handoff in chat", () => {
 
     expect(body.status).toBe("needs_human");
     expect(body.message.body).toBe(
-      "I'm bringing in a teammate who can help.\n\nI've logged this for the team as SUP-12, so you can quote that number if you follow up.",
+      "I'm bringing in a teammate who can help.\n\nI've logged this for the team as SUP-12, so you can quote that number if you follow up. Is there anything else I can help with?",
     );
     const [stored] = await db.select().from(conversations).where(eq(conversations.id, body.conversation_id));
     expect(stored.externalTicketKey).toBe("SUP-12");

@@ -23,6 +23,8 @@ export type HelpdeskTicketCard = {
   requestType: string | null;
   /** True when this reply raised it; false when it added to an existing one. */
   created: boolean;
+  /** Where the customer opens it on the service desk portal; only for a request raised on their behalf. */
+  url?: string;
 };
 
 export type IdentityRequestCard = {
