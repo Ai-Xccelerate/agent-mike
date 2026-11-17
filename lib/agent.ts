@@ -1665,6 +1665,7 @@ export async function runAgent(
     jobDescription: profile.jobDescription ?? null,
     referenceMaterialFound: knowledge.length > 0,
     knowledgeTitles: knowledge.map((match) => (match.heading ? `${match.title}: ${match.heading}` : match.title)),
+    withTeam: Boolean(knownCustomer?.withTeam),
   };
 
   const instructions = await timed("agent.instructions", () =>
