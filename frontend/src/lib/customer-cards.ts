@@ -15,6 +15,7 @@ export type HelpdeskTicketCard = {
   title: string | null;
   requestType: string | null;
   created: boolean;
+  url?: string;
 };
 
 /** Asks the visitor who they are, before the worker raises or reads a ticket. */

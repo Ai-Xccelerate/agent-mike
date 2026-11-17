@@ -69,6 +69,16 @@ export function HelpdeskTicketView({ data }: { data: HelpdeskTicketCard }) {
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
         {[data.requestType, "A teammate will follow up"].filter(Boolean).join(" · ")}
       </p>
+      {data.url && /^https:\/\//i.test(data.url) && (
+        <a
+          href={data.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-block text-xs font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700 dark:text-brand-300"
+        >
+          View your ticket
+        </a>
+      )}
     </div>
   );
 }
