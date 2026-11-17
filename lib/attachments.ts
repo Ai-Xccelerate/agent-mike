@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, count, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messageAttachments } from "@/db/schema";
 
@@ -105,7 +105,6 @@ export async function saveUpload(input: { organizationId: string; filename: stri
   const checked = inspectFile(input.filename, input.bytes);
   if (!checked.ok) return { ok: false, status: 422, reason: checked.reason };
 
-  const now = Date.now();
   const [pending] = await db
     .select({ n: count() })
     .from(messageAttachments)
@@ -113,7 +112,7 @@ export async function saveUpload(input: { organizationId: string; filename: stri
       and(
         eq(messageAttachments.organizationId, input.organizationId),
         isNull(messageAttachments.messageId),
-        gte(messageAttachments.createdAt, new Date(now - 60 * 60 * 1000)),
+        sql`${messageAttachments.createdAt} >= now() - interval '1 hour'`,
       ),
     );
   if (Number(pending?.n ?? 0) >= ATTACHMENT_LIMITS.pendingPerOrgPerHour) {
@@ -129,7 +128,7 @@ export async function saveUpload(input: { organizationId: string; filename: stri
       sizeBytes: input.bytes.length,
       sha256: createHash("sha256").update(input.bytes).digest("hex"),
       data: input.bytes,
-      expiresAt: new Date(now + ATTACHMENT_LIMITS.pendingTtlMs),
+      expiresAt: sql`now() + make_interval(secs => ${ATTACHMENT_LIMITS.pendingTtlMs / 1000})`,
     })
     .returning({ id: messageAttachments.id, filename: messageAttachments.filename, contentType: messageAttachments.contentType, sizeBytes: messageAttachments.sizeBytes });
 
@@ -183,7 +182,7 @@ export async function linkUploads(input: { organizationId: string; conversationI
   if (ids.length === 0) return;
   await db
     .update(messageAttachments)
-    .set({ conversationId: input.conversationId, messageId: input.messageId, expiresAt: new Date(Date.now() + ATTACHMENT_LIMITS.keepMs) })
+    .set({ conversationId: input.conversationId, messageId: input.messageId, expiresAt: sql`now() + make_interval(secs => ${ATTACHMENT_LIMITS.keepMs / 1000})` })
     .where(and(inArray(messageAttachments.id, ids), eq(messageAttachments.organizationId, input.organizationId), isNull(messageAttachments.messageId)));
 }
 
@@ -214,5 +213,5 @@ export async function readAttachment(organizationId: string, id: string) {
 }
 
 export async function deleteExpiredAttachments(): Promise<void> {
-  await db.delete(messageAttachments).where(lt(messageAttachments.expiresAt, new Date()));
+  await db.delete(messageAttachments).where(sql`${messageAttachments.expiresAt} < now()`);
 }

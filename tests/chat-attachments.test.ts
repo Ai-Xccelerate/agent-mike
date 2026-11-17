@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messageAttachments, messages, organizations, workerProfiles } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
@@ -121,20 +121,27 @@ afterEach(async () => {
 });
 
 describe("storing, sending and expiring a file", () => {
+  // Measured by the database's own clock, which is the one that sets and checks the expiry.
+  async function secondsUntilExpiry(id: string): Promise<number> {
+    const rows = await db.execute(sql`select extract(epoch from (expires_at - now()))::float8 as s from message_attachments where id = ${id}`);
+    return Number((rows.rows[0] as { s: number | string }).s);
+  }
+
   it("holds an upload unsent for an hour, links it to a message, then keeps it 30 days", async () => {
     const saved = await saveUpload({ organizationId: orgId, filename: "shot.png", bytes: PNG });
     expect(saved.ok).toBe(true);
     const id = (saved as { file: { id: string } }).file.id;
     const [pending] = await db.select().from(messageAttachments).where(eq(messageAttachments.id, id));
     expect(pending.messageId).toBeNull();
-    expect(pending.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(ATTACHMENT_LIMITS.pendingTtlMs);
+    expect(await secondsUntilExpiry(id)).toBeLessThanOrEqual(ATTACHMENT_LIMITS.pendingTtlMs / 1000);
+    expect(await secondsUntilExpiry(id)).toBeGreaterThan(ATTACHMENT_LIMITS.pendingTtlMs / 1000 - 60);
 
     const conversation = await insertConversationWithTicket({ organizationId: orgId, channel: "widget" });
     const [message] = await db.insert(messages).values({ conversationId: conversation.id, senderType: "customer", senderName: "V", body: "hi" }).returning();
     await linkUploads({ organizationId: orgId, conversationId: conversation.id, messageId: message.id, ids: [id] });
     const [linked] = await db.select().from(messageAttachments).where(eq(messageAttachments.id, id));
     expect(linked.messageId).toBe(message.id);
-    expect(linked.expiresAt.getTime() - Date.now()).toBeGreaterThan(ATTACHMENT_LIMITS.keepMs - 60_000);
+    expect(await secondsUntilExpiry(id)).toBeGreaterThan(ATTACHMENT_LIMITS.keepMs / 1000 - 60);
     expect((await attachmentsByMessage(orgId, conversation.id)).get(message.id)).toEqual([{ id, filename: "shot.png", contentType: "image/png", sizeBytes: PNG.length }]);
   });
 
@@ -142,7 +149,7 @@ describe("storing, sending and expiring a file", () => {
     const mine = (await saveUpload({ organizationId: orgId, filename: "a.png", bytes: PNG })) as any;
     const theirs = (await saveUpload({ organizationId: otherOrg, filename: "b.png", bytes: PNG })) as any;
     const old = (await saveUpload({ organizationId: orgId, filename: "c.png", bytes: PNG })) as any;
-    await db.update(messageAttachments).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(messageAttachments.id, old.file.id));
+    await db.update(messageAttachments).set({ expiresAt: sql`now() - interval '1 minute'` }).where(eq(messageAttachments.id, old.file.id));
     const got = await usableUploads({ organizationId: orgId, conversationId: null, ids: [mine.file.id, theirs.file.id, old.file.id, "not-a-uuid"] });
     expect(got.map((f) => f.id)).toEqual([mine.file.id]);
   });
@@ -165,7 +172,7 @@ describe("storing, sending and expiring a file", () => {
     const saved = (await saveUpload({ organizationId: orgId, filename: "a.png", bytes: PNG })) as any;
     expect((await readAttachment(orgId, saved.file.id))?.filename).toBe("a.png");
     expect(await readAttachment(otherOrg, saved.file.id)).toBeNull();
-    await db.update(messageAttachments).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(messageAttachments.id, saved.file.id));
+    await db.update(messageAttachments).set({ expiresAt: sql`now() - interval '1 minute'` }).where(eq(messageAttachments.id, saved.file.id));
     expect(await readAttachment(orgId, saved.file.id)).toBeNull();
     await deleteExpiredAttachments();
     expect(await db.select().from(messageAttachments).where(eq(messageAttachments.id, saved.file.id))).toEqual([]);

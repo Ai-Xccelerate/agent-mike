@@ -176,12 +176,15 @@ export async function requestVerificationCode(input: {
   const secret = codeSecret();
   if (!secret) return { status: "failed", reason: "Verification isn't configured on this deployment." };
 
-  const now = Date.now();
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const rowId = randomUUID();
 
   const decision = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`identity:${input.email}`}))`);
+    // Every row's `created_at` comes from the database's clock, so the cooldown and the windows are measured against that
+    // clock too. Mixing in this server's clock made them wrong whenever the two differed.
+    const clock = await tx.execute(sql`select (extract(epoch from now()) * 1000)::float8 as ms`);
+    const now = Number((clock.rows[0] as { ms: number | string }).ms);
 
     const windowStart = (ms: number) => new Date(now - ms);
     const oldestSince = async (where: ReturnType<typeof and>, since: Date) => {
@@ -243,7 +246,7 @@ export async function requestVerificationCode(input: {
       email: input.email,
       ip: input.ip,
       codeHash: hashCode(secret, rowId, code),
-      expiresAt: new Date(now + IDENTITY_LIMITS.codeTtlMs),
+      expiresAt: new Date(Date.now() + IDENTITY_LIMITS.codeTtlMs),
     });
     return { limitedFor: null };
   });
@@ -260,7 +263,7 @@ export async function requestVerificationCode(input: {
   // Old rows have served their purpose as limit records.
   void db
     .delete(emailVerificationCodes)
-    .where(lt(emailVerificationCodes.createdAt, new Date(now - 2 * 24 * 60 * 60 * 1000)))
+    .where(sql`${emailVerificationCodes.createdAt} < now() - interval '2 days'`)
     .catch(() => undefined);
 
   return { status: "sent", resendInSeconds: Math.ceil(IDENTITY_LIMITS.resendCooldownMs / 1000) };
