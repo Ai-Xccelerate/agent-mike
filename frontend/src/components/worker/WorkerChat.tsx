@@ -811,7 +811,7 @@ function ChatPanelBody({
           </button>
         </div>
         <div className="mt-2 flex items-center justify-center gap-2 text-center text-[11px] text-gray-500 dark:text-gray-400">
-          <p>{voiceError ?? `${displayName} can make mistakes. Requests go to a human. Please do not share any PHI.`}</p>
+          <p>{voiceError ?? `${displayName} can make mistakes. Unanswered requests go to our team. Please don't share PHI.`}</p>
           {value.length > MESSAGE_MAX_LENGTH * 0.9 && (
             <span className="shrink-0 tabular-nums">
               {value.length}/{MESSAGE_MAX_LENGTH}
