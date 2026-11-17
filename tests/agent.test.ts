@@ -1669,6 +1669,16 @@ describe("agent instructions — KB grounding", () => {
     expect(instructions).toContain("Never state who holds the role or who it is not");
   });
 
+  it("tells the worker when the conversation is already with the team, so it does not hand over again on thanks", async () => {
+    const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1", "chat", { name: "Sam", email: "sam@example.com", withTeam: { ticket: "SUP-41" } });
+    expect(instructions).toContain("already with our team as ticket SUP-41");
+    expect(instructions).toContain("do not hand over again for a message that adds nothing new");
+    expect(instructions).toContain("say you have added it to SUP-41");
+    expect(instructions).toContain("never say you have raised a new ticket");
+    const fresh = await buildInstructions(baseProfile, "Acme", [], "org-1", "chat", { name: "Sam", email: "sam@example.com" });
+    expect(fresh).not.toContain("already with our team");
+  });
+
   it("forbids general-knowledge support answers and requires a handoff when no KB matched", async () => {
     const instructions = await buildInstructions(baseProfile, "AI Xccelerate", [], "org-1", "chat");
     expect(instructions).toContain("No matching reference material was found for this question.");

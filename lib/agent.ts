@@ -1192,6 +1192,8 @@ export type KnownCustomer = {
   email?: string | null;
   /** Settings > Customer identity, and whether a code sent to `email` was typed back. Absent = not asked about. */
   identity?: { mode: "email_match" | "email_code"; verified: boolean };
+  /** Set when this conversation was already handed to a person: the ticket it has, if any. */
+  withTeam?: { ticket: string | null };
 };
 
 /**
@@ -1300,6 +1302,17 @@ export async function buildInstructions(
       knownLines.join("\n")
     : "";
 
+  // Without this she handed over again on every later message, "thanks" included, and each time told the customer
+  // it had been added to their ticket.
+  const withTeamBlock = knownCustomer?.withTeam
+    ? `\n\nThis conversation is already with our team${knownCustomer.withTeam.ticket ? ` as ticket ${knownCustomer.withTeam.ticket}` : ""}. ` +
+      "A person will follow up, so do not hand over again for a message that adds nothing new. When the customer says thanks, goodbye or that they need " +
+      "nothing else, answer in one short friendly line and end with [[RESOLVE]]. When they add detail for the team (for example which version they use), " +
+      `say you have added it${knownCustomer.withTeam.ticket ? ` to ${knownCustomer.withTeam.ticket}` : ""} and end with [[FOLLOWUP]]. ` +
+      "Hand over again with [[ESCALATE]] only for a new problem you cannot answer, or when they say it is now urgent or that nobody can work. " +
+      "Do not ask for details you already have, and never say you have raised a new ticket."
+    : "";
+
   const identityBlock = identityRules(knownCustomer);
 
   const jobDescriptionBlock = profile.jobDescription
@@ -1392,6 +1405,7 @@ export async function buildInstructions(
     "If the conversation is fully resolved, end with [[RESOLVE]]. Otherwise end with [[FOLLOWUP]]." +
     // ---- Per turn from here: never put fixed text below this line. ----
     knownCustomerBlock +
+    withTeamBlock +
     identityBlock +
     knowledgeBlock +
     // Short, and right after the material it is about: the long grounding rule is above the

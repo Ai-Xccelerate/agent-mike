@@ -70,7 +70,14 @@ export async function insertConversationWithTicket(
  * sender address and name. The website widget's placeholder name isn't one.
  */
 function knownCustomerOf(
-  conversation: { customerName: string; customerEmail: string | null; customerEmailVerifiedAt?: Date | null; channel: string },
+  conversation: {
+    customerName: string;
+    customerEmail: string | null;
+    customerEmailVerifiedAt?: Date | null;
+    channel: string;
+    status?: string | null;
+    externalTicketKey?: string | null;
+  },
   identityMode: string | null | undefined,
 ) {
   const name = isPlaceholderCustomerName(conversation.customerName) ? null : conversation.customerName;
@@ -81,6 +88,8 @@ function knownCustomerOf(
     name,
     email: conversation.customerEmail,
     ...(asks ? { identity: { mode, verified: Boolean(conversation.customerEmailVerifiedAt) } } : {}),
+    // Already with a person: she is told so, so she does not hand over again on "thanks".
+    ...(conversation.status === "needs_human" ? { withTeam: { ticket: conversation.externalTicketKey ?? null } } : {}),
   };
 }
 
