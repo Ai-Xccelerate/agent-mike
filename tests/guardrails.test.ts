@@ -415,6 +415,37 @@ describe("classifyCustomerOutput", () => {
   });
 });
 
+describe("the reply check on a conversation already with the team", () => {
+  beforeEach(() => {
+    process.env.DEMO_MODE = "false";
+    process.env.OPENAI_API_KEY = "sk-test";
+    runMock.mockReset();
+    runMock.mockResolvedValue({ finalOutput: { action: "continue_intake", confidence: 0.9, reason: "fine" } });
+  });
+
+  afterEach(() => {
+    if (previousDemo === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = previousDemo;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  });
+
+  const base = { reply: "You're welcome. [[RESOLVE]]", escalationTerms: [], recentHistory: [], summary: null, role: "Support", jobDescription: null };
+
+  it("is told not to hand over again for a thank-you, so it does not escalate on the old handoff in the thread", async () => {
+    await classifyCustomerOutput({ ...base, withTeam: true });
+    const instructions = (runMock.mock.calls[0][0] as { instructions: string }).instructions;
+    expect(instructions).toContain("already with the team and has a ticket");
+    expect(instructions).toContain("never escalate");
+    expect(instructions).toContain("only when the draft itself hands off a new problem");
+  });
+
+  it("says nothing of the kind for a conversation that is not with the team yet", async () => {
+    await classifyCustomerOutput(base);
+    expect((runMock.mock.calls[0][0] as { instructions: string }).instructions).not.toContain("already with the team");
+  });
+});
+
 describe("SDK guardrail wrappers", () => {
   beforeEach(() => {
     process.env.DEMO_MODE = "false";

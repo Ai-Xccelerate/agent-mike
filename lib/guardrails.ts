@@ -57,6 +57,8 @@ export type CustomerGuardrailContext = {
   referenceMaterialFound?: boolean;
   /** Titles (with headings) of the best pages retrieval found for this turn, so the scope check sees what the knowledge base holds. */
   knowledgeTitles?: string[];
+  /** The conversation was already handed to a person; the reply check must not hand it over again for a thank-you. */
+  withTeam?: boolean;
 };
 
 export const IntentClassificationSchema = z.object({
@@ -335,6 +337,7 @@ export async function classifyCustomerOutput(args: {
   role: string;
   jobDescription?: string | null;
   referenceMaterialFound?: boolean;
+  withTeam?: boolean;
 }): Promise<OutputClassification> {
   const leak = outputLeakBlock(args.reply);
   if (leak) return leak;
@@ -365,6 +368,14 @@ export async function classifyCustomerOutput(args: {
         "small talk, clarifying questions, polite declines, and handoffs are not block."
       : "";
 
+  // The thread of a conversation already handed over shows an urgent handoff, which the check read as a reason to hand
+  // over again on every later reply, "thanks" included.
+  const withTeamLine = args.withTeam
+    ? "\n\nThis conversation is already with the team and has a ticket. A draft that only thanks the customer, says goodbye, " +
+      "confirms that detail was added to the ticket, or answers a small question is continue_intake, never escalate, even " +
+      "though the earlier thread shows a handoff. Choose escalate only when the draft itself hands off a new problem with [[ESCALATE]]."
+    : "";
+
   const classifier = new Agent({
     name: "Customer reply policy",
     instructions:
@@ -387,7 +398,8 @@ export async function classifyCustomerOutput(args: {
       "Internal end tags [[ESCALATE]] / [[RESOLVE]] / [[FOLLOWUP]] / [[NEED_IDENTITY]] and a [[CHOICES: a | b]] tag of quick replies are control markers — not leaks.\n\n" +
       `${scopeLines}\n\n` +
       `Escalation themes: ${themes}` +
-      groundingLine,
+      groundingLine +
+      withTeamLine,
     model: guardrailModel(),
     outputType: OutputClassificationSchema,
     modelSettings: { reasoning: { effort: "none" }, text: { verbosity: "low" } },
@@ -593,6 +605,7 @@ export function buildCustomerOutputGuardrail(): OutputGuardrail {
         role: ctx.role ?? "",
         jobDescription: ctx.jobDescription ?? null,
         referenceMaterialFound: ctx.referenceMaterialFound,
+        withTeam: ctx.withTeam,
       };
       if (outputGuardrailMode() === "risk" && canSkipOutputJudge(reply, ctx.referenceMaterialFound)) {
         const classification: OutputClassification = outputLeakBlock(reply) ?? {
