@@ -424,16 +424,19 @@ export async function runCustomerTurn(input: {
     if (route?.critical) await setCriticalTicketPriority(organizationId, ticket.key);
   };
 
+  /**
+   * The conversation as it is now, for raising a handover. The row read at the start of this turn can be out of date: the ticket
+   * logged for the previous, answered message may have been created and saved while this reply was being written. Raising from
+   * the old row made a second ticket and told the customer its number instead of the chat's (AMS-T61).
+   */
+  const conversationNow = async (): Promise<ConversationRow> =>
+    (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation;
+
   if (raisesTicket && !deferTicket) {
     progress("ticket", "Logging this for the team…");
-    // The ticket for the answered conversation may still be on its way (it is logged after the reply). Wait for it and read the
-    // conversation again, so this handover adds to that ticket and the customer is given its number, not a second ticket's.
-    const earlier = ticketsInFlight.get(conversation.id);
-    let current = conversation;
-    if (earlier) {
-      await earlier.catch(() => undefined);
-      current = (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation;
-    }
+    // A ticket for the previous message may still be on its way: wait for it, then read the conversation again.
+    await ticketsInFlight.get(conversation.id)?.catch(() => undefined);
+    const current = await conversationNow();
     const ticket = await timed("handoff.jira", () => raiseTicket(withChased(current)));
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
@@ -518,10 +521,9 @@ export async function runCustomerTurn(input: {
     pendingTicket = (async () => {
       const started = Date.now();
       await earlier?.catch(() => undefined);
-      // What an earlier turn's ticket recorded after this turn read the conversation.
-      const current = earlier
-        ? (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation
-        : conversation;
+      // What an earlier turn's ticket recorded after this turn read the conversation: always read again, since that ticket may
+      // have finished while the reply was being written.
+      const current = await conversationNow();
       // The ticket gets a short summary of what it is about, not only the transcript.
       // Written here, after the reply is stored, so the customer never waits for it.
       const ticketSummary =
