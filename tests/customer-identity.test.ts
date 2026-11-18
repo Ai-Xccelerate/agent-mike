@@ -54,6 +54,9 @@ const previousAdapter = getIdentityAdapter();
 const previousSecret = process.env.IDENTITY_CODE_SECRET;
 
 let orgId: string;
+/** This test's own address and client-address block: the limits are counted across every organization, and test files run side by side. */
+let DANA = "";
+let ipBlock = 1;
 
 function adapterFor(org: string): IdentityAdapter {
   return {
@@ -92,6 +95,8 @@ function post(path: string, body: Record<string, unknown>, headers: Record<strin
 beforeEach(async () => {
   process.env.IDENTITY_CODE_SECRET = "test-secret";
   orgId = `identity-${crypto.randomUUID()}`;
+  DANA = `dana-${orgId}@example.com`;
+  ipBlock = 1 + Math.floor(Math.random() * 250);
   await ensureOrganization(orgId, orgId);
   await getOrCreateProfile(orgId);
   setIdentityAdapter(adapterFor(orgId));
@@ -126,7 +131,7 @@ describe("who the visitor is", () => {
 
   it("cleans and checks what the card sends", () => {
     expect(identityInputSchema.parse({ name: "  Dana   Reyes\n", email: " Dana@Example.COM " })).toEqual({ name: "Dana Reyes", email: "dana@example.com" });
-    expect(identityInputSchema.safeParse({ name: "D", email: "dana@example.com" }).success).toBe(false);
+    expect(identityInputSchema.safeParse({ name: "D", email: DANA }).success).toBe(false);
     expect(identityInputSchema.safeParse({ name: "Dana", email: "not-an-email" }).success).toBe(false);
   });
 
@@ -162,11 +167,11 @@ describe("what the worker is told about identity", () => {
 describe("emailing a code", () => {
   it("sends one code, and keeps only its hash", async () => {
     const conversation = await widgetConversation();
-    const result = await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: "dana@example.com", ip: "1.1.1.1" });
+    const result = await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: DANA, ip: "1.1.1.1" });
 
     expect(result).toEqual({ status: "sent", resendInSeconds: 60 });
     expect(sendMock).toHaveBeenCalledTimes(1);
-    expect(sendMock.mock.calls[0][0].to).toEqual([{ email: "dana@example.com" }]);
+    expect(sendMock.mock.calls[0][0].to).toEqual([{ email: DANA }]);
     const [row] = await db.select().from(emailVerificationCodes).where(eq(emailVerificationCodes.conversationId, conversation.id));
     expect(row.codeHash).toMatch(/^[0-9a-f]{64}$/);
     expect(row.codeHash).not.toContain(sentCode());
@@ -175,8 +180,8 @@ describe("emailing a code", () => {
 
   it("makes a visitor wait before asking for another code for the same conversation", async () => {
     const conversation = await widgetConversation();
-    await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: "dana@example.com", ip: null });
-    const again = await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: "dana@example.com", ip: null });
+    await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: DANA, ip: null });
+    const again = await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: DANA, ip: null });
 
     expect(again.status).toBe("limited");
     expect(again.status === "limited" && again.retryAfterSeconds).toBeGreaterThan(0);
@@ -187,7 +192,7 @@ describe("emailing a code", () => {
     const results = [];
     for (let i = 0; i < 4; i++) {
       const conversation = await widgetConversation();
-      results.push(await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: "victim@example.com", ip: `10.0.0.${i}` }));
+      results.push(await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: `victim-${orgId}@example.com`, ip: `10.${ipBlock}.0.${i}` }));
     }
     expect(results.map((r) => r.status)).toEqual(["sent", "sent", "sent", "limited"]);
     expect(sendMock).toHaveBeenCalledTimes(3);
@@ -197,7 +202,7 @@ describe("emailing a code", () => {
     const results = [];
     for (let i = 0; i <= IDENTITY_LIMITS.perIp.max; i++) {
       const conversation = await widgetConversation();
-      results.push(await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: `person${i}@example.com`, ip: "9.9.9.9" }));
+      results.push(await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: `person${i}-${orgId}@example.com`, ip: `9.${ipBlock}.9.9` }));
     }
     expect(results.slice(0, -1).every((r) => r.status === "sent")).toBe(true);
     expect(results.at(-1)?.status).toBe("limited");
@@ -205,19 +210,19 @@ describe("emailing a code", () => {
 
   it("lets a limit lapse: an older request no longer counts once its window has passed", async () => {
     const first = await widgetConversation();
-    await requestVerificationCode({ organizationId: orgId, conversationId: first.id, email: "dana@example.com", ip: null });
+    await requestVerificationCode({ organizationId: orgId, conversationId: first.id, email: DANA, ip: null });
     await db
       .update(emailVerificationCodes)
-      .set({ createdAt: new Date(Date.now() - IDENTITY_LIMITS.resendCooldownMs - 1000) })
+      .set({ createdAt: sql`now() - make_interval(secs => ${IDENTITY_LIMITS.resendCooldownMs / 1000 + 1})` })
       .where(eq(emailVerificationCodes.conversationId, first.id));
 
-    const again = await requestVerificationCode({ organizationId: orgId, conversationId: first.id, email: "dana@example.com", ip: null });
+    const again = await requestVerificationCode({ organizationId: orgId, conversationId: first.id, email: DANA, ip: null });
     expect(again.status).toBe("sent");
   });
 
   it("sends only one code when two requests arrive at once", async () => {
     const conversation = await widgetConversation();
-    const args = { organizationId: orgId, conversationId: conversation.id, email: "dana@example.com", ip: null };
+    const args = { organizationId: orgId, conversationId: conversation.id, email: DANA, ip: null };
     const results = await Promise.all([requestVerificationCode(args), requestVerificationCode(args)]);
 
     expect(results.map((r) => r.status).sort()).toEqual(["limited", "sent"]);
@@ -227,7 +232,7 @@ describe("emailing a code", () => {
   it("does not use up the visitor's quota when the email can't be sent", async () => {
     sendMock.mockRejectedValueOnce(new OutboundBlocked("No mailbox", [], "no_mailbox"));
     const conversation = await widgetConversation();
-    const result = await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: "dana@example.com", ip: null });
+    const result = await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: DANA, ip: null });
 
     expect(result).toEqual({ status: "failed", reason: "No mailbox is connected, so a code can't be sent." });
     const rows = await db.select().from(emailVerificationCodes).where(eq(emailVerificationCodes.conversationId, conversation.id));
@@ -242,7 +247,7 @@ describe("emailing a code", () => {
     process.env.APP_ENV = "production";
     try {
       const conversation = await widgetConversation();
-      const result = await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: "dana@example.com", ip: null });
+      const result = await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email: DANA, ip: null });
       expect(result.status).toBe("failed");
       expect(sendMock).not.toHaveBeenCalled();
     } finally {
@@ -253,7 +258,7 @@ describe("emailing a code", () => {
 });
 
 describe("typing the code back", () => {
-  async function codeFor(email = "dana@example.com") {
+  async function codeFor(email = DANA) {
     const conversation = await widgetConversation({ customerEmail: email, customerName: "Dana Reyes" });
     await requestVerificationCode({ organizationId: orgId, conversationId: conversation.id, email, ip: null });
     return { conversation, code: sentCode() };
@@ -263,7 +268,7 @@ describe("typing the code back", () => {
     const { conversation, code } = await codeFor();
 
     const result = await verifyCode({ organizationId: orgId, conversationId: conversation.id, code: `${code.slice(0, 3)} ${code.slice(3)}` });
-    expect(result).toEqual({ status: "verified", email: "dana@example.com" });
+    expect(result).toEqual({ status: "verified", email: DANA });
     const [row] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
     expect(row.customerEmailVerifiedAt).toBeInstanceOf(Date);
     expect(row.identitySource).toBe("email_code");
@@ -320,7 +325,7 @@ describe("typing the code back", () => {
     await verifyCode({ organizationId: orgId, conversationId: conversation.id, code });
     const [verified] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
 
-    await saveCustomerIdentity({ organizationId: orgId, conversation: verified, name: "Dana R.", email: "dana@example.com" });
+    await saveCustomerIdentity({ organizationId: orgId, conversation: verified, name: "Dana R.", email: DANA });
     const [same] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
     expect(same.customerName).toBe("Dana R.");
     expect(same.customerEmailVerifiedAt).toBeInstanceOf(Date);
@@ -365,19 +370,19 @@ describe("POST /api/v1/chat/identity", () => {
   it("email_match: saves the details as given, unverified, and sends nothing", async () => {
     await setMode("email_match");
     const conversation = await widgetConversation();
-    const res = await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: "Dana@Example.com" }));
+    const res = await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: DANA.toUpperCase() }));
 
     expect(res.status).toBe(200);
     expect(await json(res)).toMatchObject({ ok: true, mode: "email_match", next: "done", known_customer: true });
     expect(sendMock).not.toHaveBeenCalled();
     const [row] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
-    expect(row).toMatchObject({ customerName: "Dana Reyes", customerEmail: "dana@example.com", identitySource: "widget_card", customerEmailVerifiedAt: null });
+    expect(row).toMatchObject({ customerName: "Dana Reyes", customerEmail: DANA, identitySource: "widget_card", customerEmailVerifiedAt: null });
   });
 
   it("email_code: emails a code, then makes a quick resend wait", async () => {
     await setMode("email_code");
     const conversation = await widgetConversation();
-    const body = { conversation_id: conversation.id, name: "Dana Reyes", email: "dana@example.com" };
+    const body = { conversation_id: conversation.id, name: "Dana Reyes", email: DANA };
 
     const first = await postIdentity(post("/api/v1/chat/identity", body));
     expect(first.status).toBe(200);
@@ -395,7 +400,7 @@ describe("POST /api/v1/chat/identity", () => {
     await setMode("email_code");
     sendMock.mockRejectedValueOnce(new OutboundBlocked("No mailbox", [], "no_mailbox"));
     const conversation = await widgetConversation();
-    const res = await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: "dana@example.com" }));
+    const res = await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: DANA }));
 
     expect(res.status).toBe(502);
     const [row] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
@@ -410,10 +415,10 @@ describe("POST /api/v1/chat/identity", () => {
       const res = await postIdentity(
         post(
           "/api/v1/chat/identity",
-          { conversation_id: conversation.id, name: "Dana Reyes", email: `p${i}@example.com` },
+          { conversation_id: conversation.id, name: "Dana Reyes", email: `p${i}-${orgId}@example.com` },
           { "x-worker-site-token": "good" },
           // The client can put anything first; only the last entry counts.
-          { "x-forwarded-for": `${i}.${i}.${i}.${i}, 203.0.113.7` },
+          { "x-forwarded-for": `${i}.${i}.${i}.${i}, 203.${ipBlock}.113.7` },
         ),
       );
       last = res.status;
@@ -426,7 +431,7 @@ describe("POST /api/v1/chat/identity/verify", () => {
   it("verifies on the right code and reports attempts left on a wrong one", async () => {
     await setMode("email_code");
     const conversation = await widgetConversation();
-    await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: "dana@example.com" }));
+    await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: DANA }));
     const code = sentCode();
     const wrong = code === "000000" ? "111111" : "000000";
 
@@ -446,7 +451,7 @@ describe("POST /api/v1/chat/identity/verify", () => {
   it("answers an expired code with 410", async () => {
     await setMode("email_code");
     const conversation = await widgetConversation();
-    await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: "dana@example.com" }));
+    await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: DANA }));
     await db.update(emailVerificationCodes).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(emailVerificationCodes.conversationId, conversation.id));
 
     const res = await postVerify(post("/api/v1/chat/identity/verify", { conversation_id: conversation.id, code: sentCode() }));
@@ -491,18 +496,18 @@ describe("a turn where the worker needs to know who this is", () => {
   it("does not show it again once the details are in (email_match), or the email is verified (email_code)", async () => {
     await setMode("email_match");
     runAgentMock.mockResolvedValue(ask);
-    const given = await widgetConversation({ customerName: "Dana Reyes", customerEmail: "dana@example.com" });
+    const given = await widgetConversation({ customerName: "Dana Reyes", customerEmail: DANA });
     await turn(given.id);
     const [matchReply] = await db.select().from(messages).where(and(eq(messages.conversationId, given.id), eq(messages.senderType, "agent")));
     expect(matchReply.cards).toEqual([]);
 
     await setMode("email_code");
-    const unverified = await widgetConversation({ customerName: "Dana Reyes", customerEmail: "dana@example.com" });
+    const unverified = await widgetConversation({ customerName: "Dana Reyes", customerEmail: DANA });
     await turn(unverified.id);
     const [stillAsks] = await db.select().from(messages).where(and(eq(messages.conversationId, unverified.id), eq(messages.senderType, "agent")));
-    expect(stillAsks.cards).toEqual([expect.objectContaining({ kind: "identity_request", data: { mode: "email_code", name: "Dana Reyes", email: "dana@example.com" } })]);
+    expect(stillAsks.cards).toEqual([expect.objectContaining({ kind: "identity_request", data: { mode: "email_code", name: "Dana Reyes", email: DANA } })]);
 
-    const verified = await widgetConversation({ customerName: "Dana Reyes", customerEmail: "dana@example.com", customerEmailVerifiedAt: new Date() });
+    const verified = await widgetConversation({ customerName: "Dana Reyes", customerEmail: DANA, customerEmailVerifiedAt: new Date() });
     await turn(verified.id);
     const [done] = await db.select().from(messages).where(and(eq(messages.conversationId, verified.id), eq(messages.senderType, "agent")));
     expect(done.cards).toEqual([]);
@@ -519,13 +524,13 @@ describe("a turn where the worker needs to know who this is", () => {
   it("raises the ticket on the customer's behalf only for an email a code came back for", async () => {
     await setMode("email_code");
     runAgentMock.mockResolvedValue({ answer: "I'm bringing in a teammate.", confidence: 0.3, escalate: true, citations: [] });
-    const typed = await widgetConversation({ customerName: "Dana Reyes", customerEmail: "dana@example.com" });
+    const typed = await widgetConversation({ customerName: "Dana Reyes", customerEmail: DANA });
     await turn(typed.id);
     expect(recordMock.mock.calls.at(-1)?.[0].verifiedCustomer).toBeUndefined();
 
-    const verified = await widgetConversation({ customerName: "Dana Reyes", customerEmail: "dana@example.com", customerEmailVerifiedAt: new Date() });
+    const verified = await widgetConversation({ customerName: "Dana Reyes", customerEmail: DANA, customerEmailVerifiedAt: new Date() });
     await turn(verified.id);
-    expect(recordMock.mock.calls.at(-1)?.[0].verifiedCustomer).toEqual({ email: "dana@example.com", name: "Dana Reyes" });
+    expect(recordMock.mock.calls.at(-1)?.[0].verifiedCustomer).toEqual({ email: DANA, name: "Dana Reyes" });
   });
 
   it("does not let a typed email pass the sender allow-list", async () => {
@@ -553,23 +558,23 @@ describe("a customer remembered on their device", () => {
 
   it("starts a new conversation already verified, with no second code", async () => {
     await setMode("email_code");
-    const token = issueRememberToken(orgId, { email: "dana@example.com", name: "Dana Reyes" })!;
+    const token = issueRememberToken(orgId, { email: DANA, name: "Dana Reyes" })!;
     const { outcome, row } = await ask(token);
-    expect(row).toMatchObject({ customerEmail: "dana@example.com", customerName: "Dana Reyes", identitySource: "email_code" });
+    expect(row).toMatchObject({ customerEmail: DANA, customerName: "Dana Reyes", identitySource: "email_code" });
     expect(row.customerEmailVerifiedAt).toBeInstanceOf(Date);
-    expect(outcome.json.remembered).toEqual({ name: "Dana Reyes", email: "dana@example.com" });
+    expect(outcome.json.remembered).toEqual({ name: "Dana Reyes", email: DANA });
     expect(sendMock).not.toHaveBeenCalled();
   });
 
   it("is ignored when forged, from another organization, or when the setting no longer asks for a code", async () => {
     await setMode("email_code");
-    for (const token of ["nonsense", issueRememberToken("some-other-org", { email: "dana@example.com", name: null })!]) {
+    for (const token of ["nonsense", issueRememberToken("some-other-org", { email: DANA, name: null })!]) {
       const { outcome, row } = await ask(token);
       expect(row.customerEmailVerifiedAt).toBeNull();
       expect(outcome.json.remembered).toBeUndefined();
     }
     await setMode("email_match");
-    const { row } = await ask(issueRememberToken(orgId, { email: "dana@example.com", name: null })!);
+    const { row } = await ask(issueRememberToken(orgId, { email: DANA, name: null })!);
     expect(row.customerEmailVerifiedAt).toBeNull();
   });
 });

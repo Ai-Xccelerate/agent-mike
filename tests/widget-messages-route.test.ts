@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messages, organizations } from "@/db/schema";
 import { GET } from "@/app/api/v1/chat/messages/route";
@@ -40,10 +40,10 @@ afterEach(async () => {
 async function chat(channel = "widget") {
   const row = await insertConversationWithTicket({ organizationId: orgId, channel, customerName: "Dana" });
   // Explicit, increasing times: rows from one statement share a timestamp, and the order read back must not depend on luck.
-  const start = Date.now() - 60_000;
+  // Stamped from the database's clock, like the rows the routes write, so a clock that differs from this machine's cannot reorder them.
   await db.insert(messages).values([
-    { conversationId: row.id, senderType: "customer", senderName: "Dana", body: "I need a human", createdAt: new Date(start) },
-    { conversationId: row.id, senderType: "agent", senderName: "Eva", body: "I'll get someone.", createdAt: new Date(start + 1000) },
+    { conversationId: row.id, senderType: "customer", senderName: "Dana", body: "I need a human", createdAt: sql`now() - interval '60 seconds'` },
+    { conversationId: row.id, senderType: "agent", senderName: "Eva", body: "I'll get someone.", createdAt: sql`now() - interval '59 seconds'` },
   ]);
   return row;
 }

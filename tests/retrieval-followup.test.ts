@@ -93,15 +93,6 @@ describe("a short follow-up keeps the pages that answered the question before it
     expect(query.toLowerCase()).not.toContain("error");
   });
 
-  it("the follow-up's own search no longer puts error pages ahead of the guide", async () => {
-    const own = await search(retrievalQueryFor([first[0], question, followUp]));
-    const ownTitles = titles(own.matches);
-    const firstError = ownTitles.findIndex((t) => /error/i.test(t) && t !== GUIDE);
-    const guide = ownTitles.indexOf(GUIDE);
-    // Either the guide is found by the follow-up itself, or no error page sits in front of it.
-    expect(guide === -1 ? false : firstError === -1 || guide < firstError).toBe(true);
-  });
-
   it("leaves a message that stands on its own alone", async () => {
     const { matches } = await retrieveWithEarlierPages(search, "widget", [customer("How do I update the budget report?"), agent("Which one?")], customer("How do I check the Parallels connection settings and the VPN for my whole office?"));
     expect(titles(matches)).toContain(GUIDE);

@@ -45,6 +45,8 @@ const json = async (res: Response) => (await res.json()) as Record<string, any>;
 const previousAdapter = getIdentityAdapter();
 const previousSecret = process.env.IDENTITY_CODE_SECRET;
 let orgId: string;
+/** This test's own address: codes are limited per address across every organization, and test files run side by side. */
+let DANA = "";
 
 function adapterFor(org: string): IdentityAdapter {
   return {
@@ -71,6 +73,7 @@ const ask = (extra: Record<string, unknown> = {}) => runChatRequest(post("/api/v
 beforeEach(async () => {
   process.env.IDENTITY_CODE_SECRET = "test-secret";
   orgId = `gate-${crypto.randomUUID()}`;
+  DANA = `dana-${orgId}@example.com`;
   await ensureOrganization(orgId, orgId);
   await getOrCreateProfile(orgId);
   setIdentityAdapter(adapterFor(orgId));
@@ -136,7 +139,7 @@ describe("the chat refuses an unknown visitor while the form is required", () =>
   });
 
   it("refuses a conversation whose email has not been verified, even with a name and email typed in", async () => {
-    const row = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerName: "Dana Reyes", customerEmail: "dana@example.com" });
+    const row = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerName: "Dana Reyes", customerEmail: DANA });
     const outcome = await ask({ conversation_id: row.id });
     expect(outcome.status).toBe(403);
     expect(runAgentMock).not.toHaveBeenCalled();
@@ -147,14 +150,14 @@ describe("the chat refuses an unknown visitor while the form is required", () =>
       organizationId: orgId,
       channel: "widget",
       customerName: "Dana Reyes",
-      customerEmail: "dana@example.com",
+      customerEmail: DANA,
       customerEmailVerifiedAt: new Date(),
     });
     expect((await ask({ conversation_id: row.id })).status).toBe(200);
   });
 
   it("lets a device remembered from a verified visit start a chat, and ignores a forged token", async () => {
-    const token = issueRememberToken(orgId, { email: "dana@example.com", name: "Dana Reyes" })!;
+    const token = issueRememberToken(orgId, { email: DANA, name: "Dana Reyes" })!;
     expect((await ask({ remember_token: token })).status).toBe(200);
     expect((await ask({ remember_token: "nonsense" })).status).toBe(403);
   });
@@ -171,27 +174,27 @@ describe("the chat refuses an unknown visitor while the form is required", () =>
 describe("the form starts the conversation", () => {
   it("creates an empty conversation for the details, and emails the code, only while the form is required", async () => {
     await settings({ identityMode: "email_code" });
-    const refused = await postIdentity(post("/api/v1/chat/identity", { name: "Dana Reyes", email: "dana@example.com" }));
+    const refused = await postIdentity(post("/api/v1/chat/identity", { name: "Dana Reyes", email: DANA }));
     expect(refused.status).toBe(404);
     expect(await db.select().from(conversations).where(eq(conversations.organizationId, orgId))).toHaveLength(0);
 
     logEveryMock.mockResolvedValue(true);
-    const res = await postIdentity(post("/api/v1/chat/identity", { name: "Dana Reyes", email: "dana@example.com" }));
+    const res = await postIdentity(post("/api/v1/chat/identity", { name: "Dana Reyes", email: DANA }));
     const body = await json(res);
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ next: "code" });
     const [row] = await db.select().from(conversations).where(eq(conversations.id, body.conversation_id));
-    expect(row).toMatchObject({ customerName: "Dana Reyes", customerEmail: "dana@example.com", channel: "widget" });
+    expect(row).toMatchObject({ customerName: "Dana Reyes", customerEmail: DANA, channel: "widget" });
     expect(row.customerEmailVerifiedAt).toBeNull();
     expect(vi.mocked(sendAsWorker)).toHaveBeenCalledTimes(1);
   });
 
   it("checks what the gate asks for from stored facts", () => {
-    const base = { customerName: "Dana Reyes", customerEmail: "dana@example.com" };
+    const base = { customerName: "Dana Reyes", customerEmail: DANA };
     expect(identityGateSatisfied({ ...base, customerEmailVerifiedAt: null }, "email_code")).toBe(false);
     expect(identityGateSatisfied({ ...base, customerEmailVerifiedAt: new Date() }, "email_code")).toBe(true);
     expect(identityGateSatisfied({ ...base, customerEmailVerifiedAt: null }, "email_match")).toBe(true);
-    expect(identityGateSatisfied({ customerName: "Visitor 4821", customerEmail: "dana@example.com" }, "email_match")).toBe(false);
+    expect(identityGateSatisfied({ customerName: "Visitor 4821", customerEmail: DANA }, "email_match")).toBe(false);
     expect(identityGateSatisfied({ customerName: "Visitor 4821", customerEmail: null }, "off")).toBe(true);
   });
 });

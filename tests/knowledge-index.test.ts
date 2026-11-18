@@ -146,10 +146,10 @@ describe("syncing the knowledge index", () => {
 
   it("does not start while another sync holds the lease, and takes over a dead one", async () => {
     const fake = fakeConfluence([page("1", "Register", 3, `## Steps\n${LONG}`)]);
-    await db.insert(knowledgeIndexState).values({ organizationId: orgId, source: INDEX_SOURCE, runningUntil: new Date(Date.now() + 5 * 60_000) });
+    await db.insert(knowledgeIndexState).values({ organizationId: orgId, source: INDEX_SOURCE, runningUntil: sql`now() + interval '5 minutes'` });
     expect(await syncKnowledgeIndex(orgId, { source: fake.source, embed })).toMatchObject({ skipped: "another sync is already running" });
     expect(embed).not.toHaveBeenCalled();
-    await db.update(knowledgeIndexState).set({ runningUntil: new Date(Date.now() - 1000) }).where(eq(knowledgeIndexState.organizationId, orgId));
+    await db.update(knowledgeIndexState).set({ runningUntil: sql`now() - interval '1 minute'` }).where(eq(knowledgeIndexState.organizationId, orgId));
     expect(await syncKnowledgeIndex(orgId, { source: fake.source, embed })).toMatchObject({ added: 1 });
   });
 

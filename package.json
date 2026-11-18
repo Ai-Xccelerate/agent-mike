@@ -13,6 +13,7 @@
     "demo": "node scripts/run-demo-scenario.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:skew": "SKEW_MS=${SKEW_MS:-90000} vitest run -c vitest.skew.config.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
