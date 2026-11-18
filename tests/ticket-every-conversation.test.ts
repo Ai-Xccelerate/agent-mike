@@ -55,6 +55,36 @@ beforeEach(async () => {
   runAgentMock.mockReset();
 });
 
+describe("a handover straight after an answered message (AMS-T61)", () => {
+  // Prod, 18 Nov: the answered chat's ticket was still being created when the next message arrived, the handover read the
+  // conversation before the key was saved, and raised a second ticket: the customer was told SDS-22 while the chat held SDS-21.
+  it("adds to the ticket the answered chat is still getting, and tells the customer that one's number", async () => {
+    await setIdentity("off");
+    const row = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", subject: "Parallels login" });
+    // The first call (the answered chat's ticket) takes a moment and only then saves its key, as the real one does.
+    raise.mockImplementationOnce(async (input) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await db.update(conversations).set({ externalTicketKey: "SUP-21" }).where(eq(conversations.id, input.conversation.id));
+      return { key: "SUP-21", created: true, title: "Unable to log in" };
+    });
+    raise.mockImplementationOnce(async (input) =>
+      input.conversation.externalTicketKey ? { key: input.conversation.externalTicketKey, created: false } : { key: "SUP-22", created: true, title: "A second ticket" },
+    );
+
+    runAgentMock.mockResolvedValueOnce(answered);
+    await turn(row.id, "I can't log in to Parallels");
+    runAgentMock.mockResolvedValueOnce({ answer: "I've passed it to the team.", confidence: 0.3, escalate: true, citations: [] });
+    const out = await turn(row.id, "No error, connection fails");
+
+    expect(raise).toHaveBeenCalledTimes(2);
+    expect(raise.mock.calls[1][0].conversation.externalTicketKey).toBe("SUP-21");
+    expect(out.reply.body).toContain("SUP-21");
+    expect(out.reply.body).not.toContain("SUP-22");
+    const [saved] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+    expect(saved.externalTicketKey).toBe("SUP-21");
+  });
+});
+
 describe("a ticket for every conversation", () => {
   it("logs a conversation the worker answered, as answered, with no manager email and nothing added to the reply", async () => {
     await setIdentity("off");
