@@ -85,3 +85,13 @@ export function withEarlierPages(main: Retrieved, earlier: Retrieved | null, ext
   const kept = earlier.matches.filter((match) => !present.has(keyOf(match))).slice(0, extra);
   return kept.length === 0 ? main : { matches: [...main.matches, ...kept], sources: main.sources };
 }
+
+/**
+ * Searches for a customer's message the way the chat does: the text found by `searchQueryFor`, plus, for a short follow-up,
+ * the pages found for the earlier messages alone (see `earlierQueryFor`). A failure of the second search changes nothing.
+ */
+export async function retrieveWithEarlierPages<R extends Retrieved>(retrieve: (query: string) => Promise<R>, channel: string, prior: Line[], message: Line): Promise<R> {
+  const earlierQuery = earlierSearchQueryFor(channel, prior, message);
+  const [found, before] = await Promise.all([retrieve(searchQueryFor(channel, prior, message)), earlierQuery ? retrieve(earlierQuery).catch(() => null) : Promise.resolve(null)]);
+  return withEarlierPages(found, before) as R;
+}
