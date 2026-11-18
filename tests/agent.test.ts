@@ -1673,7 +1673,8 @@ describe("agent instructions — KB grounding", () => {
     const instructions = await buildInstructions(baseProfile, "Acme", [], "org-1", "chat", { name: "Sam", email: "sam@example.com", withTeam: { ticket: "SUP-41" } });
     expect(instructions).toContain("already with our team as ticket SUP-41");
     expect(instructions).toContain("do not hand over again for a message that adds nothing new");
-    expect(instructions).toContain("say you have added it to SUP-41");
+    expect(instructions).toContain("say in one line that you have added it to SUP-41");
+    expect(instructions).toContain("Do not say again that a teammate will follow up");
     expect(instructions).toContain("never say you have raised a new ticket");
     const fresh = await buildInstructions(baseProfile, "Acme", [], "org-1", "chat", { name: "Sam", email: "sam@example.com" });
     expect(fresh).not.toContain("already with our team");

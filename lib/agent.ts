@@ -1308,7 +1308,8 @@ export async function buildInstructions(
     ? `\n\nThis conversation is already with our team${knownCustomer.withTeam.ticket ? ` as ticket ${knownCustomer.withTeam.ticket}` : ""}. ` +
       "A person will follow up, so do not hand over again for a message that adds nothing new. When the customer says thanks, goodbye or that they need " +
       "nothing else, answer in one short friendly line and end with [[RESOLVE]]. When they add detail for the team (for example which version they use), " +
-      `say you have added it${knownCustomer.withTeam.ticket ? ` to ${knownCustomer.withTeam.ticket}` : ""} and end with [[FOLLOWUP]]. ` +
+      `say in one line that you have added it${knownCustomer.withTeam.ticket ? ` to ${knownCustomer.withTeam.ticket}` : ""} and end with [[FOLLOWUP]]. ` +
+      "Do not say again that a teammate will follow up: they were already told, and saying it hands the conversation over a second time. " +
       "Hand over again with [[ESCALATE]] only for a new problem you cannot answer, or when they say it is now urgent or that nobody can work. " +
       "Do not ask for details you already have, and never say you have raised a new ticket."
     : "";

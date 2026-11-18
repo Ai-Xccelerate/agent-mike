@@ -37,12 +37,11 @@ async function setIdentity(mode: "off" | "email_match" | "email_code") {
   await db.update(workerProfiles).set({ identityMode: mode, managerEmail: "team@eapexpert.example" }).where(eq(workerProfiles.organizationId, orgId));
 }
 
-async function turn(conversationId: string, body: string, options: { channel?: string } = {}) {
-  void options;
+async function turn(conversationId: string, body: string, options: { channel?: string; deferTicket?: boolean } = {}) {
   const [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId));
   const prior = await db.select().from(messages).where(eq(messages.conversationId, conversationId));
   const [userMessage] = await db.insert(messages).values({ conversationId, senderType: "customer", senderName: "Visitor", body }).returning();
-  return runCustomerTurn({ organizationId: orgId, profile: await getOrCreateProfile(orgId), conversation, priorMessages: prior, userMessage, speakerName: "Visitor" });
+  return runCustomerTurn({ organizationId: orgId, profile: await getOrCreateProfile(orgId), conversation, priorMessages: prior, userMessage, speakerName: "Visitor", deferTicket: options.deferTicket });
 }
 const answered = { answer: "Open Providers and choose New.", confidence: 0.9, escalate: false, citations: ["Add a New Provider"] };
 
@@ -53,6 +52,83 @@ beforeEach(async () => {
   raise.mockClear();
   vi.mocked(sendAsWorker).mockClear();
   runAgentMock.mockReset();
+});
+
+describe("a handover straight after an answered message (AMS-T61)", () => {
+  // Prod, 18 Nov: the answered chat's ticket was still being created when the next message arrived, the handover read the
+  // conversation before the key was saved, and raised a second ticket: the customer was told SDS-22 while the chat held SDS-21.
+  it("adds to the ticket the answered chat is still getting, and tells the customer that one's number", async () => {
+    await setIdentity("off");
+    const row = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", subject: "Parallels login" });
+    // The first call (the answered chat's ticket) takes a moment and only then saves its key, as the real one does.
+    raise.mockImplementationOnce(async (input) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await db.update(conversations).set({ externalTicketKey: "SUP-21" }).where(eq(conversations.id, input.conversation.id));
+      return { key: "SUP-21", created: true, title: "Unable to log in" };
+    });
+    raise.mockImplementationOnce(async (input) =>
+      input.conversation.externalTicketKey ? { key: input.conversation.externalTicketKey, created: false } : { key: "SUP-22", created: true, title: "A second ticket" },
+    );
+
+    runAgentMock.mockResolvedValueOnce(answered);
+    await turn(row.id, "I can't log in to Parallels");
+    runAgentMock.mockResolvedValueOnce({ answer: "I've passed it to the team.", confidence: 0.3, escalate: true, citations: [] });
+    const out = await turn(row.id, "No error, connection fails");
+
+    expect(raise).toHaveBeenCalledTimes(2);
+    expect(raise.mock.calls[1][0].conversation.externalTicketKey).toBe("SUP-21");
+    expect(out.reply.body).toContain("SUP-21");
+    expect(out.reply.body).not.toContain("SUP-22");
+    const [saved] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+    expect(saved.externalTicketKey).toBe("SUP-21");
+  });
+});
+
+describe("the first ticket finishes while the next message is being answered (AMS-T61, prod 18 Nov)", () => {
+  // The answered chat's ticket was created and saved while the model was still writing the reply to the next message, so the
+  // conversation read at the start of that turn had no key, and the handover raised a second ticket (SDS-24, then SDS-25).
+  async function sequence(deferTicket: boolean) {
+    await setIdentity("off");
+    const row = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", subject: "Parallels login" });
+    raise.mockImplementationOnce(async (input) => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      await db.update(conversations).set({ externalTicketKey: "SUP-24" }).where(eq(conversations.id, input.conversation.id));
+      return { key: "SUP-24", created: true, title: "Unable to log in" };
+    });
+    raise.mockImplementationOnce(async (input) =>
+      input.conversation.externalTicketKey ? { key: input.conversation.externalTicketKey, created: false } : { key: "SUP-25", created: true, title: "A second ticket" },
+    );
+    runAgentMock.mockResolvedValueOnce(answered);
+    await turn(row.id, "I can't log in to Parallels");
+    // The second answer takes longer than the first ticket does.
+    runAgentMock.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return { answer: "I've passed it to the team.", confidence: 0.3, escalate: true, citations: [] };
+    });
+    const out = await turn(row.id, "No error, connection fails", { deferTicket });
+    const followUp = await out.pendingTicket;
+    return { row, out, followUp };
+  }
+
+  it("adds to the first ticket instead of raising another (plain endpoint)", async () => {
+    const { row, out } = await sequence(false);
+    expect(raise).toHaveBeenCalledTimes(2);
+    expect(raise.mock.calls[1][0].conversation.externalTicketKey).toBe("SUP-24");
+    expect(out.reply.body).toContain("SUP-24");
+    expect(out.reply.body).not.toContain("SUP-25");
+    const [saved] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+    expect(saved.externalTicketKey).toBe("SUP-24");
+  });
+
+  it("adds to the first ticket instead of raising another (website widget, ticket after the reply)", async () => {
+    const { row, followUp } = await sequence(true);
+    expect(raise).toHaveBeenCalledTimes(2);
+    expect(raise.mock.calls[1][0].conversation.externalTicketKey).toBe("SUP-24");
+    expect(followUp?.message.body).toContain("SUP-24");
+    expect(followUp?.message.body).not.toContain("SUP-25");
+    const [saved] = await db.select().from(conversations).where(eq(conversations.id, row.id));
+    expect(saved.externalTicketKey).toBe("SUP-24");
+  });
 });
 
 describe("a ticket for every conversation", () => {

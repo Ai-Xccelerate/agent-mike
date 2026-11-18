@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { searchQueryFor } from "@/lib/retrieval-query";
+import { retrieveWithEarlierPages } from "@/lib/retrieval-query";
 import { db } from "@/lib/db";
 import { conversations, messages, replyTraces } from "@/db/schema";
 import { getOrganizationName } from "@/lib/bootstrap";
@@ -177,7 +177,7 @@ export async function runCustomerTurn(input: {
   if (!noWords) progress("retrieval", "Checking our help articles…");
   const { matches: knowledgeMatches, sources: knowledgeSources } = noWords
     ? { matches: [], sources: [] }
-    : await timed("retrieval", () => retrieveKnowledge(profile, searchQueryFor(conversation.channel, priorMessages, userMessage)));
+    : await timed("retrieval", () => retrieveWithEarlierPages((query) => retrieveKnowledge(profile, query), conversation.channel, priorMessages, userMessage));
 
   const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
 
@@ -424,9 +424,20 @@ export async function runCustomerTurn(input: {
     if (route?.critical) await setCriticalTicketPriority(organizationId, ticket.key);
   };
 
+  /**
+   * The conversation as it is now, for raising a handover. The row read at the start of this turn can be out of date: the ticket
+   * logged for the previous, answered message may have been created and saved while this reply was being written. Raising from
+   * the old row made a second ticket and told the customer its number instead of the chat's (AMS-T61).
+   */
+  const conversationNow = async (): Promise<ConversationRow> =>
+    (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation;
+
   if (raisesTicket && !deferTicket) {
     progress("ticket", "Logging this for the team…");
-    const ticket = await timed("handoff.jira", () => raiseTicket(withChased(conversation)));
+    // A ticket for the previous message may still be on its way: wait for it, then read the conversation again.
+    await ticketsInFlight.get(conversation.id)?.catch(() => undefined);
+    const current = await conversationNow();
+    const ticket = await timed("handoff.jira", () => raiseTicket(withChased(current)));
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
     if (isHandoffTicket(ticket)) {
@@ -510,10 +521,9 @@ export async function runCustomerTurn(input: {
     pendingTicket = (async () => {
       const started = Date.now();
       await earlier?.catch(() => undefined);
-      // What an earlier turn's ticket recorded after this turn read the conversation.
-      const current = earlier
-        ? (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation
-        : conversation;
+      // What an earlier turn's ticket recorded after this turn read the conversation: always read again, since that ticket may
+      // have finished while the reply was being written.
+      const current = await conversationNow();
       // The ticket gets a short summary of what it is about, not only the transcript.
       // Written here, after the reply is stored, so the customer never waits for it.
       const ticketSummary =
