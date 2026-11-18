@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureOrganization } from "@/lib/bootstrap";
-import { INDEX_SOURCE, clearRefreshMemory, syncKnowledgeIndex } from "@/lib/knowledge-index";
+import { clearRefreshMemory, syncKnowledgeIndex } from "@/lib/knowledge-index";
 import { clearKnowledgeSearchCache, searchKnowledgeIndex } from "@/lib/knowledge-search";
 import { retrievalQueryFor, retrieveWithEarlierPages } from "@/lib/retrieval-query";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import type { IndexPage, IndexSource } from "@/lib/tools-integrations/atlassian";
-
-void INDEX_SOURCE;
 
 // Search on a follow-up. EAP's chat, "I can't log in to Parallels", then "No error, connection fails": the search read "No error" as
 // the word error, and pages with Error in their title pushed the Parallels Support Guide out of what the worker is given.
@@ -95,7 +93,7 @@ describe("a short follow-up keeps the pages that answered the question before it
     expect(query.toLowerCase()).not.toContain("error");
   });
 
-  it("is the earlier pages that do the work: the follow-up's own search no longer puts error pages ahead of the guide", async () => {
+  it("the follow-up's own search no longer puts error pages ahead of the guide", async () => {
     const own = await search(retrievalQueryFor([first[0], question, followUp]));
     const ownTitles = titles(own.matches);
     const firstError = ownTitles.findIndex((t) => /error/i.test(t) && t !== GUIDE);
