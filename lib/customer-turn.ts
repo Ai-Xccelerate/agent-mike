@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { searchQueryFor } from "@/lib/retrieval-query";
+import { earlierSearchQueryFor, searchQueryFor, withEarlierPages } from "@/lib/retrieval-query";
 import { db } from "@/lib/db";
 import { conversations, messages, replyTraces } from "@/db/schema";
 import { getOrganizationName } from "@/lib/bootstrap";
@@ -177,7 +177,15 @@ export async function runCustomerTurn(input: {
   if (!noWords) progress("retrieval", "Checking our help articles…");
   const { matches: knowledgeMatches, sources: knowledgeSources } = noWords
     ? { matches: [], sources: [] }
-    : await timed("retrieval", () => retrieveKnowledge(profile, searchQueryFor(conversation.channel, priorMessages, userMessage)));
+    : await timed("retrieval", async () => {
+        // A short follow-up is searched with what came before it, and the pages for the earlier messages alone are kept too.
+        const earlierQuery = earlierSearchQueryFor(conversation.channel, priorMessages, userMessage);
+        const [found, before] = await Promise.all([
+          retrieveKnowledge(profile, searchQueryFor(conversation.channel, priorMessages, userMessage)),
+          earlierQuery ? retrieveKnowledge(profile, earlierQuery).catch(() => null) : Promise.resolve(null),
+        ]);
+        return withEarlierPages(found, before);
+      });
 
   const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
 
