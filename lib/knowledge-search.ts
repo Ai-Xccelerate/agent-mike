@@ -98,7 +98,9 @@ async function sectionsFor(organizationId: string): Promise<Loaded> {
   const have = loaded.get(organizationId);
   if (have && have.finishedAt === finishedAt) return have;
   const rows = await db.execute<{ id: string; page_id: string; position: number; title: string; heading: string | null; content: string; embedding: number[] | null }>(
-    sql`select id, page_id, position, title, heading, content, embedding from knowledge_sections where organization_id = ${organizationId} and source = ${INDEX_SOURCE}`,
+    // In page order, so sections that score the same are always taken in the same order: without it that order was however Postgres
+    // happened to store the rows, and a tie could go either way from one run to the next.
+    sql`select id, page_id, position, title, heading, content, embedding from knowledge_sections where organization_id = ${organizationId} and source = ${INDEX_SOURCE} order by page_id, position, id`,
   );
   const fresh: Loaded = {
     finishedAt,
@@ -275,7 +277,7 @@ export async function searchKnowledgeIndex(
     const rows = await db.execute<{ id: string }>(sql`
       select id from knowledge_sections, websearch_to_tsquery('english', ${words.join(" or ")}) q
       where organization_id = ${organizationId} and source = ${INDEX_SOURCE} and search @@ q
-      order by ts_rank_cd(search, q, ${tuning.keywordNorm}) desc limit ${tuning.pool}`);
+      order by ts_rank_cd(search, q, ${tuning.keywordNorm}) desc, page_id, position, id limit ${tuning.pool}`);
     timings.keywordMs = Math.max(timings.keywordMs, Date.now() - t0);
     return rows.rows.map((row) => row.id);
   };
