@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { searchQueryFor } from "@/lib/retrieval-query";
+import { retrieveWithEarlierPages } from "@/lib/retrieval-query";
 import { db } from "@/lib/db";
 import { conversations, messages, replyTraces } from "@/db/schema";
 import { getOrganizationName } from "@/lib/bootstrap";
@@ -177,7 +177,7 @@ export async function runCustomerTurn(input: {
   if (!noWords) progress("retrieval", "Checking our help articles…");
   const { matches: knowledgeMatches, sources: knowledgeSources } = noWords
     ? { matches: [], sources: [] }
-    : await timed("retrieval", () => retrieveKnowledge(profile, searchQueryFor(conversation.channel, priorMessages, userMessage)));
+    : await timed("retrieval", () => retrieveWithEarlierPages((query) => retrieveKnowledge(profile, query), conversation.channel, priorMessages, userMessage));
 
   const recentHistory = toHistoryTurns(priorMessages.slice(-REPLAY_MESSAGE_LIMIT));
 
