@@ -426,7 +426,15 @@ export async function runCustomerTurn(input: {
 
   if (raisesTicket && !deferTicket) {
     progress("ticket", "Logging this for the team…");
-    const ticket = await timed("handoff.jira", () => raiseTicket(withChased(conversation)));
+    // The ticket for the answered conversation may still be on its way (it is logged after the reply). Wait for it and read the
+    // conversation again, so this handover adds to that ticket and the customer is given its number, not a second ticket's.
+    const earlier = ticketsInFlight.get(conversation.id);
+    let current = conversation;
+    if (earlier) {
+      await earlier.catch(() => undefined);
+      current = (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation;
+    }
+    const ticket = await timed("handoff.jira", () => raiseTicket(withChased(current)));
     // A refused ticket is recorded on the conversation for the manager; the
     // customer isn't told a number that doesn't exist.
     if (isHandoffTicket(ticket)) {
