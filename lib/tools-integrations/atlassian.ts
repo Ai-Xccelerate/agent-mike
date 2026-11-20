@@ -435,6 +435,12 @@ export type HandoffTicketResult = {
    * a request in the connected account's name is not theirs to open, so no link is given for it.
    */
   url?: string;
+  /**
+   * The service desk portal's address, set only when the customer was verified but could not be raised for (they are not a
+   * customer of the desk yet): the ticket was raised as the connected account, and this is where they can sign up so their
+   * next requests are theirs.
+   */
+  portal?: string;
 };
 
 function clip(text: string, max: number): string {
@@ -841,7 +847,10 @@ export function handoffTicketNotice(result: HandoffTicketResult, options: { link
     ? `I've logged this for the team as ${result.key}, so you can quote that number if you follow up.`
     : `I've added this to your ticket ${result.key} for the team.`;
   const link = options.link && result.url ? ` You can see it here: ${result.url}` : "";
-  return `${lead}${link} ${ANYTHING_ELSE}`;
+  // A verified customer who is not a customer of the desk yet: this ticket is the team's to follow, but signing up with this
+  // email makes their next requests theirs to follow.
+  const signUp = result.created && !result.url && result.portal ? ` To follow your own requests from now on, sign up or log in to our service desk portal with this email: ${result.portal}` : "";
+  return `${lead}${link}${signUp} ${ANYTHING_ELSE}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2687,7 +2696,25 @@ async function raiseServiceRequest(
     priority: await ticketPriority(connectedAccountId, key),
   });
   const url = raisedForCustomer ? portalLinkFrom(created.ok ? created.data : null) : null;
-  return { key, created: true, title: request.requestFieldValues.summary, requestType: target.requestTypeName ?? null, ...(url ? { url } : {}) };
+  const portal = onBehalf && !raisedForCustomer ? portalRootFrom(created.ok ? created.data : null) : null;
+  return {
+    key,
+    created: true,
+    title: request.requestFieldValues.summary,
+    requestType: target.requestTypeName ?? null,
+    ...(url ? { url } : {}),
+    ...(portal ? { portal } : {}),
+  };
+}
+
+/**
+ * The service desk portal's own address, from the request's: https://site/servicedesk/customer/portal/75/SDS-12 gives
+ * https://site/servicedesk/customer/portal/75. Null unless it is a web address of that shape.
+ */
+export function portalRootFrom(data: unknown): string | null {
+  const web = portalLinkFrom(data);
+  const match = web ? /^(https:\/\/[^/]+\/servicedesk\/customer\/portal\/\d+)\/[A-Z][A-Z0-9_]*-\d+/.exec(web) : null;
+  return match ? match[1] : null;
 }
 
 /** The customer portal address in Jira's answer to a new request (`_links.web`), when it is a web address. */

@@ -1929,6 +1929,41 @@ describe("Jira customers for a verified visitor", () => {
     );
   });
 
+  const WEB = "https://acme.atlassian.net/servicedesk/customer/portal/75/SUP-50";
+  const answerWithLinks = () => {
+    requestAnswers = [{ status: 201, data: { issueKey: "SUP-50", _links: { web: WEB } } }];
+  };
+
+  it("gives the portal address, not a ticket link, when a verified customer could not be created (they sign up to follow later requests)", async () => {
+    createCustomer = { status: 403, data: { errorMessage: "Insufficient permission to perform requested action, JIRA Administrators global permission is required." } };
+    answerWithLinks();
+
+    const result = await handoff(dana);
+    expect(result).toMatchObject({ key: "SUP-50", created: true, portal: "https://acme.atlassian.net/servicedesk/customer/portal/75" });
+    expect(result).not.toHaveProperty("url");
+  });
+
+  it("gives the ticket link, and no portal address, when it was raised for the customer", async () => {
+    answerWithLinks();
+
+    const result = await handoff(dana);
+    expect(result).toMatchObject({ key: "SUP-50", created: true, url: WEB });
+    expect(result).not.toHaveProperty("portal");
+  });
+
+  it("gives neither for an email no code came back for, or while the setting is off", async () => {
+    answerWithLinks();
+    const unverified = await handoff(undefined);
+    expect(unverified).not.toHaveProperty("url");
+    expect(unverified).not.toHaveProperty("portal");
+
+    extraSettings = {};
+    answerWithLinks();
+    const off = await handoff(dana);
+    expect(off).not.toHaveProperty("url");
+    expect(off).not.toHaveProperty("portal");
+  });
+
   it("raises it as itself, once, when Jira refuses to raise on behalf; nothing was created by that refusal", async () => {
     requestAnswers = [{ status: 403, data: { errorMessage: "No permission to raise on behalf" } }, { status: 201, data: { issueKey: "SUP-51" } }];
 

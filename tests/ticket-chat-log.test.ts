@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
-import { addChatNoteToTicket, handoffTicketNotice, portalLinkFrom, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { addChatNoteToTicket, handoffTicketNotice, portalLinkFrom, portalRootFrom, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import { referenceNotice } from "@/lib/ticket-reference";
 import { chatTurnNote, logChatTurnOnTicket } from "@/lib/ticket-chat-log";
 
@@ -119,5 +119,29 @@ describe("what the customer is told once a ticket exists", () => {
     expect(portalLinkFrom({ _links: { web: "javascript:alert(1)" } })).toBeNull();
     expect(portalLinkFrom({ _links: {} })).toBeNull();
     expect(portalLinkFrom(null)).toBeNull();
+  });
+});
+
+describe("telling a customer who is not on the portal yet how to follow their requests", () => {
+  const portal = "https://acme.atlassian.net/servicedesk/customer/portal/75";
+
+  it("adds the sign-up line, once, to the notice of a new ticket raised for someone who is not a customer yet", () => {
+    const notice = handoffTicketNotice({ key: "SUP-1", created: true, portal });
+    expect(notice).toContain(`sign up or log in to our service desk portal with this email: ${portal}`);
+    expect(notice).toMatch(/Is there anything else I can help with\?$/);
+    expect(notice.match(/sign up/g)).toHaveLength(1);
+  });
+
+  it("does not add it when the customer has a ticket link, when it only added to a ticket, or when there is no portal address", () => {
+    expect(handoffTicketNotice({ key: "SUP-1", created: true, url: `${portal}/SUP-1`, portal })).not.toContain("sign up");
+    expect(handoffTicketNotice({ key: "SUP-1", created: false, portal })).not.toContain("sign up");
+    expect(handoffTicketNotice({ key: "SUP-1", created: true })).not.toContain("sign up");
+  });
+
+  it("takes the portal's own address from a request's, and only a web address of that shape", () => {
+    expect(portalRootFrom({ _links: { web: `${portal}/SUP-1` } })).toBe(portal);
+    expect(portalRootFrom({ _links: { web: "https://acme.atlassian.net/browse/SUP-1" } })).toBeNull();
+    expect(portalRootFrom({ _links: { web: "javascript:alert(1)" } })).toBeNull();
+    expect(portalRootFrom(null)).toBeNull();
   });
 });
