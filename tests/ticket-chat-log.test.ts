@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
-import { addChatNoteToTicket, handoffTicketNotice, portalLinkFrom, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { addChatNoteToTicket, handoffTicketNotice, notOnDeskNote, portalLinkFrom, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import { referenceNotice } from "@/lib/ticket-reference";
 import { chatTurnNote, logChatTurnOnTicket } from "@/lib/ticket-chat-log";
 
@@ -119,5 +119,26 @@ describe("what the customer is told once a ticket exists", () => {
     expect(portalLinkFrom({ _links: { web: "javascript:alert(1)" } })).toBeNull();
     expect(portalLinkFrom({ _links: {} })).toBeNull();
     expect(portalLinkFrom(null)).toBeNull();
+  });
+});
+
+describe("a verified customer who is not on the desk", () => {
+  it("is offered an update in the chat, not a link, in the notice of a new ticket", () => {
+    const notice = handoffTicketNotice({ key: "SUP-1", created: true, notOnDesk: true });
+    expect(notice).toContain("You can ask me for an update on it here any time.");
+    expect(notice).not.toContain("https://");
+    expect(notice).toMatch(/Is there anything else I can help with\?$/);
+  });
+
+  it("is told nothing extra when it only added to a ticket, or the ticket was raised for them", () => {
+    expect(handoffTicketNotice({ key: "SUP-1", created: false, notOnDesk: true })).not.toContain("update on it");
+    expect(handoffTicketNotice({ key: "SUP-1", created: true, url: "https://acme.atlassian.net/servicedesk/customer/portal/1/SUP-1" })).not.toContain("update on it");
+  });
+
+  it("gives the team the email, and what to do about it", () => {
+    const note = notOnDeskNote("dana@example.com");
+    expect(note).toContain("Customer not on this desk: dana@example.com");
+    expect(note).toContain("Add them under Customers");
+    expect(note).toContain("participant or change the Reporter");
   });
 });
