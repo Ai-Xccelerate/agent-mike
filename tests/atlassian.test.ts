@@ -1860,8 +1860,10 @@ describe("Jira customers for a verified visitor", () => {
     existingCustomers = [];
     createCustomer = { status: 201, data: { accountId: "acc-new" } };
     requestAnswers = [{ status: 201, data: { issueKey: "SUP-50" } }];
-    proxyRequestMock.mockImplementation(async ({ endpoint, method }) => {
+    proxyRequestMock.mockImplementation(async ({ endpoint, method, headers }) => {
       if (endpoint.endsWith("/accessible-resources")) return { status: 200, data: [{ id: "cloud-acme", url: "https://acme.atlassian.net" }] };
+      // The desk's customer endpoints are experimental in Jira: without the opt-in header it answers 412, as it does for real.
+      if (endpoint.includes("/servicedesk/1/customer") && headers?.["X-ExperimentalApi"] !== "opt-in") return { status: 412, data: { message: "This API is experimental. You must set the header 'X-ExperimentalApi: opt-in'" } };
       if (method === "GET" && endpoint.includes("/servicedesk/1/customer")) return { status: 200, data: { values: existingCustomers } };
       if (method === "GET" && endpoint.includes("/user/search")) return { status: 200, data: [] };
       if (method === "GET" && endpoint.includes("/servicedeskapi/servicedesk")) return { status: 200, data: { values: [{ id: "1", projectKey: "SUP" }] } };
@@ -1901,6 +1903,8 @@ describe("Jira customers for a verified visitor", () => {
 
     expect(calls().some((call) => call.endpoint === `${API}/rest/servicedeskapi/customer`)).toBe(false);
     expect(requestBodies()[0]).toMatchObject({ raiseOnBehalfOf: "acc-old" });
+    // The desk's customer search is an experimental endpoint and needs the opt-in header (AMS-T45).
+    expect(calls().find((call) => call.method === "GET" && call.endpoint.includes("/servicedesk/1/customer"))?.headers).toEqual({ "X-ExperimentalApi": "opt-in" });
   });
 
   it("does nothing about customers for an email no code came back for", async () => {

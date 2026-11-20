@@ -26,3 +26,25 @@ describe("composio client lazy COMPOSIO_API_KEY", () => {
     );
   });
 });
+
+describe("a raw request through a connection", () => {
+  const proxyExecute = vi.fn(async (_options: Record<string, unknown>) => ({ status: 200, data: { ok: true } }));
+
+  async function client() {
+    process.env.COMPOSIO_API_KEY = "test-key";
+    vi.resetModules();
+    vi.doMock("@composio/core", () => ({ Composio: class { tools = { proxyExecute }; } }));
+    return import("@/lib/tools-integrations/composio-client");
+  }
+
+  it("sends the headers it is given as header parameters, and none when it is given none", async () => {
+    proxyExecute.mockClear();
+    const { proxyRequest } = await client();
+
+    await proxyRequest({ connectedAccountId: "ca_1", endpoint: "https://x/y", method: "GET", headers: { "X-ExperimentalApi": "opt-in" } });
+    expect(proxyExecute).toHaveBeenLastCalledWith(expect.objectContaining({ parameters: [{ name: "X-ExperimentalApi", value: "opt-in", in: "header" }] }));
+
+    await proxyRequest({ connectedAccountId: "ca_1", endpoint: "https://x/y", method: "GET" });
+    expect(proxyExecute.mock.calls.at(-1)?.[0]).not.toHaveProperty("parameters");
+  });
+});

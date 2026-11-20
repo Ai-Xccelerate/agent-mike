@@ -2011,16 +2011,23 @@ function jiraErrorText(data: unknown): string {
   return parts.join("; ");
 }
 
+/**
+ * Jira's customer endpoints on a service desk (find, add) are experimental: without this header Jira answers 412 and nothing is
+ * found, which left a customer who already exists looking unknown (and the ticket raised as the connected account).
+ */
+const EXPERIMENTAL_API = { "X-ExperimentalApi": "opt-in" } as const;
+
 async function callJira(
   connectedAccountId: string,
   method: "GET" | "POST" | "PUT",
   path: string,
   body?: unknown,
+  headers?: Record<string, string>,
 ): Promise<JiraCall> {
   try {
     const base = await jiraApiBase(connectedAccountId);
     if (!base) return { ok: false, error: "Couldn't tell which Jira site this connection is for" };
-    const response = await proxyRequest({ connectedAccountId, endpoint: `${base}${path}`, method, body });
+    const response = await proxyRequest({ connectedAccountId, endpoint: `${base}${path}`, method, body, ...(headers ? { headers } : {}) });
     if (response.status >= 400) {
       return { ok: false, status: response.status, error: clip(jiraErrorText(response.data) || `Jira answered ${response.status}`, ERROR_CHARS) };
     }
@@ -2743,6 +2750,8 @@ export async function findJiraCustomer(
     connectedAccountId,
     "GET",
     `/rest/servicedeskapi/servicedesk/${serviceDeskId}/customer?query=${encodeURIComponent(email)}&limit=50`,
+    undefined,
+    EXPERIMENTAL_API,
   );
   if (viaDesk.ok) {
     const found = accountIdFrom(pageValues<CustomerRecord>(viaDesk.data), email);
@@ -2815,9 +2824,13 @@ export async function ensureJiraCustomer(input: {
     await logCustomerCall(organizationId, "create", { email }, { ok: false, detail: problem });
     return { problem };
   }
-  const added = await callJira(connectedAccountId, "POST", `/rest/servicedeskapi/servicedesk/${serviceDeskId}/customer`, {
-    accountIds: [accountId],
-  });
+  const added = await callJira(
+    connectedAccountId,
+    "POST",
+    `/rest/servicedeskapi/servicedesk/${serviceDeskId}/customer`,
+    { accountIds: [accountId] },
+    EXPERIMENTAL_API,
+  );
   await logCustomerCall(organizationId, "create", { email }, { ok: true, detail: added.ok ? "Created and added to the desk" : `Created; adding to the desk failed: ${added.error}` });
   return { accountId, created: true };
 }

@@ -150,12 +150,17 @@ export async function proxyRequest(options: {
   endpoint: string;
   method: "GET" | "POST" | "PUT";
   body?: unknown;
+  /** Extra request headers, for APIs that need them (Jira's experimental endpoints want X-ExperimentalApi: opt-in). */
+  headers?: Record<string, string>;
 }): Promise<{ status: number; data: unknown }> {
   const response = await getComposioClient().tools.proxyExecute({
     endpoint: options.endpoint,
     method: options.method,
     connectedAccountId: options.connectedAccountId,
     ...(options.body === undefined ? {} : { body: options.body }),
+    ...(options.headers && Object.keys(options.headers).length > 0
+      ? { parameters: Object.entries(options.headers).map(([name, value]) => ({ name, value, in: "header" as const })) }
+      : {}),
   });
   return { status: response.status, data: response.data };
 }
