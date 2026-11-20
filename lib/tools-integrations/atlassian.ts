@@ -386,6 +386,17 @@ export const HANDOFF_COMMENT_TOOL_ID = "comment_on_handoff_ticket";
 export const HANDOFF_TICKET_LABEL = "ai-worker-handoff";
 /** On a ticket for a conversation the worker answered by itself: nothing is needed unless the customer writes again. */
 export const ANSWERED_TICKET_LABEL = "ai-worker-answered";
+/** On a ticket raised as the connected account for a verified customer who is not a customer of the desk, so the team can find them. */
+export const NOT_ON_DESK_LABEL = "customer-not-on-desk";
+
+/** The internal note on such a ticket: what to do so the customer can follow it, and later tickets are theirs. */
+export function notOnDeskNote(email: string): string {
+  return (
+    `Customer not on this desk: ${email}. This ticket was raised as the connected account because they are not a customer of this service desk. ` +
+    "Add them under Customers (invite them by email if they have no account), then add them as a participant or change the Reporter to them, " +
+    "so they can follow it in the portal. Once they are a customer, their later tickets are raised in their own name."
+  );
+}
 /** How much of the conversation goes into the ticket. */
 const HANDOFF_TRANSCRIPT_MESSAGES = 8;
 const HANDOFF_MESSAGE_CHARS = 700;
@@ -435,6 +446,8 @@ export type HandoffTicketResult = {
    * a request in the connected account's name is not theirs to open, so no link is given for it.
    */
   url?: string;
+  /** A verified customer was given but is not a customer of the desk: the ticket was raised as the connected account and labelled for the team. */
+  notOnDesk?: true;
 };
 
 function clip(text: string, max: number): string {
@@ -841,7 +854,9 @@ export function handoffTicketNotice(result: HandoffTicketResult, options: { link
     ? `I've logged this for the team as ${result.key}, so you can quote that number if you follow up.`
     : `I've added this to your ticket ${result.key} for the team.`;
   const link = options.link && result.url ? ` You can see it here: ${result.url}` : "";
-  return `${lead}${link} ${ANYTHING_ELSE}`;
+  // Not on the desk yet, so there is no link to give: what can be offered is an update in the chat.
+  const update = result.created && result.notOnDesk && !result.url ? " You can ask me for an update on it here any time." : "";
+  return `${lead}${link}${update} ${ANYTHING_ELSE}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2685,16 +2700,28 @@ async function raiseServiceRequest(
 
   // The request API can't set labels, so the label that marks the worker's
   // tickets goes on afterwards. A ticket without it is still a good ticket.
+  const notOnDesk = Boolean(onBehalf) && !raisedForCustomer;
   await callJira(connectedAccountId, "PUT", `/rest/api/3/issue/${key}`, {
-    update: { labels: [{ add: input.answeredByWorker ? ANSWERED_TICKET_LABEL : HANDOFF_TICKET_LABEL }] },
+    update: {
+      labels: [{ add: input.answeredByWorker ? ANSWERED_TICKET_LABEL : HANDOFF_TICKET_LABEL }, ...(notOnDesk ? [{ add: NOT_ON_DESK_LABEL }] : [])],
+    },
   });
   await recordTicketOutcome(organizationId, conversation.id, {
     key,
     type: target.requestTypeName ?? null,
     priority: await ticketPriority(connectedAccountId, key),
   });
+  // A verified customer the ticket could not be raised for: tell the team, on the ticket, what to do about them.
+  if (notOnDesk && onBehalf) await addInternalTicketNote(organizationId, key, notOnDeskNote(onBehalf.email));
   const url = raisedForCustomer ? portalLinkFrom(created.ok ? created.data : null) : null;
-  return { key, created: true, title: request.requestFieldValues.summary, requestType: target.requestTypeName ?? null, ...(url ? { url } : {}) };
+  return {
+    key,
+    created: true,
+    title: request.requestFieldValues.summary,
+    requestType: target.requestTypeName ?? null,
+    ...(url ? { url } : {}),
+    ...(notOnDesk ? { notOnDesk: true as const } : {}),
+  };
 }
 
 /** The customer portal address in Jira's answer to a new request (`_links.web`), when it is a web address. */

@@ -1933,6 +1933,49 @@ describe("Jira customers for a verified visitor", () => {
     );
   });
 
+  const labelsPut = () =>
+    calls().find((call) => call.method === "PUT" && call.endpoint.includes("/issue/SUP-50"))?.body as { update?: { labels?: { add: string }[] } } | undefined;
+  const teamNote = () => calls().find((call) => call.method === "POST" && call.endpoint.endsWith("/request/SUP-50/comment"));
+
+  it("labels the ticket and leaves the team a note when a verified customer is not on the desk and could not be created", async () => {
+    createCustomer = { status: 403, data: { errorMessage: "Insufficient permission to perform requested action, JIRA Administrators global permission is required." } };
+
+    expect(await handoff(dana)).toMatchObject({ key: "SUP-50", created: true, notOnDesk: true });
+    expect(labelsPut()?.update?.labels).toEqual([{ add: "ai-worker-handoff" }, { add: "customer-not-on-desk" }]);
+    const note = teamNote();
+    expect(note?.body).toMatchObject({ public: false });
+    expect(String((note?.body as { body: string }).body)).toContain("Customer not on this desk: dana@example.com");
+  });
+
+  it("also labels it when Jira refuses to raise on behalf of an account that was found, since the ticket is the connected account's", async () => {
+    existingCustomers = [{ accountId: "acc-old", emailAddress: "dana@example.com" }];
+    requestAnswers = [{ status: 403, data: { errorMessage: "No permission to raise on behalf" } }, { status: 201, data: { issueKey: "SUP-50" } }];
+
+    expect(await handoff(dana)).toMatchObject({ key: "SUP-50", notOnDesk: true });
+    expect(labelsPut()?.update?.labels).toContainEqual({ add: "customer-not-on-desk" });
+    expect(teamNote()).toBeDefined();
+  });
+
+  it("does not label or note a ticket raised for the customer, for an unverified email, or while the setting is off", async () => {
+    existingCustomers = [{ accountId: "acc-old", emailAddress: "dana@example.com" }];
+    const forCustomer = await handoff(dana);
+    expect(forCustomer).not.toHaveProperty("notOnDesk");
+    expect(labelsPut()?.update?.labels).toEqual([{ add: "ai-worker-handoff" }]);
+    expect(teamNote()).toBeUndefined();
+
+    proxyRequestMock.mockClear();
+    const unverified = await handoff(undefined);
+    expect(unverified).not.toHaveProperty("notOnDesk");
+    expect(labelsPut()?.update?.labels).toEqual([{ add: "ai-worker-handoff" }]);
+    expect(teamNote()).toBeUndefined();
+
+    proxyRequestMock.mockClear();
+    extraSettings = {};
+    const off = await handoff(dana);
+    expect(off).not.toHaveProperty("notOnDesk");
+    expect(teamNote()).toBeUndefined();
+  });
+
   it("raises it as itself, once, when Jira refuses to raise on behalf; nothing was created by that refusal", async () => {
     requestAnswers = [{ status: 403, data: { errorMessage: "No permission to raise on behalf" } }, { status: 201, data: { issueKey: "SUP-51" } }];
 
