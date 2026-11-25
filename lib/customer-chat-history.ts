@@ -46,8 +46,13 @@ export async function verifiedEmailFor(input: { organizationId: string; conversa
   return remembered ? remembered.email.trim().toLowerCase() : null;
 }
 
-function titleOf(subject: string | null): string {
-  const text = (subject ?? "").replace(/\s+/g, " ").trim();
+/** The identity step opens a conversation before the customer has written anything, with this placeholder subject. */
+const PLACEHOLDER_SUBJECT = /^new chat$/i;
+
+function titleOf(subject: string | null, firstMessage: string | null): string {
+  const flat = (value: string | null) => (value ?? "").replace(/\s+/g, " ").trim();
+  const own = flat(subject);
+  const text = own && !PLACEHOLDER_SUBJECT.test(own) ? own : flat(firstMessage);
   if (!text) return "Chat";
   return text.length > 60 ? `${text.slice(0, 57).trimEnd()}...` : text;
 }
@@ -58,12 +63,14 @@ export async function listCustomerChats(organizationId: string, email: string): 
   // name, and "id" would then mean the message's own id.
   const conversationId = sql`${sql.identifier("conversations")}.${sql.identifier("id")}`;
   const lastMessage = sql<Date>`(select max(m.created_at) from messages m where m.conversation_id = ${conversationId})`;
+  const firstMessage = sql<string | null>`(select m.body from messages m where m.conversation_id = ${conversationId} and m.sender_type = 'customer' order by m.created_at asc limit 1)`;
   const rows = await db
     .select({
       id: conversations.id,
       subject: conversations.subject,
       status: conversations.status,
       ticketKey: conversations.externalTicketKey,
+      first: firstMessage,
       last: lastMessage,
     })
     .from(conversations)
@@ -83,7 +90,7 @@ export async function listCustomerChats(organizationId: string, email: string): 
 
   return rows.map((row) => ({
     id: row.id,
-    title: titleOf(row.subject),
+    title: titleOf(row.subject, row.first),
     resolved: row.status === "resolved" || row.status === "closed",
     waitingForTeam: row.status === "needs_human",
     ticketKey: row.ticketKey,

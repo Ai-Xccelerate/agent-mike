@@ -146,6 +146,31 @@ describe("a verified customer's chat history", () => {
     expect(json.conversations[0].title.endsWith("...")).toBe(true);
   });
 
+  it("titles a chat by the customer's first message when its subject is only the placeholder the identity step leaves", async () => {
+    const opened = await insertConversationWithTicket({
+      organizationId: orgId,
+      channel: "widget",
+      subject: "New chat",
+      customerName: "Dana",
+      customerEmail: "dana@example.com",
+      customerEmailVerifiedAt: new Date(),
+      identitySource: "email_code",
+    });
+    const at = Date.now();
+    await db.insert(messages).values([
+      { conversationId: opened.id, senderType: "customer", senderName: "Dana", body: "How do I\n reset my password?", createdAt: new Date(at) },
+      { conversationId: opened.id, senderType: "agent", senderName: "Eva", body: "Let me help.", createdAt: new Date(at + 1000) },
+    ]);
+    const { json } = await list({ conversation_id: opened.id });
+    expect(json.conversations.find((c) => c.id === opened.id)?.title).toBe("How do I reset my password?");
+  });
+
+  it("keeps a real subject over the first message", async () => {
+    const real = await chat({ subject: "Parallels login fails" });
+    const { json } = await list({ conversation_id: real.id });
+    expect(json.conversations.find((c) => c.id === real.id)?.title).toBe("Parallels login fails");
+  });
+
   it("shows at most 30 chats", async () => {
     const current = await chat();
     for (let i = 0; i < 32; i++) await chat({ subject: `Chat ${i}`, daysAgo: 1 });
