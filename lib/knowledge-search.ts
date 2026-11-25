@@ -38,7 +38,11 @@ export type SearchTuning = {
   /** Sections the meaning search likes less than this are dropped. */
   minMeaning: number;
   /** How much each search counts in the merge (the page-title one can be switched off with 0). */
-  weights: { keyword: number; meaning: number; title: number };
+  /** questions: the page-question signal; left out, it takes the default. */
+  weights: { keyword: number; meaning: number; title: number; questions?: number };
+  /** The customer-style questions written for each page (lib/knowledge-page-questions.ts): how many pages they put forward, and how alike a question must be. */
+  questionPages: number;
+  minQuestionMeaning: number;
   /** The page-title signal: how many pages it puts forward, and how many sections of each. */
   titlePages: number;
   titleSections: number;
@@ -59,7 +63,9 @@ export const DEFAULT_TUNING: SearchTuning = {
   limit: 8,
   perPage: 3,
   minMeaning: MIN_MEANING_SCORE,
-  weights: { keyword: 1, meaning: 1, title: 3 },
+  weights: { keyword: 1, meaning: 1, title: 3, questions: 2 },
+  questionPages: 6,
+  minQuestionMeaning: 0.5,
   titlePages: 8,
   titleSections: 2,
   pool: 40,
@@ -68,7 +74,10 @@ export const DEFAULT_TUNING: SearchTuning = {
 };
 
 type Loaded = {
-  finishedAt: number;
+  /** When the last sync finished and how many page questions there are: a change in either reloads the copy. */
+  stamp: string;
+  /** The customer-style questions of each page, with their numbers for the meaning match. */
+  questions: { pageId: string; vector: Float32Array | null }[];
   /** One entry per page (stable objects, so word counts can be cached), with that page's sections in order. */
   pages: { pageId: string; title: string; sectionIds: string[] }[];
   sections: { id: string; pageId: string; position: number; title: string; heading: string | null; content: string; vector: Float32Array | null }[];
@@ -84,25 +93,39 @@ export function clearKnowledgeSearchCache(): void {
   queryVectors.clear();
 }
 
-async function finishedAtOf(organizationId: string): Promise<number> {
+async function stampOf(organizationId: string): Promise<string> {
   const [state] = await db
     .select({ finished: knowledgeIndexState.lastFinishedAt })
     .from(knowledgeIndexState)
     .where(and(eq(knowledgeIndexState.organizationId, organizationId), eq(knowledgeIndexState.source, INDEX_SOURCE)))
     .limit(1);
-  return state?.finished?.getTime() ?? 0;
+  // Page questions are written after a sync has finished, so their count and latest time are part of the stamp too.
+  const questions = await db
+    .execute<{ n: number; m: string | null }>(
+      sql`select count(*)::int n, max(created_at)::text m from knowledge_page_questions where organization_id = ${organizationId} and source = ${INDEX_SOURCE}`,
+    )
+    .then((result) => result.rows[0])
+    .catch(() => undefined);
+  return `${state?.finished?.getTime() ?? 0}|${questions?.n ?? 0}|${questions?.m ?? ""}`;
 }
 
 /** The organization's sections, held in memory and reloaded only when a sync has finished since. */
 async function sectionsFor(organizationId: string): Promise<Loaded> {
-  const finishedAt = await finishedAtOf(organizationId);
+  const stamp = await stampOf(organizationId);
   const have = loaded.get(organizationId);
-  if (have && have.finishedAt === finishedAt) return have;
+  if (have && have.stamp === stamp) return have;
   const rows = await db.execute<{ id: string; page_id: string; position: number; title: string; heading: string | null; content: string; embedding: number[] | null }>(
     sql`select id, page_id, position, title, heading, content, embedding from knowledge_sections where organization_id = ${organizationId} and source = ${INDEX_SOURCE}`,
   );
+  const questionRows = await db
+    .execute<{ page_id: string; embedding: number[] | null }>(
+      sql`select page_id, embedding from knowledge_page_questions where organization_id = ${organizationId} and source = ${INDEX_SOURCE}`,
+    )
+    .then((result) => result.rows)
+    .catch(() => [] as { page_id: string; embedding: number[] | null }[]);
   const fresh: Loaded = {
-    finishedAt,
+    stamp,
+    questions: questionRows.map((row) => ({ pageId: row.page_id, vector: row.embedding ? Float32Array.from(row.embedding.map(Number)) : null })),
     pages: [],
     sections: rows.rows.map((row) => ({
       id: row.id,
@@ -387,6 +410,53 @@ export async function searchKnowledgeIndex(
     }
   };
 
+  // The pages whose customer-style questions are like this message (lib/knowledge-page-questions.ts), by words and by
+  // meaning, each giving its sections closest to the message. This is what finds "Column Chooser" for "open files list".
+  const pageSections = new Map(all.pages.map((page) => [page.pageId, page.sectionIds]));
+  const sectionById = new Map(all.sections.map((section) => [section.id, section]));
+  const questionSearch = async (query: { focus: string; words: string[] }): Promise<string[]> => {
+    if ((tuning.weights.questions ?? 0) <= 0 || all.questions.length === 0) return [];
+    const byWords =
+      query.words.length === 0
+        ? []
+        : (
+            await db
+              .execute<{ page_id: string }>(sql`
+                select page_id, max(ts_rank_cd(search, q, 1)) r from knowledge_page_questions, websearch_to_tsquery('english', ${query.words.join(" or ")}) q
+                where organization_id = ${organizationId} and source = ${INDEX_SOURCE} and search @@ q
+                group by page_id order by r desc limit ${tuning.pool}`)
+              .catch(() => ({ rows: [] as { page_id: string }[] }))
+          ).rows.map((row) => row.page_id);
+    let vector: number[] | null = null;
+    try {
+      vector = await queryVector(query.focus, embed);
+    } catch {
+      vector = null;
+    }
+    const best = new Map<string, number>();
+    if (vector) {
+      for (const question of all.questions) {
+        if (!question.vector) continue;
+        const score = cosine(vector, question.vector);
+        if (score >= tuning.minQuestionMeaning && score > (best.get(question.pageId) ?? 0)) best.set(question.pageId, score);
+      }
+    }
+    const byMeaning = [...best.entries()].sort((a, b) => b[1] - a[1]).slice(0, tuning.pool).map(([pageId]) => pageId);
+    const pageScore = new Map<string, number>();
+    for (const list of [byWords, byMeaning]) list.forEach((pageId, index) => pageScore.set(pageId, (pageScore.get(pageId) ?? 0) + 1 / (tuning.rrfK + index + 1)));
+    const pages = [...pageScore.entries()].sort((a, b) => b[1] - a[1]).slice(0, tuning.questionPages).map(([pageId]) => pageId);
+    return pages.flatMap((pageId) => {
+      const ids = pageSections.get(pageId) ?? [];
+      if (!vector || ids.length <= tuning.titleSections) return ids.slice(0, tuning.titleSections);
+      const query = vector;
+      return [...ids]
+        .map((id) => ({ id, score: sectionById.get(id)?.vector ? cosine(query, sectionById.get(id)?.vector as Float32Array) : 0 }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, tuning.titleSections)
+        .map((entry) => entry.id);
+    });
+  };
+
   const listsFor = async (query: { focus: string; words: string[] }) => {
     const [keyword, meaning] = await Promise.all([keywordSearch(query.words), meaningSearch(all, query.focus)]);
     // The words that name this product or are in nearly every page ("EAP", "Expert") can outweigh the one that says
@@ -396,13 +466,14 @@ export async function searchKnowledgeIndex(
     const distinctiveKeyword = distinctive.length > 0 && distinctive.length < query.words.length ? await keywordSearch(distinctive) : [];
     // The page-title signal: the first sections of the pages named for the question.
     const title = tuning.weights.title > 0 ? pagesByTitle(all, query.words, tuning.titlePages).flatMap((page) => page.sectionIds.slice(0, tuning.titleSections)) : [];
-    return { keyword, distinctiveKeyword, meaning, title };
+    const questions = await questionSearch(query);
+    return { keyword, distinctiveKeyword, meaning, title, questions };
   };
   type QueryLists = Awaited<ReturnType<typeof listsFor>>;
   const fuse = (lists: QueryLists[]) => {
     const scores = new Map<string, number>();
     for (const one of lists) {
-      for (const [list, weight] of [[one.keyword, tuning.weights.keyword], [one.distinctiveKeyword, tuning.weights.keyword], [one.meaning, tuning.weights.meaning], [one.title, tuning.weights.title]] as const) {
+      for (const [list, weight] of [[one.keyword, tuning.weights.keyword], [one.distinctiveKeyword, tuning.weights.keyword], [one.meaning, tuning.weights.meaning], [one.title, tuning.weights.title], [one.questions, tuning.weights.questions ?? 0]] as const) {
         list.forEach((id, index) => scores.set(id, (scores.get(id) ?? 0) + weight / (tuning.rrfK + index + 1)));
       }
     }
