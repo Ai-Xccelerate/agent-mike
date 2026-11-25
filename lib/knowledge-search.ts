@@ -6,6 +6,7 @@ import { INDEX_SOURCE } from "@/lib/knowledge-index";
 import { expandKeywords, focusOnQuestion, searchKeywords, stemWeights, wordStem } from "@/lib/tools-integrations/atlassian";
 import type { KnowledgeMatch } from "@/lib/knowledge";
 import { rewriteForSearch } from "@/lib/query-rewrite";
+import { buildCorpus, normalizeQuestion as normalizeToPages, type Corpus } from "@/lib/query-normalize";
 import { topicsForSearch } from "@/lib/query-topics";
 import { traceSet } from "@/lib/timing";
 
@@ -208,21 +209,77 @@ function textRarity(all: Loaded, stem: string): number {
   return Math.log((total + 1) / (containing + 1)) / Math.log(total + 1);
 }
 
+/**
+ * The pages are ordered by how much of the rest of the question they carry, and each gives its opening section before
+ * any gives a second one: with six pages named "Parallels ..." the one that answers a login question must not wait
+ * behind the opening and second sections of the other five.
+ */
 function rareTitlePages(all: Loaded, words: string[], titleSections: number): string[] {
   const stems = [...new Set(words.map(wordStem))].filter((stem) => stem.length >= 4);
   // The word must be rare in the pages' text as well as in their titles: "system" is in few titles but in the text of
   // most pages, so reserving "System Customization" for it crowds out the page that answers the question.
-  let best: { pages: Loaded["pages"]; rarity: number } | null = null;
+  let best: { pages: Loaded["pages"]; rarity: number; stem: string } | null = null;
   for (const stem of stems) {
     const pages = all.pages.filter((page) => page.title.toLowerCase().includes(stem));
     if (pages.length < 1 || pages.length > RARE_TITLE_PAGES) continue;
     const rarity = textRarity(all, stem);
-    if (rarity >= RARE_WORD_WEIGHT && (!best || rarity > best.rarity)) best = { pages, rarity };
+    if (rarity >= RARE_WORD_WEIGHT && (!best || rarity > best.rarity)) best = { pages, rarity, stem };
   }
   if (!best) return [];
+  const others = stems.filter((stem) => stem !== best?.stem);
+  const texts = textsOf(all);
+  const carried = (page: Loaded["pages"][number]) => others.reduce((sum, stem) => sum + (page.title.toLowerCase().includes(stem) ? 2 : 0) + ((texts.get(page.pageId) ?? "").includes(stem) ? 1 : 0), 0);
+  const pages = best.pages.map((page, index) => ({ page, index, score: carried(page) })).sort((a, b) => b.score - a.score || a.index - b.index).map((entry) => entry.page);
   const ids: string[] = [];
-  for (const page of best.pages) for (const id of page.sectionIds.slice(0, titleSections)) if (ids.length < RARE_TITLE_SECTIONS) ids.push(id);
+  for (let round = 0; round < titleSections; round += 1) {
+    for (const page of pages) if (ids.length < RARE_TITLE_SECTIONS && page.sectionIds[round]) ids.push(page.sectionIds[round]);
+  }
   return ids;
+}
+
+/** A word in this few sections or fewer is a name, not a topic: "Okta" is in a handful of 2,500 sections. */
+const RARE_TEXT_SECTIONS = 8;
+const RARE_WORD_SECTIONS_KEPT = 2;
+
+/**
+ * The best section for each rare word of the question that is in only a few sections of the whole saved copy. A
+ * question that says "Okta" and also "EAP Expert Cloud" otherwise gets every page named for the cloud product, and the
+ * one section that mentions Okta is outranked by their titles however it is weighed.
+ */
+function rareTextSections(all: Loaded, words: string[], keywordOrder: string[]): string[] {
+  const lowered = sectionLowerTexts(all);
+  const chosen: string[] = [];
+  const stems = [...new Set(words.map(wordStem))].filter((stem) => stem.length >= 4);
+  for (const stem of stems) {
+    if (chosen.length >= RARE_WORD_SECTIONS_KEPT) break;
+    const holding = all.sections.filter((section) => lowered.get(section.id)?.includes(stem));
+    if (holding.length === 0 || holding.length > RARE_TEXT_SECTIONS) continue;
+    const place = (id: string) => (keywordOrder.indexOf(id) === -1 ? Number.MAX_SAFE_INTEGER : keywordOrder.indexOf(id));
+    // A section with the word in its heading answers "how do I set up X" best; otherwise the one the keyword search liked most.
+    const ranked = [...holding].sort((a, b) => Number((b.heading ?? "").toLowerCase().includes(stem)) - Number((a.heading ?? "").toLowerCase().includes(stem)) || place(a.id) - place(b.id));
+    if (!chosen.includes(ranked[0].id)) chosen.push(ranked[0].id);
+  }
+  return chosen;
+}
+
+const sectionTextsLower = new WeakMap<Loaded, Map<string, string>>();
+function sectionLowerTexts(all: Loaded): Map<string, string> {
+  let texts = sectionTextsLower.get(all);
+  if (!texts) {
+    texts = new Map(all.sections.map((section) => [section.id, `${section.title}\n${section.heading ?? ""}\n${section.content}`.toLowerCase()]));
+    sectionTextsLower.set(all, texts);
+  }
+  return texts;
+}
+
+const corpora = new WeakMap<Loaded, Corpus>();
+function corpusOf(all: Loaded): Corpus {
+  let corpus = corpora.get(all);
+  if (!corpus) {
+    corpus = buildCorpus(all.sections, all.pages.map((page) => page.title));
+    corpora.set(all, corpus);
+  }
+  return corpus;
 }
 
 export type IndexSearchTimings = { keywordMs: number; meaningMs: number; totalMs: number; meaning: "used" | "failed" | "none" };
@@ -251,22 +308,18 @@ export async function searchKnowledgeIndex(
   };
   const limit = tuning.limit;
   const embed = options.embed ?? embedTexts;
+  const all = await sectionsFor(organizationId);
+  if (all.sections.length === 0) return { matches: [], timings: { totalMs: Date.now() - started, keywordMs: 0, meaningMs: 0, meaning: "none" }, details: [] };
+  // The question in the pages' own words: "LifeExpert" and "LE" become "Life Expert", "paralels" becomes "parallels".
+  // The corrected words are searched together with the typed ones, so a correction can only add pages.
   const buildQuery = (text: string) => {
-    const focus = focusOnQuestion(text);
-    return { focus, words: expandKeywords(focus, searchKeywords(focus, 12)) };
+    const typed = focusOnQuestion(text);
+    const fixed = normalizeToPages(typed, corpusOf(all));
+    if (fixed.corrections.length > 0) traceSet("searchCorrections", fixed.corrections.map((c) => `${c.from} -> ${c.to}`));
+    const words = [...new Set([...expandKeywords(fixed.text, searchKeywords(fixed.text, 12)), ...searchKeywords(typed, 12), ...fixed.extraWords])];
+    return { focus: fixed.text, words };
   };
   const primary = buildQuery(question);
-  // A clean English version of a long or non-English message is searched too, and the two result lists are merged.
-  // The rewrite and the split of a many-part message run side by side, so neither waits for the other.
-  const [rewritten, topicQuestions] = await Promise.all([
-    options.rewrite === false ? null : (options.rewrite ?? rewriteForSearch)(question).catch(() => null),
-    options.topics === false ? [] : (options.topics ?? topicsForSearch)(question).catch(() => [] as string[]),
-  ]);
-  const queries = [primary];
-  if (rewritten && normalizeQuestion(rewritten) !== normalizeQuestion(primary.focus)) {
-    queries.push(buildQuery(rewritten));
-    traceSet("searchRewrite", rewritten);
-  }
   const timings: IndexSearchTimings = { keywordMs: 0, meaningMs: 0, totalMs: 0, meaning: "none" };
 
   const keywordSearch = async (words: string[]): Promise<string[]> => {
@@ -303,8 +356,6 @@ export async function searchKnowledgeIndex(
     }
   };
 
-  const all = await sectionsFor(organizationId);
-  if (all.sections.length === 0) return { matches: [], timings: { ...timings, totalMs: Date.now() - started }, details: [] };
   const listsFor = async (query: { focus: string; words: string[] }) => {
     const [keyword, meaning] = await Promise.all([keywordSearch(query.words), meaningSearch(all, query.focus)]);
     // The words that name this product or are in nearly every page ("EAP", "Expert") can outweigh the one that says
@@ -326,10 +377,23 @@ export async function searchKnowledgeIndex(
     }
     return scores;
   };
+  const primaryLists = listsFor(primary);
+  // A clean English version of a long or non-English message is searched too, and the two result lists are merged.
+  // The rewrite and the split of a many-part message start now and run beside the first search; only the answer to
+  // them is waited for, so a slow model costs the customer nothing the search itself does not.
+  const rewritePending = options.rewrite === false ? Promise.resolve(null) : (options.rewrite ?? rewriteForSearch)(question).catch(() => null);
+  const topicsPending = options.topics === false ? Promise.resolve([] as string[]) : (options.topics ?? topicsForSearch)(question).catch(() => [] as string[]);
+  const [rewritten, topicQuestions] = await Promise.all([rewritePending, topicsPending]);
+  const queries = [primary];
+  if (rewritten && normalizeQuestion(rewritten) !== normalizeQuestion(primary.focus)) {
+    queries.push(buildQuery(rewritten));
+    traceSet("searchRewrite", rewritten);
+  }
   // A message with several separate questions is also searched question by question (see lib/query-topics.ts).
   const topicQueries = topicQuestions.map(buildQuery);
   if (topicQuestions.length > 0) traceSet("searchTopics", topicQuestions);
-  const [perQuery, perTopic] = await Promise.all([Promise.all(queries.map(listsFor)), Promise.all(topicQueries.map(listsFor))]);
+  const [first, extra, perTopic] = await Promise.all([primaryLists, Promise.all(queries.slice(1).map(listsFor)), Promise.all(topicQueries.map(listsFor))]);
+  const perQuery = [first, ...extra];
   const byKeyword = perQuery[0].keyword;
 
   // Reciprocal rank fusion: a section near the top of any list scores, one near the top of several scores most.
@@ -338,7 +402,10 @@ export async function searchKnowledgeIndex(
   const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]);
 
   // Sections of the pages named for the question's rarest word come first, then the ranking fills the rest.
-  const reserved = new Set(queries.flatMap((query) => rareTitlePages(all, query.words, tuning.titleSections)));
+  const reserved = new Set([
+    ...queries.flatMap((query) => rareTitlePages(all, query.words, tuning.titleSections)),
+    ...queries.flatMap((query, index) => rareTextSections(all, query.words, perQuery[index].keyword)),
+  ]);
   const ordered = [...reserved.values()].map((id) => [id, fused.get(id) ?? 0] as [string, number]).concat(ranked.filter(([id]) => !reserved.has(id)));
 
   // Each separate question of a many-part message gets its own share of the sections, best first, before the ranking of

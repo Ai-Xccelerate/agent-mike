@@ -56,6 +56,7 @@ async function search(pages: P[], embed: ReturnType<typeof axesEmbed>, query: st
 describe("SDS-28: a product name typed as one word, when the pages spell it as two", () => {
   const pages: P[] = [
     { id: "le", title: "Life Expert Integration", sections: [{ text: "Completed files arrive each night at 11:59 p.m. EST." }] },
+    { id: "le2", title: "Life Expert Work-Life Set-Up", sections: [{ text: "Set up the work-life partner for each client organization." }] },
     { id: "leo", title: "LifeExpert", sections: [{ text: "A short overview of the partner." }] },
     { id: "sched", title: "Scheduler", sections: [{ text: "Working hours and the schedule for each counselor." }] },
     { id: "cal", title: "Calendar Sync Set-Up", sections: [{ text: "Choose how often the calendar runs on a schedule." }] },
@@ -67,7 +68,7 @@ describe("SDS-28: a product name typed as one word, when the pages spell it as t
     expect(await search(pages, embed, "Does Life Expert run on a timed schedule?")).toContain("Life Expert Integration > -");
   });
 
-  it.fails("typed as one word, the Life Expert pages are found too", async () => {
+  it("typed as one word, the Life Expert pages are found too", async () => {
     expect(await search(pages, embed, "Does LifeExpert run on a timed schedule?")).toContain("Life Expert Integration > -");
   });
 });
@@ -75,10 +76,11 @@ describe("SDS-28: a product name typed as one word, when the pages spell it as t
 describe("an alias the worker's own instructions define: LE means Life Expert", () => {
   const pages: P[] = [
     { id: "le", title: "Life Expert Integration", sections: [{ text: "Completed records arrive each night at 11:59 p.m. EST." }] },
+    { id: "le2", title: "Life Expert Work-Life Set-Up", sections: [{ text: "Set up the work-life partner for each client organization." }] },
     { id: "cal", title: "Calendar Sync Set-Up", sections: [{ text: "Choose how long the calendar waits between runs, in minutes." }] },
     ...filler(30),
   ];
-  it.fails("a question that says LE finds the Life Expert pages", async () => {
+  it("a question that says LE finds the Life Expert pages", async () => {
     const result = await search(pages, silentEmbed(), "How often does LE refresh?");
     expect(result).toContain("Life Expert Integration > -");
   });
@@ -115,7 +117,7 @@ describe("a rare word in a section's text against pages named for the generic wo
     expect(await search(pages, embed, "okta")).toContain("Integrations Options > OKTA");
   });
 
-  it.fails("asked in a full sentence that also says EAP Expert Cloud, the OKTA section is still found", async () => {
+  it("asked in a full sentence that also says EAP Expert Cloud, the OKTA section is still found", async () => {
     const result = await search(pages, embed, "We use Okta, how do we set up single sign-on for EAP Expert Cloud?");
     expect(result).toContain("Integrations Options > OKTA");
   });
@@ -132,10 +134,11 @@ describe("a page the worker's instructions name, against five pages named for th
     { id: "lh", title: "Login Help", sections: [{ text: "Help with login problems." }, { heading: "Forgot your password?", text: "Reset a forgotten login password." }] },
     { id: "la", title: "Login Assistance", sections: [{ text: "Login assistance for users." }, { heading: "Forgot password?", text: "Use the forgot password link at login." }] },
     { id: "lg", title: "Logging into EAP Expert", sections: [{ text: "How to log in to the software." }] },
-    ...filler(30),
+    // In the real pages "login" is mentioned all over, so it is no rarer than the product word.
+    ...Array.from({ length: 20 }, (_, i) => ({ id: `lf${i}`, title: `Other Module ${i}`, sections: [{ text: `Users reach module ${i} after login with their account.` }] })),
   ];
   const embed = axesEmbed([["parallels"], ["login", "log in"]]);
-  it.fails("a Parallels login question brings the Support Guide into the sections the worker is given", async () => {
+  it("a Parallels login question brings the Support Guide into the sections the worker is given", async () => {
     const result = await search(pages, embed, "I cannot login to my parallels account");
     expect(result.some((r) => r.startsWith("Parallels Support Guide"))).toBe(true);
   });
