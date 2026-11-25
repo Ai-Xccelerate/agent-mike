@@ -15,6 +15,8 @@ export type Corpus = {
   sectionTexts: string[];
   /** Page titles, as written. */
   titles: string[];
+  /** Words of the pages grouped by how they sound (see soundKey), built on first use. */
+  sounds?: Map<string, string[]>;
 };
 
 export type Correction = { from: string; to: string; kind: "split" | "typo" | "join" | "acronym" };
@@ -69,18 +71,53 @@ function splitCompound(word: string, corpus: Corpus): [string, string] | null {
   return best?.parts ?? null;
 }
 
-/** "paralels" -> "parallels": the commonest word of the pages within one or two edits. */
+/**
+ * A rough sound of a word, so a misspelling that sounds right still finds it: "validashun" and "validation", "mreg" and
+ * "merge", "artical" and "article" share a key. Endings said alike are written alike, doubled letters are one, and
+ * vowels after the first letter are dropped.
+ */
+export function soundKey(word: string): string {
+  const s = word.toLowerCase().replace(/tion|sion|cion|tian/g, "shun").replace(/ph/g, "f").replace(/ck/g, "k").replace(/(\p{L})\1+/gu, "$1");
+  return s[0] + s.slice(1).replace(/[aeiouy]/g, "");
+}
+
+function soundsOf(corpus: Corpus): Map<string, string[]> {
+  if (!corpus.sounds) {
+    corpus.sounds = new Map();
+    for (const [word, count] of corpus.vocabulary) {
+      if (word.length < 4 || count < 3) continue;
+      const key = soundKey(word);
+      corpus.sounds.set(key, [...(corpus.sounds.get(key) ?? []), word]);
+    }
+  }
+  return corpus.sounds;
+}
+
+/**
+ * "paralels" -> "parallels": the commonest word of the pages within a few edits, or one that sounds the same. Longer
+ * words allow more edits, since a longer word is less likely to be another word by accident.
+ */
 function nearestWord(word: string, corpus: Corpus): string | null {
-  if (word.length < 5 || !LETTERS.test(word) || corpus.vocabulary.has(word)) return null;
-  const max = word.length >= 8 ? 2 : 1;
-  let best: { word: string; distance: number; count: number } | null = null;
+  if (word.length < 4 || !LETTERS.test(word) || corpus.vocabulary.has(word)) return null;
+  const max = word.length <= 5 ? 1 : word.length <= 8 ? 2 : 3;
+  type Best = { word: string; distance: number; count: number };
+  let best: Best | null = null;
+  const consider = (candidate: string, distance: number) => {
+    const count = corpus.vocabulary.get(candidate) ?? 0;
+    if (!best || distance < best.distance || (distance === best.distance && count > best.count)) best = { word: candidate, distance, count };
+  };
   for (const [candidate, count] of corpus.vocabulary) {
     if (candidate[0] !== word[0] || count < 3 || Math.abs(candidate.length - word.length) > max) continue;
     const distance = editDistance(word, candidate, max);
-    if (distance > max) continue;
-    if (!best || distance < best.distance || (distance === best.distance && count > best.count)) best = { word: candidate, distance, count };
+    if (distance <= max) consider(candidate, distance);
   }
-  return best?.word ?? null;
+  // A word that sounds the same, a little further off, when it is common enough in the pages to be what was meant.
+  for (const candidate of soundsOf(corpus).get(soundKey(word)) ?? []) {
+    if (candidate === word || candidate[0] !== word[0] || (corpus.vocabulary.get(candidate) ?? 0) < 5) continue;
+    const distance = editDistance(word, candidate, 4);
+    if (distance <= (word.length <= 5 ? 2 : 4)) consider(candidate, distance);
+  }
+  return (best as Best | null)?.word ?? null;
 }
 
 /** "LE" -> "Life Expert": the opening words of page titles whose initials are the capitals typed. */
@@ -110,6 +147,12 @@ export function normalizeQuestion(question: string, corpus: Corpus): { text: str
     const token = match[0];
     const lower = token.toLowerCase();
     let replacement: string | null = null;
+    if (token.includes("-") && !/\d/.test(token)) {
+      // "self-schedulling": each part is corrected by itself.
+      const parts = token.split("-").map((part) => nearestWord(part.toLowerCase(), corpus) ?? part);
+      const fixed = parts.join("-");
+      if (fixed !== token) { replacement = fixed; corrections.push({ from: token, to: fixed, kind: "typo" }); }
+    }
     if (!/\d/.test(token) && !token.includes("-")) {
       const acronym = expandAcronym(token, corpus);
       const split = acronym ? null : splitCompound(lower, corpus);
