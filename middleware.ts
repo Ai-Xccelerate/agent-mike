@@ -72,6 +72,7 @@ function publicRequest(req: NextRequest): boolean {
       path === "/api/v1/chat/identity/verify" ||
       path === "/api/v1/chat/attachments" ||
       path === "/api/v1/chat/messages" ||
+      path === "/api/v1/chat/conversations" ||
       path === "/api/v1/worker" ||
       path === "/api/v1/transcribe")
   ) {
