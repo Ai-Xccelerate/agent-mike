@@ -214,25 +214,51 @@ function textRarity(all: Loaded, stem: string): number {
  * any gives a second one: with six pages named "Parallels ..." the one that answers a login question must not wait
  * behind the opening and second sections of the other five.
  */
-function rareTitlePages(all: Loaded, words: string[], titleSections: number): string[] {
+/** Words that say the customer has a problem: the page that opens by describing such a problem is the one to read first. */
+const PROBLEM_WORDS = /\b(?:can'?t|cannot|unable|won'?t|fail(?:s|ed|ing)?|trouble|problems?|issues?|errors?|not working|stuck)\b/i;
+const PROBLEM_OPENING = /trouble|problem|issue|error|fail|unable|cannot|can't|not working|unsuccessful/i;
+/** At most this many sections are kept for pages named for the question's rare words. */
+const RARE_TITLE_TOTAL = 6;
+
+/**
+ * The pages named for the question's rare words. Each rare word that is in only a few titles gives its pages, up to two
+ * words, so "login to my parallels account" keeps both the Login pages and the Parallels pages. The pages of one word
+ * go in order of how much of the rest of the question they carry (and, for a customer with a problem, whether they open
+ * by describing one), and every page gives its opening section before any gives a second: with six pages named
+ * "Parallels ..." the one that answers a login problem must not wait behind the others' second sections.
+ */
+function rareTitlePages(all: Loaded, words: string[], titleSections: number, question = ""): string[] {
   const stems = [...new Set(words.map(wordStem))].filter((stem) => stem.length >= 4);
   // The word must be rare in the pages' text as well as in their titles: "system" is in few titles but in the text of
   // most pages, so reserving "System Customization" for it crowds out the page that answers the question.
-  let best: { pages: Loaded["pages"]; rarity: number; stem: string } | null = null;
+  const groups: { pages: Loaded["pages"]; rarity: number; stem: string }[] = [];
   for (const stem of stems) {
     const pages = all.pages.filter((page) => page.title.toLowerCase().includes(stem));
     if (pages.length < 1 || pages.length > RARE_TITLE_PAGES) continue;
     const rarity = textRarity(all, stem);
-    if (rarity >= RARE_WORD_WEIGHT && (!best || rarity > best.rarity)) best = { pages, rarity, stem };
+    if (rarity >= RARE_WORD_WEIGHT) groups.push({ pages, rarity, stem });
   }
-  if (!best) return [];
-  const others = stems.filter((stem) => stem !== best?.stem);
+  groups.sort((a, b) => b.rarity - a.rarity);
+  const chosen = groups.slice(0, 2);
+  if (chosen.length === 0) return [];
   const texts = textsOf(all);
-  const carried = (page: Loaded["pages"][number]) => others.reduce((sum, stem) => sum + (page.title.toLowerCase().includes(stem) ? 2 : 0) + ((texts.get(page.pageId) ?? "").includes(stem) ? 1 : 0), 0);
-  const pages = best.pages.map((page, index) => ({ page, index, score: carried(page) })).sort((a, b) => b.score - a.score || a.index - b.index).map((entry) => entry.page);
+  const hasProblem = PROBLEM_WORDS.test(question);
+  const opening = (page: Loaded["pages"][number]) => (texts.get(page.pageId) ?? "").slice(0, 400);
+  const ordered = chosen.map((group) => {
+    const others = stems.filter((stem) => stem !== group.stem);
+    const carried = (page: Loaded["pages"][number]) =>
+      others.reduce((sum, stem) => sum + (page.title.toLowerCase().includes(stem) ? 2 : 0) + ((texts.get(page.pageId) ?? "").includes(stem) ? 1 : 0), 0) +
+      (hasProblem && PROBLEM_OPENING.test(opening(page)) ? 2 : 0);
+    return group.pages.map((page, index) => ({ page, index, score: carried(page) })).sort((a, b) => b.score - a.score || a.index - b.index).map((entry) => entry.page);
+  });
   const ids: string[] = [];
   for (let round = 0; round < titleSections; round += 1) {
-    for (const page of pages) if (ids.length < RARE_TITLE_SECTIONS && page.sectionIds[round]) ids.push(page.sectionIds[round]);
+    for (let place = 0; place < RARE_TITLE_PAGES; place += 1) {
+      for (const pages of ordered) {
+        const section = pages[place]?.sectionIds[round];
+        if (section && !ids.includes(section) && ids.length < RARE_TITLE_TOTAL) ids.push(section);
+      }
+    }
   }
   return ids;
 }
@@ -249,10 +275,15 @@ const RARE_WORD_SECTIONS_KEPT = 2;
 function rareTextSections(all: Loaded, words: string[], keywordOrder: string[]): string[] {
   const lowered = sectionLowerTexts(all);
   const chosen: string[] = [];
-  const stems = [...new Set(words.map(wordStem))].filter((stem) => stem.length >= 4);
+  // A short word ("SSO") is matched as a whole word, so it is not found inside "associate".
+  const stems = [...new Set(words.map((word) => (word.length <= 4 ? word : wordStem(word))))].filter((stem) => stem.length >= 3);
   for (const stem of stems) {
     if (chosen.length >= RARE_WORD_SECTIONS_KEPT) break;
-    const holding = all.sections.filter((section) => lowered.get(section.id)?.includes(stem));
+    const whole = stem.length <= 4 ? new RegExp(`(?<![\\p{L}\\p{N}])${stem}(?![\\p{L}\\p{N}])`, "u") : null;
+    const holding = all.sections.filter((section) => {
+      const text = lowered.get(section.id) ?? "";
+      return whole ? whole.test(text) : text.includes(stem);
+    });
     if (holding.length === 0 || holding.length > RARE_TEXT_SECTIONS) continue;
     const place = (id: string) => (keywordOrder.indexOf(id) === -1 ? Number.MAX_SAFE_INTEGER : keywordOrder.indexOf(id));
     // A section with the word in its heading answers "how do I set up X" best; otherwise the one the keyword search liked most.
@@ -403,7 +434,7 @@ export async function searchKnowledgeIndex(
 
   // Sections of the pages named for the question's rarest word come first, then the ranking fills the rest.
   const reserved = new Set([
-    ...queries.flatMap((query) => rareTitlePages(all, query.words, tuning.titleSections)),
+    ...queries.flatMap((query) => rareTitlePages(all, query.words, tuning.titleSections, query.focus)),
     ...queries.flatMap((query, index) => rareTextSections(all, query.words, perQuery[index].keyword)),
   ]);
   const ordered = [...reserved.values()].map((id) => [id, fused.get(id) ?? 0] as [string, number]).concat(ranked.filter(([id]) => !reserved.has(id)));
@@ -412,7 +443,7 @@ export async function searchKnowledgeIndex(
   // the whole message fills what is left.
   const topicRanked = perTopic.map((lists, index) => {
     const own = fuse([lists]);
-    const reservedForTopic = rareTitlePages(all, topicQueries[index].words, tuning.titleSections);
+    const reservedForTopic = rareTitlePages(all, topicQueries[index].words, tuning.titleSections, topicQueries[index].focus);
     const rest = [...own.entries()].sort((a, b) => b[1] - a[1]).filter(([id]) => !reservedForTopic.includes(id));
     return reservedForTopic.map((id) => [id, own.get(id) ?? 0] as [string, number]).concat(rest);
   });

@@ -123,6 +123,22 @@ describe("a rare word in a section's text against pages named for the generic wo
   });
 });
 
+describe("SDS-27 as typed: the message says SSO and never names the provider", () => {
+  it("still finds the section that documents it", async () => {
+    const pages: P[] = [
+      ...["Getting Started with EAP Expert Cloud", "EAP Expert Cloud Overview", "EAP Expert Cloud Support", "EAP Expert Cloud Release Notes", "System Settings and Configurations", "Logging into EAP Expert"].map((title, i) => ({
+        id: `g${i}`,
+        title,
+        sections: [{ text: "How to get access and configure details for the EAP Expert system and your account." }, { heading: "Configuration", text: "Configuration details for the system are set by your administrator." }],
+      })),
+      { id: "int", title: "Integrations Options", sections: [{ heading: "Reminder", text: "Appointment reminders are sent for past sessions." }, { heading: "OKTA", text: "OKTA assists users with single sign-on (SSO). An OKTA account is required." }] },
+      ...filler(30),
+    ];
+    const result = await search(pages, silentEmbed(), "Hello, I am requesting the SSO configuration details needed to establish single sign-on access to the EAP Expert system.");
+    expect(result).toContain("Integrations Options > OKTA");
+  });
+});
+
 describe("a page the worker's instructions name, against five pages named for the same product word", () => {
   const pages: P[] = [
     ...["Installing Parallels", "Frequent Parallels Errors", "Setting Up a Parallels Connection", "How to work around a frozen screen in Parallels?"].map((title, i) => ({
