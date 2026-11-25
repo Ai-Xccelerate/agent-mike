@@ -479,6 +479,31 @@ export function shouldTripInputGuardrail(
   return false;
 }
 
+
+/**
+ * A trip caused only by a message too vague to classify: no injection, not out of scope, not a classifier failure, and
+ * the confidence below the hard floor. Such a message wants a question back, not a person.
+ */
+export function isVagueOnlyTrip(classification: IntentClassification, confidenceThreshold: number): boolean {
+  if (classification.injectionSuspected || classification.outOfScope || classification.escalate) return false;
+  if ((classification.matchedThemes ?? []).length > 0) return false;
+  if (classification.reason.startsWith("Guardrail classifier")) return false;
+  const hardFloor = Math.min(0.35, confidenceThreshold * 0.45);
+  return classification.confidence < hardFloor;
+}
+
+/** One question back to a message too vague to act on. Role-neutral. */
+export function askForMoreReply(
+  profile: Pick<{ confidenceThreshold: number }, "confidenceThreshold">,
+): { answer: string; confidence: number; escalate: boolean; citations: string[] } {
+  return {
+    answer: "I want to make sure I help with the right thing. Could you tell me a little more about what is happening, including which product or screen you are using?",
+    confidence: Math.min(0.55, profile.confidenceThreshold),
+    escalate: false,
+    citations: [],
+  };
+}
+
 /** Polite decline when the customer asks for work outside the worker's role. */
 export function declineOutOfScopeReply(
   profile: Pick<{ role: string; confidenceThreshold: number }, "role" | "confidenceThreshold">,
