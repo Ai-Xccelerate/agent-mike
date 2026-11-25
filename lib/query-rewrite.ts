@@ -12,7 +12,7 @@ import { guardrailModel, modelUnavailabilityReason } from "@/lib/env";
  * on any failure or delay so a slow model never holds a customer's answer.
  */
 
-const REWRITE_WAIT_MS = 1800;
+const REWRITE_WAIT_MS = 3000;
 const CACHE_SIZE = 500;
 const cache = new Map<string, string | null>();
 
@@ -21,6 +21,7 @@ const INSTRUCTIONS =
   "Reply with the query only: 3 to 10 words, in English, naming the task and the screen or feature (for example " +
   '"submit provider claims" or "add a new client organization"). Translate if the message is not in English. ' +
   "Drop greetings, names, background and what the customer already tried, unless it names the feature. " +
+  "Write product and feature names as a person would in the help articles, with spaces (Life Expert, not LifeExpert), and spell out abbreviations you are sure of. " +
   "If the message holds no question about the software, reply with the single word NONE.";
 
 const FOREIGN_WORDS =
