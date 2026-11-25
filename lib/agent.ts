@@ -8,10 +8,14 @@ import { timed, traceAdd, traceSet } from "@/lib/timing";
 import { cleanChoices } from "@/lib/customer-cards";
 import { CUSTOMER_CHAT_WORKFLOW, runTracedAgent } from "@/lib/agent-tracing";
 import { buildInputWithHistory, type HistoryTurn } from "@/lib/conversation-memory";
+import { COVERED_RETRY_MESSAGE, SCOPING_RETRY_MESSAGE, decideHandover, workerAlreadyAsked } from "@/lib/handover-check";
 import {
   buildCustomerInputGuardrail,
   buildCustomerOutputGuardrail,
   applyReplyPolicy,
+  asksForTicketOrPerson,
+  askForMoreReply,
+  isVagueOnlyTrip,
   buildBlockedReplyRepairMessage,
   CUSTOMER_INPUT_GUARDRAIL_NAME,
   declineOutOfScopeReply,
@@ -1818,6 +1822,44 @@ export async function runAgent(
       adjusted = applyReplyPolicy(retriedText, retriedPolicy);
       if (!hasWords(adjusted) || announcesWorkWithoutAnswer(adjusted)) return handoffBecause(profile, "the reply only announced a lookup twice");
     }
+    // A second look at a handover (lib/handover-check.ts): the pages may already answer it, or one short question may let a
+    // teammate start without asking it again. Runs only on a draft that hands over, so a normal answer never waits for it.
+    const handoverVerdict = await timed("agent.handoverCheck", () =>
+      decideHandover(/\[\[ESCALATE\]\]/i.test(adjusted) || promisesPersonFollowUp(adjusted), {
+        message,
+        history,
+        workerName: profile.displayName,
+        sections: knowledge,
+        escalationTerms: profile.escalationTerms ?? [],
+        withTeam: Boolean(knownCustomer?.withTeam),
+        role: profile.role,
+      }),
+    );
+    if (handoverVerdict === "covered" || handoverVerdict === "needs_scoping") {
+      const retried = await timed("agent.retryHandover", () => runTracedAgent(
+        CUSTOMER_CHAT_WORKFLOW,
+        { organizationId, conversationId },
+        repairAgent,
+        `${baseInput}\n\n${handoverVerdict === "covered" ? COVERED_RETRY_MESSAGE : SCOPING_RETRY_MESSAGE}`,
+        { maxTurns, context: guardrailContext },
+      ));
+      recordRun(retried, readPages);
+      const retriedText = typeof retried.finalOutput === "string" ? retried.finalOutput : String(retried.finalOutput ?? "");
+      const retriedPolicy = replyPolicyFromRun(retried);
+      if (retriedPolicy?.action !== "block") {
+        const candidate = applyReplyPolicy(retriedText, retriedPolicy);
+        // A scoping question must not itself hand over; an answer may still end in a handover if the pages truly fall short.
+        if (hasWords(candidate) && !(handoverVerdict === "needs_scoping" && /\[\[ESCALATE\]\]/i.test(candidate))) {
+          adjusted = candidate;
+          traceAdd(
+            "events",
+            handoverVerdict === "covered"
+              ? "She was about to hand over, but the pages cover the question; she was asked to answer from them"
+              : "She was about to hand over; she was asked to put one short question first",
+          );
+        }
+      }
+    }
     // Intent confidence came from the first turn's input guardrail.
     const parsed = parseAnswer(adjusted, profile.confidenceThreshold, intentConfidenceFromRun(first));
     if (!parsed.escalate && !parsed.needIdentity && promisesPersonFollowUp(parsed.answer)) {
@@ -1837,6 +1879,20 @@ export async function runAgent(
         traceSet("route", "scope_decline");
         traceSet("routeReason", intent.reason || "the scope check judged it outside the role");
         return declineOutOfScopeReply(profile);
+      }
+      // A prompt-injection attempt gets a polite decline and the chat carries on: the worker never ran, so nothing was
+      // leaked, and a ticket for a person would only make work for the team. Anything else that trips still hands over.
+      if (intent?.injectionSuspected && !intent.escalate && !asksForTicketOrPerson(message)) {
+        traceSet("route", "injection_decline");
+        traceSet("routeReason", intent.reason || "the scope check suspected a prompt injection");
+        return declineOutOfScopeReply(profile);
+      }
+      // A message too vague to classify ("it's not working") is not a reason for a person: ask for more, once. If the worker
+      // already asked and the customer is still vague, or the classifier itself failed, it hands over as before.
+      if (intent && isVagueOnlyTrip(intent, profile.confidenceThreshold) && !workerAlreadyAsked(history, profile.displayName)) {
+        traceSet("route", "vague_ask");
+        traceSet("routeReason", intent.reason || "the message was too vague to classify");
+        return askForMoreReply(profile);
       }
       return handoffBecause(profile, "the input check tripped", { intent: intent ? { outOfScope: intent.outOfScope } : null });
     }
