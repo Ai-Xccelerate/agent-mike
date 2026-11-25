@@ -1606,3 +1606,79 @@ body[data-worker-widget="1"] {
 html[data-worker-widget="1"] .liquid-backdrop {
   display: none !important;
 }
+
+/* Eva waiting state (components/worker/ReplyWaiting.tsx): one card across the message area, one line that changes.
+   Every accent below is var(--color-brand-*), which the widget sets from the customer's accent colour. No fixed colour.
+   The sweep, the star and the shimmer stop under reduced motion; the words still change. */
+.eva-wait {
+  --eva-wait-base: var(--color-gray-500);
+  --eva-wait-peak: var(--color-gray-900);
+}
+.dark .eva-wait {
+  --eva-wait-base: var(--color-gray-400);
+  --eva-wait-peak: var(--color-gray-50);
+}
+.eva-wait-rail {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-brand-500) 14%, transparent);
+}
+.eva-wait-rail::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  background: var(--color-brand-500);
+  animation: eva-wait-rail 1.5s ease-in-out infinite;
+}
+.eva-wait-spark {
+  animation: eva-wait-spin 5s linear infinite, eva-wait-breathe 1.8s ease-in-out infinite;
+}
+.eva-wait-line {
+  display: inline-block;
+  animation: eva-wait-in 160ms ease-out both;
+}
+.eva-wait-shimmer {
+  background: linear-gradient(100deg, var(--eva-wait-base) 0%, var(--eva-wait-peak) 38%, var(--color-brand-500) 50%, var(--eva-wait-peak) 62%, var(--eva-wait-base) 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: eva-wait-in 160ms ease-out both, eva-wait-text 2.4s linear infinite;
+}
+.eva-wait-ring {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--color-brand-500) 18%, transparent);
+  border-top-color: var(--color-brand-500);
+  animation: eva-wait-spin 0.9s linear infinite;
+}
+@keyframes eva-wait-rail {
+  0% { left: -40%; }
+  100% { left: 102%; }
+}
+@keyframes eva-wait-text {
+  0% { background-position: 110% 0; }
+  100% { background-position: -110% 0; }
+}
+@keyframes eva-wait-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes eva-wait-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@keyframes eva-wait-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-wait-spark, .eva-wait-ring, .eva-wait-line, .eva-wait-shimmer { animation: none; }
+  .eva-wait-rail::after { animation: none; left: 0; width: 100%; opacity: 0.5; }
+  .eva-wait-shimmer { background: none; -webkit-text-fill-color: var(--eva-wait-peak); color: var(--eva-wait-peak); }
+}
