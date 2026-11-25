@@ -21,6 +21,7 @@ import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/cus
 import { CustomerCardsContext, IdentityRequestView, LatestReplyContext, type ChatIdentity } from "@/components/worker/customer-cards/CustomerCards";
 import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { ReplyWaiting, TicketWaiting, useWaitingLine } from "@/components/worker/ReplyWaiting";
 
 const MESSAGE_MAX_LENGTH = 4000;
 /** How often the open website chat asks the server for new messages (a manager's reply). */
@@ -119,6 +120,9 @@ function ChatPanelBody({
   const [identityConversationId, setIdentityConversationId] = useState<string | undefined>(undefined);
   // What the server says it is doing right now ("Checking our help articles"). Never made up here.
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
+  // The reply of this turn is already on screen (a handover's ticket may still be on its way).
+  const [replied, setReplied] = useState(false);
+  const waitingLine = useWaitingLine(loading && !replied, statusLabel);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // Files the visitor has chosen for their next message (uploaded already, not yet sent). Only where the manager allows it.
   const [files, setFiles] = useState<{ id: string; filename: string; size: number }[]>([]);
@@ -345,6 +349,7 @@ function ChatPanelBody({
     setFiles([]);
     setFileError(null);
     setStatusLabel(null);
+    setReplied(false);
     setLoading(true);
     // Set from the run's error event, which a closure writes to; read in the catch below.
     const failed: { code: string | null } = { code: null };
@@ -369,7 +374,10 @@ function ChatPanelBody({
           onCustomEvent: ({ event }) => {
             if (event.name === "chat.turn") {
               turn = event.value as ChatResponse;
-              if (turn.message) addReply(turn.message as Message);
+              if (turn.message) {
+                addReply(turn.message as Message);
+                setReplied(true);
+              }
             }
             if (event.name === "chat.ticket") addReply(event.value as Message);
             if (event.name === "chat.status") {
@@ -430,6 +438,7 @@ function ChatPanelBody({
     } finally {
       setLoading(false);
       setStatusLabel(null);
+      setReplied(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
@@ -774,27 +783,10 @@ function ChatPanelBody({
           </div>
         )}
 
-        {loading && (
-          <div className="flex items-center gap-2.5">
-            <AgentAvatar initials={avatarInitials} size="sm" accentColor={accentColor} avatarUrl={avatarUrl} />
-            <div
-              role="status"
-              aria-live="polite"
-              className="flex items-center gap-2 rounded-2xl rounded-tl-md border border-gray-200 bg-white px-4 py-3.5 dark:border-gray-800 dark:bg-white/[0.04]"
-            >
-              <span className="flex gap-1" aria-hidden="true">
-                <span className="size-1.5 animate-pulse rounded-full bg-gray-400" />
-                <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms]" />
-                <span className="size-1.5 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms]" />
-              </span>
-              {statusLabel ? (
-                <span className="text-xs text-gray-500 dark:text-gray-400">{statusLabel}</span>
-              ) : (
-                <span className="sr-only">{displayName} is typing</span>
-              )}
-            </div>
-          </div>
-        )}
+        {/* From send until the reply is ready: one card across the message area. After the reply, a handover's ticket
+            is logged under it with a small line. See ReplyWaiting.tsx. */}
+        {loading && !replied && <ReplyWaiting name={displayName} line={waitingLine} />}
+        {loading && replied && statusLabel ? <TicketWaiting label={statusLabel} /> : null}
         <div ref={bottomRef} />
       </div>
       </CustomerCardsContext.Provider>
