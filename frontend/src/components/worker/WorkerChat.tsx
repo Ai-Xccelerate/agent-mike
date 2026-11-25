@@ -587,7 +587,7 @@ function ChatPanelBody({
               )}
             </span>
             <span className="flex shrink-0 items-center gap-2">
-              {escalated && (
+              {escalated && !viewing && (
                 <Badge size="sm" color="warning">
                   Manager notified
                 </Badge>
@@ -636,7 +636,7 @@ function ChatPanelBody({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {escalated && (
+          {escalated && !viewing && (
             <Badge size="sm" color="warning">
               Manager notified
             </Badge>
