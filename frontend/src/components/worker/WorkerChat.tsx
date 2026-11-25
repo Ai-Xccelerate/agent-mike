@@ -15,6 +15,8 @@ import { forgetRemembered, readRemembered } from "@/lib/remembered-customer";
 import { quickActionsFor, welcomeText } from "@/lib/widget-defaults";
 import { mergeWidgetHistory, sameMessages } from "@/lib/widget-history";
 import { cardToolCall, isCustomerCard } from "@/lib/customer-cards";
+import ChatHistoryDrawer from "@/components/worker/ChatHistoryDrawer";
+import { newChatConfirmationText, newChatNeedsConfirmation, openingMode, type HistoryChat, type ViewedChat } from "@/lib/chat-history";
 import CustomerCopilot, { CUSTOMER_CHAT_AGENT_ID } from "@/components/worker/customer-cards/CustomerCopilot";
 import { CustomerCardsContext, IdentityRequestView, LatestReplyContext, type ChatIdentity } from "@/components/worker/customer-cards/CustomerCards";
 import { useAgent, useRenderToolCall } from "@copilotkit/react-core/v2";
@@ -103,6 +105,12 @@ function ChatPanelBody({
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [escalated, setEscalated] = useState(false);
+  // Chat history (website chat): the drawer, a finished chat opened to read, the ticket of the current chat, and the
+  // "start a new chat anyway?" question shown while the current chat is with the team.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewing, setViewing] = useState<ViewedChat<Message> | null>(null);
+  const [ticketKey, setTicketKey] = useState<string | null>(null);
+  const [confirmNew, setConfirmNew] = useState(false);
   const [preview, setPreview] = useState(false);
   const [restoring, setRestoring] = useState(compact);
   const [identityReady, setIdentityReady] = useState(!compact);
@@ -228,7 +236,7 @@ function ChatPanelBody({
     async function sync() {
       if (document.visibilityState === "hidden") return;
       try {
-        const server = await apiFetch<{ status: string; messages: Message[] }>(
+        const server = await apiFetch<{ status: string; ticket_key?: string | null; messages: Message[] }>(
           `/chat/messages?conversation_id=${encodeURIComponent(compactConversationId as string)}`,
           { widgetSiteToken: siteToken },
         );
@@ -236,6 +244,7 @@ function ChatPanelBody({
         const merged = mergeWidgetHistory(server.messages, messagesRef.current, welcomeMessage(profile));
         if (!sameMessages(merged, messagesRef.current)) setMessages(merged);
         setEscalated(server.status === "needs_human");
+        setTicketKey(server.ticket_key ?? null);
       } catch {
         // Keep what is on screen; the next check tries again.
       }
@@ -441,8 +450,92 @@ function ChatPanelBody({
     setCompactConversationId(undefined);
     setIdentity(undefined);
     setEscalated(false);
+    setTicketKey(null);
+    setViewing(null);
+    setHistoryOpen(false);
+    setConfirmNew(false);
     setMessages([welcomeMessage(profile)]);
   }
+
+  // The customer's whole address was checked with a code, so a new chat starts as theirs (the device token does it
+  // on the first message) and the old chat stays on the server, reachable from the history drawer.
+  function startNewChat() {
+    try {
+      sessionStorage.removeItem(storageKey(siteToken));
+    } catch {
+      // Storage blocked: the reset below still applies to this view.
+    }
+    const remembered = readRemembered(siteToken);
+    setCompactConversationId(undefined);
+    setIdentity(remembered?.email ? { name: remembered.name ?? undefined, email: remembered.email, verified: true } : undefined);
+    setEscalated(false);
+    setTicketKey(null);
+    setViewing(null);
+    setHistoryOpen(false);
+    setConfirmNew(false);
+    setFiles([]);
+    setValue("");
+    setMessages([welcomeMessage(profile)]);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function requestNewChat() {
+    if (newChatNeedsConfirmation({ waitingForTeam: escalated, reading: Boolean(viewing) })) setConfirmNew(true);
+    else startNewChat();
+  }
+
+  // An earlier chat from the drawer. One still open is carried on (it becomes the current chat); a finished one is
+  // shown to read, with a way to start a new chat.
+  async function openHistoryChat(chat: HistoryChat) {
+    setHistoryOpen(false);
+    if (chat.id === compactConversationId) {
+      setViewing(null);
+      return;
+    }
+    try {
+      const server = await apiFetch<{ status: string; ticket_key?: string | null; messages: Message[] }>(
+        `/chat/messages?conversation_id=${encodeURIComponent(chat.id)}`,
+        { widgetSiteToken: siteToken },
+      );
+      if (openingMode(chat) === "read") {
+        setViewing({ id: chat.id, title: chat.title, messages: server.messages });
+        return;
+      }
+      setViewing(null);
+      setCompactConversationId(chat.id);
+      setMessages(server.messages.length ? server.messages : [welcomeMessage(profile)]);
+      setEscalated(server.status === "needs_human");
+      setTicketKey(server.ticket_key ?? null);
+    } catch {
+      // The chat could not be read: stay where the customer was.
+    }
+  }
+
+  const verifiedForHistory = compact && identityMode === "email_code" && Boolean(identity?.verified || rememberedDevice);
+  const canViewHistory = verifiedForHistory && !gatePending;
+  const canStartNew = compact && !restoring && !gatePending && Boolean(compactConversationId || viewing);
+  const showHistoryControls = canViewHistory || canStartNew;
+  const iconButtonClass =
+    "flex size-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-50 dark:hover:bg-white/5 dark:hover:text-gray-200";
+  const historyControls = showHistoryControls ? (
+    <div className="flex shrink-0 items-center gap-1">
+      {canStartNew && (
+        <button type="button" onClick={requestNewChat} disabled={loading} aria-label="New chat" title="New chat" className={iconButtonClass}>
+          <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+      {canViewHistory && (
+        <button type="button" onClick={() => setHistoryOpen(true)} aria-label="Chat history" aria-haspopup="dialog" title="Chat history" className={iconButtonClass}>
+          <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.25" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M12 7.5V12l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+    </div>
+  ) : null;
 
   const isBlank = !compact && !externalConversationId && messages.length <= 1;
   const visibleMessages = messages.map((message) =>
@@ -451,7 +544,7 @@ function ChatPanelBody({
   // Only the newest reply's quick replies can still be tapped.
   const latestReplyId = [...visibleMessages].reverse().find((message) => message.senderType === "agent")?.id;
   const cardActions = {
-    busy: loading,
+    busy: loading || Boolean(viewing),
     onReply: (text: string) => void sendText(text),
     conversationId,
     siteToken: compact ? siteToken : undefined,
@@ -463,7 +556,7 @@ function ChatPanelBody({
     gate: gatePending,
     onConversation: (id: string) => setCompactConversationId(id),
   };
-  const showQuickActions = compact && !loading && !gatePending && messages.length <= 1 && quickActionsFor(profile).length > 0;
+  const showQuickActions = compact && !loading && !gatePending && !viewing && messages.length <= 1 && quickActionsFor(profile).length > 0;
 
   if (compact && !siteToken?.trim()) {
     return (
@@ -478,10 +571,10 @@ function ChatPanelBody({
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-gray-900 ${compact && !embedded ? "rounded-2xl" : ""}`}
+      className={`relative flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-gray-900 ${compact && !embedded ? "rounded-2xl" : ""}`}
     >
       {embedded ? (
-        (compact && identity?.verified) || escalated ? (
+        (compact && identity?.verified) || escalated || showHistoryControls ? (
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-2 text-xs dark:border-gray-800 dark:bg-gray-900">
             <span className="flex min-w-0 items-center gap-1.5 truncate text-gray-500 dark:text-gray-400">
               {compact && identity?.verified && (
@@ -493,11 +586,14 @@ function ChatPanelBody({
                 </>
               )}
             </span>
-            {escalated && (
-              <Badge size="sm" color="warning">
-                Manager notified
-              </Badge>
-            )}
+            <span className="flex shrink-0 items-center gap-2">
+              {escalated && (
+                <Badge size="sm" color="warning">
+                  Manager notified
+                </Badge>
+              )}
+              {historyControls}
+            </span>
           </div>
         ) : null
       ) : (
@@ -545,6 +641,7 @@ function ChatPanelBody({
               Manager notified
             </Badge>
           )}
+          {historyControls}
           {onClose && (
             <button
               type="button"
@@ -562,6 +659,14 @@ function ChatPanelBody({
       </header>
       )}
 
+      {viewing && (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2 text-xs dark:border-gray-800 dark:bg-white/[0.03]">
+          <span className="min-w-0 truncate text-gray-600 dark:text-gray-300">Earlier chat: {viewing.title}</span>
+          <button type="button" onClick={() => setViewing(null)} className="shrink-0 underline decoration-dotted text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100">
+            Back to current chat
+          </button>
+        </div>
+      )}
       <CustomerCardsContext.Provider value={cardActions}>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-gray-25 p-4 [scrollbar-gutter:stable] dark:bg-gray-950/40 sm:p-5">
         {preview && (
@@ -569,7 +674,7 @@ function ChatPanelBody({
             Preview response · API unreachable
           </div>
         )}
-        {visibleMessages.map((message) => {
+        {(viewing ? viewing.messages : visibleMessages).map((message) => {
           const isAgent = message.senderType === "agent";
           // On the website a "manager" message is a person from the team writing to the visitor. In the Playground the
           // signed-in manager is the one typing, so theirs stays on the right like a visitor's.
@@ -600,7 +705,7 @@ function ChatPanelBody({
                   {isAgent ? <Markdown>{message.body}</Markdown> : <p className="whitespace-pre-wrap">{message.body}</p>}
                 </div>
                 {isAgent && (message.cards ?? []).some(isCustomerCard) && (
-                  <LatestReplyContext.Provider value={message.id === latestReplyId}>
+                  <LatestReplyContext.Provider value={!viewing && message.id === latestReplyId}>
                     <div className="mt-2 flex flex-col gap-2">
                       {(message.cards ?? []).filter(isCustomerCard).map((card) => (
                         <div key={card.id}>{renderToolCall(cardToolCall(card))}</div>
@@ -694,6 +799,14 @@ function ChatPanelBody({
       </div>
       </CustomerCardsContext.Provider>
 
+      {viewing ? (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-sm text-gray-600 dark:text-gray-300">This chat is finished.</p>
+          <button type="button" onClick={startNewChat} className="shrink-0 rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600">
+            Start a new chat
+          </button>
+        </div>
+      ) : (
       <form
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
@@ -819,6 +932,27 @@ function ChatPanelBody({
           )}
         </div>
       </form>
+      )}
+
+      {historyOpen && siteToken && (
+        <ChatHistoryDrawer siteToken={siteToken} conversationId={compactConversationId} onClose={() => setHistoryOpen(false)} onOpen={(chat) => void openHistoryChat(chat)} />
+      )}
+
+      {confirmNew && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-gray-900/40 p-4">
+          <div role="alertdialog" aria-label="Start a new chat" className="w-full max-w-xs rounded-2xl border border-gray-200 bg-white p-4 shadow-lg dark:border-gray-800 dark:bg-gray-900">
+            <p className="text-sm text-gray-800 dark:text-white/90">{newChatConfirmationText(ticketKey)}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" autoFocus onClick={() => setConfirmNew(false)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-white/5">
+                Keep this chat
+              </button>
+              <button type="button" onClick={startNewChat} className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600">
+                Start a new chat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

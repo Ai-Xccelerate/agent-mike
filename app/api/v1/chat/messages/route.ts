@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     conversation_id: conversation.id,
     status: conversation.status,
+    ticket_key: conversation.externalTicketKey,
     human_controlled: conversation.humanControlled,
     messages: rows.map((row) => {
       const message = withNormalizedCitations(row);
