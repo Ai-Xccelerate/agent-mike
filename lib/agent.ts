@@ -48,6 +48,7 @@ import {
   executeConfluencePageRead,
   executeConfluenceSearch,
   lookupCustomerTickets,
+  readConfluenceSettings,
   requestTypeGuidance,
 } from "@/lib/tools-integrations/atlassian";
 import {
@@ -1050,10 +1051,16 @@ export async function buildAgentTools(
   }
 
   const knowledgeConnection = await getConnectionForOrg(organizationId, "knowledge_base");
+  // When the organization answers from the saved copy of its spaces (Settings > Connections > Confluence, "search the saved
+  // copy"), the live Confluence search and read tools are not offered: the copy holds the same pages, the live search only
+  // matches page titles, and in the 25 Nov persona test the worker never called them in 492 conversations.
+  const knowledgeSettings = knowledgeConnection ? readConfluenceSettings(knowledgeConnection.metadata) : null;
+  const answersFromSavedCopy = Boolean(knowledgeSettings?.searchBeforeAnswering && knowledgeSettings.searchIndex);
   if (
     knowledgeConnection?.status === "active" &&
     knowledgeConnection.composioConnectedAccountId &&
-    knowledgeConnection.system === "confluence"
+    knowledgeConnection.system === "confluence" &&
+    !answersFromSavedCopy
   ) {
     const connectedAccountId = knowledgeConnection.composioConnectedAccountId;
     tools.push(
