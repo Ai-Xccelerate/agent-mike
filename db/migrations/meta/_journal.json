@@ -344,6 +344,13 @@
       "when": 1790746400028,
       "tag": "0048_widget_appearance",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790832800029,
+      "tag": "0049_knowledge_page_questions",
+      "breakpoints": true
     }
   ]
 }

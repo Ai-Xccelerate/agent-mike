@@ -957,6 +957,26 @@ export const knowledgeSections = pgTable(
   }),
 );
 
+/** Customer-style questions written for each indexed page, matched against to find the page (lib/knowledge-page-questions.ts). */
+export const knowledgePageQuestions = pgTable(
+  "knowledge_page_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    pageId: text("page_id").notNull(),
+    contentHash: text("content_hash").notNull(),
+    question: text("question").notNull(),
+    embedding: real("embedding").array(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pageIdx: index("knowledge_page_questions_page_idx").on(table.organizationId, table.source, table.pageId),
+  }),
+);
+
 export const knowledgeIndexState = pgTable(
   "knowledge_index_state",
   {

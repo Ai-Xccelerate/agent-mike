@@ -82,6 +82,15 @@ describe("Confluence integration", () => {
     expect(toolNamed(await buildAgentTools(profile, "org-1"), CONFLUENCE_SEARCH_TOOL_NAME)).toBeUndefined();
   });
 
+  it("leaves the live search and read tools out when answers come from the saved copy of the spaces", async () => {
+    getConnectionMock.mockImplementation(async (_org, type) =>
+      type === "knowledge_base" ? confluence({ metadata: { settings: { spaceKeys: ["EAPX"], searchBeforeAnswering: true, searchIndex: true } } }) : null,
+    );
+    const tools = await buildAgentTools(profile, "org-1");
+    expect(toolNamed(tools, CONFLUENCE_SEARCH_TOOL_NAME)).toBeUndefined();
+    expect(toolNamed(tools, CONFLUENCE_READ_TOOL_NAME)).toBeUndefined();
+  });
+
   it("searches by title through Composio with the pinned toolkit version", async () => {
     getConnectionMock.mockImplementation(async (_org, type) => (type === "knowledge_base" ? confluence() : null));
     executeToolMock.mockResolvedValueOnce({ successful: true, data: { results: [{ id: "123", title: "Refund policy" }] } } as never);

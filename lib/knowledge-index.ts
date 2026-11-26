@@ -5,6 +5,7 @@ import { knowledgeIndexPages, knowledgeIndexState, knowledgeSections } from "@/d
 import { chunkPage, embeddingInput } from "@/lib/knowledge-chunker";
 import { embedTexts, type Embedder } from "@/lib/embeddings";
 import { confluenceIndexSource, type IndexSource } from "@/lib/tools-integrations/atlassian";
+import { syncPageQuestions } from "@/lib/knowledge-page-questions";
 
 /**
  * Keeps a searchable copy of an organization's Confluence in Mike's own database, cut into sections.
@@ -240,7 +241,13 @@ export async function refreshKnowledgeIndexIfStale(organizationId: string, run: 
   if (running || Date.now() - finished < STALE_MINUTES * 60_000) return false;
   lastTried.set(organizationId, Date.now());
   void run(organizationId).then(
-    (report) => console.info("[knowledge-index] background sync", JSON.stringify({ organizationId, ...report })),
+    async (report) => {
+      console.info("[knowledge-index] background sync", JSON.stringify({ organizationId, ...report }));
+      // Then the customer-style questions for pages that are new or changed (lib/knowledge-page-questions.ts).
+      if (report.skipped || report.error) return;
+      const questions = await syncPageQuestions(organizationId).catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
+      console.info("[knowledge-index] page questions", JSON.stringify({ organizationId, ...questions }));
+    },
     (error) => console.warn("[knowledge-index] background sync crashed", error instanceof Error ? error.message : error),
   );
   return true;
