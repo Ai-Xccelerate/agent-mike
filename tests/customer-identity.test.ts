@@ -19,6 +19,7 @@ import {
 } from "@/lib/customer-identity";
 import { identityRules } from "@/lib/agent";
 import { runChatRequest } from "@/lib/chat-turn";
+import { codeTypedInChat } from "@/lib/chat-typed-code";
 import { issueRememberToken } from "@/lib/remembered-customer";
 import { recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 import { POST as postIdentity } from "@/app/api/v1/chat/identity/route";
@@ -571,5 +572,53 @@ describe("a customer remembered on their device", () => {
     await setMode("email_match");
     const { row } = await ask(issueRememberToken(orgId, { email: "dana@example.com", name: null })!);
     expect(row.customerEmailVerifiedAt).toBeNull();
+  });
+});
+
+// EAP, 25 Nov: a visitor typed the emailed code ("579 572.") into the chat instead of the code box and was never verified.
+describe("a code typed into the chat instead of the code box", () => {
+  const say = async (conversationId: string, message: string) =>
+    (await runChatRequest(post("/api/v1/chat", {}), { message, conversation_id: conversationId })).json;
+
+  it("reads a message that is only a code, as the email writes it or not, and nothing else", () => {
+    expect(codeTypedInChat("579 572.")).toBe("579572");
+    expect(codeTypedInChat("  579572 ")).toBe("579572");
+    expect(codeTypedInChat("my code is 579-572")).toBe("579572");
+    expect(codeTypedInChat("call me on 579 572 1234")).toBeNull();
+    expect(codeTypedInChat("ticket 579572 is still open")).toBeNull();
+  });
+
+  it("verifies the visitor on the right code, without running the worker", async () => {
+    await setMode("email_code");
+    const conversation = await widgetConversation();
+    await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: "dana@example.com" }));
+    const code = sentCode();
+
+    const reply = await say(conversation.id, `${code.slice(0, 3)} ${code.slice(3)}.`);
+    expect(reply.message.body).toContain("you're verified as dana@example.com");
+    expect(runAgentMock).not.toHaveBeenCalled();
+    const [row] = await db.select().from(conversations).where(eq(conversations.id, conversation.id));
+    expect(row.customerEmailVerifiedAt).toBeInstanceOf(Date);
+  });
+
+  it("says a wrong code is wrong, counted against the same limit as the code box", async () => {
+    await setMode("email_code");
+    const conversation = await widgetConversation();
+    await postIdentity(post("/api/v1/chat/identity", { conversation_id: conversation.id, name: "Dana Reyes", email: "dana@example.com" }));
+    const wrong = sentCode() === "000000" ? "111111" : "000000";
+
+    const reply = await say(conversation.id, wrong);
+    expect(reply.message.body).toContain("That code isn't right");
+    expect(reply.message.body).toContain("4 tries left");
+    expect(runAgentMock).not.toHaveBeenCalled();
+  });
+
+  it("goes to the worker as usual when no code is waiting", async () => {
+    await setMode("email_code");
+    runAgentMock.mockResolvedValue({ answer: "Could you tell me more?", confidence: 0.9, escalate: false, citations: [] });
+    const conversation = await widgetConversation();
+    const reply = await say(conversation.id, "579 572");
+    expect(runAgentMock).toHaveBeenCalled();
+    expect(reply.message.body).toContain("Could you tell me more?");
   });
 });

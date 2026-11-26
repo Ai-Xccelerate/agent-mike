@@ -9,7 +9,8 @@ import { attachmentMarker, linkUploads, usableUploads } from "@/lib/attachments"
 import { insertConversationWithTicket, runCustomerTurn, type TicketFollowUp } from "@/lib/customer-turn";
 import { extractStatedCustomer } from "@/lib/customer-stated";
 import { timed, traceSet, withTurnTimer } from "@/lib/timing";
-import { anonymousVisitorName, identityGateSatisfied, normalizeIdentityMode } from "@/lib/customer-identity";
+import { anonymousVisitorName, identityGateSatisfied, normalizeIdentityMode, verifyCode } from "@/lib/customer-identity";
+import { codeTypedInChat, typedCodeReply } from "@/lib/chat-typed-code";
 import { identityGateRequired } from "@/lib/identity-gate";
 
 /**
@@ -181,6 +182,29 @@ async function runChatRequestTimed(
       escalated: false,
       knowledge_sources: [],
     });
+  }
+
+  // A verification code typed into the chat instead of the code box is checked the same way (lib/chat-typed-code.ts).
+  const typedCode =
+    tenant.source === "widget" && !conversation.customerEmailVerifiedAt && normalizeIdentityMode(profile.identityMode) === "email_code"
+      ? codeTypedInChat(message)
+      : null;
+  if (typedCode) {
+    const codeReply = typedCodeReply(await verifyCode({ organizationId: tenant.orgId, conversationId: conversation.id, code: typedCode }));
+    if (codeReply) {
+      const [reply] = await db
+        .insert(messages)
+        .values({ conversationId: conversation.id, senderType: "agent", senderName: profile.displayName, body: codeReply })
+        .returning();
+      return ok({
+        conversation_id: conversation.id,
+        message: reply,
+        status: conversation.status,
+        confidence: 1,
+        escalated: false,
+        knowledge_sources: [],
+      });
+    }
   }
 
   const { reply, result, status, knowledgeSources, pendingTicket } = await runCustomerTurn({
