@@ -218,7 +218,7 @@ export function IdentityRequestView({ data }: { data: IdentityRequestCard }) {
         className="rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-left dark:border-gray-800 dark:bg-white/[0.03]"
       >
         <p className="text-sm font-medium text-gray-800 dark:text-white/90">Check your email</p>
-        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">We sent a 6-digit code to {email.trim()}.</p>
+        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">We sent a 6-digit code to {email.trim()}. Not there? Check your junk or spam folder.</p>
         <label className="mt-3 block text-xs font-medium text-gray-700 dark:text-gray-300">
           Code
           <input
