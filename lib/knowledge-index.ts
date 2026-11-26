@@ -213,6 +213,16 @@ export async function knowledgeIndexStatus(organizationId: string): Promise<Inde
   };
 }
 
+/**
+ * After a sync that did its work, writes the customer-style questions for pages that are new or changed
+ * (lib/knowledge-page-questions.ts). Every sync goes through this: the automatic refresh and an admin's "Sync now".
+ */
+export async function pageQuestionsAfterSync(organizationId: string, report: SyncReport): Promise<void> {
+  if (report.skipped || report.error) return;
+  const questions = await syncPageQuestions(organizationId).catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
+  console.info("[knowledge-index] page questions", JSON.stringify({ organizationId, ...questions }));
+}
+
 /** A copy older than this is refreshed in the background the next time it is searched. */
 const STALE_MINUTES = 10;
 /** And a refresh is not tried again within this long, whether it worked or not, so a broken Confluence is not hammered. */
@@ -243,10 +253,7 @@ export async function refreshKnowledgeIndexIfStale(organizationId: string, run: 
   void run(organizationId).then(
     async (report) => {
       console.info("[knowledge-index] background sync", JSON.stringify({ organizationId, ...report }));
-      // Then the customer-style questions for pages that are new or changed (lib/knowledge-page-questions.ts).
-      if (report.skipped || report.error) return;
-      const questions = await syncPageQuestions(organizationId).catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
-      console.info("[knowledge-index] page questions", JSON.stringify({ organizationId, ...questions }));
+      await pageQuestionsAfterSync(organizationId, report);
     },
     (error) => console.warn("[knowledge-index] background sync crashed", error instanceof Error ? error.message : error),
   );
