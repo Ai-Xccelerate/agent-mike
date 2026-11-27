@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getOrCreateProfile } from "@/lib/bootstrap";
@@ -44,6 +44,11 @@ export async function runIdleCheckIn(input: {
   conversationId: string;
   stage: IdleStage;
   now?: Date;
+  /**
+   * Server sweep only: the visitor left (closed the tab), so their browser never asked for the nudge. A close is then
+   * due once the worker's last reply has gone unanswered for nudgeAfterSeconds + closeAfterSeconds.
+   */
+  visitorGone?: boolean;
 }): Promise<IdleOutcome | null> {
   const { organizationId, conversationId, stage } = input;
   const now = input.now ?? new Date();
@@ -87,9 +92,9 @@ export async function runIdleCheckIn(input: {
       return { outcome: { due: true, message, status: conversation.status } as IdleOutcome };
     }
 
-    // The close only follows a nudge the visitor left unanswered.
-    if (!isNudge(last)) return notDue();
-    const wait = waitFor(settings.closeAfterSeconds);
+    // The close follows a nudge the visitor left unanswered, or (sweep) a reply left unanswered by a visitor who left.
+    if (!isNudge(last) && !input.visitorGone) return notDue();
+    const wait = waitFor(isNudge(last) ? settings.closeAfterSeconds : settings.nudgeAfterSeconds + settings.closeAfterSeconds);
     if (wait > 0) return notDue(wait);
     const [message] = await tx
       .insert(messages)
@@ -158,4 +163,61 @@ async function logClosedChat(input: {
   } catch (error) {
     console.warn("[idle] logging the closed chat failed:", error instanceof Error ? error.message : error);
   }
+}
+
+/** Only chats the worker last spoke in within this long: switching the setting on never closes old, forgotten chats. */
+const SWEEP_LOOKBACK_MINUTES = 60;
+const SWEEP_EVERY_MS = 60_000;
+
+/**
+ * The server's half of the idle check-in. The widget asks for the nudge and the close while the visitor's page is
+ * open; a visitor who closes the tab leaves nobody to ask, and the chat would stay open with nothing logged. So every
+ * minute this closes the website chats, of workers with the setting on, that are due: a nudge left unanswered for
+ * closeAfterSeconds, or a reply left unanswered for both delays (the visitor left before the nudge). runIdleCheckIn
+ * decides each one under its row lock, so a sweep and a browser asking at the same moment close it once. Never throws.
+ */
+export async function sweepIdleChats(now: Date = new Date()): Promise<number> {
+  try {
+    const candidates = (
+      await db.execute<{ id: string; organization_id: string }>(sql`
+        select c.id, c.organization_id
+        from conversations c
+        join worker_profiles w on w.organization_id = c.organization_id
+        join lateral (
+          select m.sender_type, m.created_at from messages m where m.conversation_id = c.id order by m.created_at desc limit 1
+        ) last on true
+        where (w.channels_config -> 'idleCheckIn' ->> 'enabled') = 'true'
+          and c.channel = 'widget'
+          and c.human_controlled = false
+          and c.status not in ('needs_human', 'resolved', 'closed')
+          and last.sender_type = 'agent'
+          and last.created_at > ${new Date(now.getTime() - SWEEP_LOOKBACK_MINUTES * 60_000)}
+          and exists (select 1 from messages m2 where m2.conversation_id = c.id and m2.sender_type = 'customer')`)
+    ).rows;
+    let closed = 0;
+    for (const row of candidates) {
+      const outcome = await runIdleCheckIn({ organizationId: row.organization_id, conversationId: row.id, stage: "close", now, visitorGone: true }).catch(
+        (error: unknown) => {
+          console.warn("[idle] sweep could not check a chat:", error instanceof Error ? error.message : error);
+          return null;
+        },
+      );
+      if (outcome?.due) closed += 1;
+    }
+    if (closed > 0) console.info("[idle] sweep closed chats after no reply", JSON.stringify({ closed }));
+    return closed;
+  } catch (error) {
+    console.warn("[idle] sweep failed:", error instanceof Error ? error.message : error);
+    return 0;
+  }
+}
+
+let sweeper: ReturnType<typeof setInterval> | null = null;
+
+/** Starts the minute sweep once per server (from the health check Railway makes on each deploy, and the chat route). */
+export function startIdleSweep(): void {
+  // Not in tests: a timer left running would hold the test process open.
+  if (sweeper || process.env.VITEST || process.env.NODE_ENV === "test") return;
+  sweeper = setInterval(() => void sweepIdleChats(), SWEEP_EVERY_MS);
+  sweeper.unref?.();
 }

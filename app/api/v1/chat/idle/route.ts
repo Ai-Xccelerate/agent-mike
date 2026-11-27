@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { resolveChatTenant } from "@/lib/chat-turn";
-import { runIdleCheckIn } from "@/lib/idle-check-in";
+import { startIdleSweep, runIdleCheckIn } from "@/lib/idle-check-in";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -12,6 +12,8 @@ export const dynamic = "force-dynamic";
  * otherwise (too early, already done, the setting off, or a conversation it never applies to).
  */
 export async function POST(req: NextRequest) {
+  // Also started here, in case the server came up without a health check (lib/idle-check-in.ts).
+  startIdleSweep();
   const tenant = await resolveChatTenant(req);
   if (!tenant) return NextResponse.json({ error: "Invalid or missing site token" }, { status: 401 });
 

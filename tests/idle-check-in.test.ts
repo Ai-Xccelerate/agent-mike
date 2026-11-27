@@ -7,7 +7,7 @@ import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket } from "@/lib/customer-turn";
 import { getIdentityAdapter, setIdentityAdapter, type IdentityAdapter } from "@/lib/identity";
 import { addInternalTicketNote, handoffTicketDescription, helpdeskRaisesTickets, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
-import { runIdleCheckIn } from "@/lib/idle-check-in";
+import { runIdleCheckIn, sweepIdleChats } from "@/lib/idle-check-in";
 import { IDLE_CLOSE_TEXT, IDLE_NUDGE_TEXT, readIdleCheckIn } from "@/lib/idle-check-in-settings";
 import { publicWorkerIdentity } from "@/lib/public-worker-identity";
 import { applyWorkerPatch } from "@/lib/worker-settings";
@@ -326,5 +326,51 @@ describe("POST /api/v1/chat/idle", () => {
     expect(outcome?.due).toBe(false);
     expect((await statusOf(conversation.id)).status).toBe("open");
     expect(recordMock).not.toHaveBeenCalled();
+  });
+});
+
+// A visitor who closes the tab leaves no browser to ask for the nudge or the close: the server's minute sweep closes it.
+describe("the server sweep, for a visitor who left", () => {
+  it("closes a chat whose reply went unanswered for both delays, without a nudge, and logs it", async () => {
+    const conversation = await chat({}, 250);
+    expect(await sweepIdleChats()).toBeGreaterThanOrEqual(1);
+    const all = await rows(conversation.id);
+    expect(all.at(-1)?.body).toBe(IDLE_CLOSE_TEXT);
+    expect(all.some((row) => row.body === IDLE_NUDGE_TEXT)).toBe(false);
+    expect((await statusOf(conversation.id)).status).toBe("resolved");
+    await vi.waitFor(() => expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ closedAfterNoReply: true })));
+  });
+
+  it("leaves a chat alone until both delays have passed, so a visitor still on the page gets the nudge first", async () => {
+    const conversation = await chat({}, 150);
+    await sweepIdleChats();
+    expect((await rows(conversation.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
+    expect((await statusOf(conversation.id)).status).not.toBe("resolved");
+  });
+
+  it("closes a nudged chat once the close delay has passed", async () => {
+    const conversation = await chat({}, 125);
+    const nudged = await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" });
+    expect(nudged?.due).toBe(true);
+    await sweepIdleChats();
+    expect((await rows(conversation.id)).at(-1)?.body).toBe(IDLE_NUDGE_TEXT);
+    await age(conversation.id, 125);
+    await sweepIdleChats();
+    expect((await rows(conversation.id)).at(-1)?.body).toBe(IDLE_CLOSE_TEXT);
+  });
+
+  it("never closes old chats when the setting is switched on: only replies from the last hour", async () => {
+    const conversation = await chat({}, 2 * 60 * 60);
+    await sweepIdleChats();
+    expect((await rows(conversation.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
+  });
+
+  it("does nothing when the setting is off, or the team has the chat", async () => {
+    const team = await chat({ status: "needs_human" }, 250);
+    await setIdle({ enabled: false, nudgeAfterSeconds: 120, closeAfterSeconds: 120 });
+    const off = await chat({}, 250);
+    await sweepIdleChats();
+    expect((await rows(off.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
+    expect((await rows(team.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
   });
 });
