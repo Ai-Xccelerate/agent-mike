@@ -6,6 +6,9 @@ import { customerCardToolName, type CustomerCard } from "@/lib/customer-cards";
 // Streams per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
 
+/** How often a quiet stream says it is still working (see the keep-alive below). */
+const KEEPALIVE_MS = 10_000;
+
 /**
  * The customer chat (website widget and Playground) over AG-UI, the protocol
  * the chat panel's CopilotKit client speaks. Same turn as /api/v1/chat
@@ -46,6 +49,11 @@ export async function POST(req: NextRequest) {
       };
 
       send({ type: "RUN_STARTED", threadId, runId });
+      // While the turn or its ticket is being worked on, a small event every few seconds, so nothing on the way (a proxy,
+      // the browser) takes a quiet stream for a dead one. 27 Nov, staging: a 32-second turn (a blocked draft written
+      // again) lost its stream in the widget after ~30 s of silence, and the visitor saw "can't reach the API" under the
+      // reply the server did send. The panel ignores custom events it does not know.
+      const keepAlive = setInterval(() => send({ type: "CUSTOM", name: "chat.keepalive", value: {} }), KEEPALIVE_MS);
       try {
         // Progress while the turn runs: only what the server is really doing, never an outcome.
         const outcome = await runChatRequest(req, body, {
@@ -91,6 +99,7 @@ export async function POST(req: NextRequest) {
       } catch (error) {
         send({ type: "RUN_ERROR", message: error instanceof Error ? error.message : "The chat failed" });
       } finally {
+        clearInterval(keepAlive);
         if (open) controller.close();
       }
     },
