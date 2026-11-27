@@ -59,6 +59,11 @@ export type CustomerGuardrailContext = {
   knowledgeTitles?: string[];
   /** The conversation was already handed to a person; the reply check must not hand it over again for a thank-you. */
   withTeam?: boolean;
+  /**
+   * The customer's message this turn. The reply check judges the draft against it: the history alone ends at the
+   * previous question, so a customer who moved on to a new question had the right answer blocked as off-topic.
+   */
+  latestMessage?: string;
 };
 
 export const IntentClassificationSchema = z.object({
@@ -340,6 +345,7 @@ export async function classifyCustomerOutput(args: {
   jobDescription?: string | null;
   referenceMaterialFound?: boolean;
   withTeam?: boolean;
+  latestMessage?: string;
 }): Promise<OutputClassification> {
   const leak = outputLeakBlock(args.reply);
   if (leak) return leak;
@@ -409,6 +415,7 @@ export async function classifyCustomerOutput(args: {
 
   const prompt =
     `${formatHistory(args.recentHistory, args.summary)}\n\n` +
+    (args.latestMessage?.trim() ? `Latest customer message (the draft answers this):\n${args.latestMessage.trim()}\n\n` : "") +
     `Draft agent reply:\n${args.reply}`;
 
   try {
@@ -633,6 +640,7 @@ export function buildCustomerOutputGuardrail(): OutputGuardrail {
         jobDescription: ctx.jobDescription ?? null,
         referenceMaterialFound: ctx.referenceMaterialFound,
         withTeam: ctx.withTeam,
+        latestMessage: ctx.latestMessage,
       };
       if (outputGuardrailMode() === "risk" && canSkipOutputJudge(reply, ctx.referenceMaterialFound)) {
         const classification: OutputClassification = outputLeakBlock(reply) ?? {

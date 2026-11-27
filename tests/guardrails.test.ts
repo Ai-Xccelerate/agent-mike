@@ -415,6 +415,49 @@ describe("classifyCustomerOutput", () => {
   });
 });
 
+// 27 Nov, staging: after a chat was closed the customer asked a new question ("change a role"); the check only saw the
+// old one ("remove a user"), blocked the right answer twice as off-topic, and the customer got the stock handover.
+describe("the reply check sees the customer's latest message", () => {
+  beforeEach(() => {
+    process.env.DEMO_MODE = "false";
+    process.env.OPENAI_API_KEY = "sk-test";
+    runMock.mockReset();
+    runMock.mockResolvedValue({ finalOutput: { action: "continue_intake", confidence: 0.9, reason: "fine" } });
+  });
+
+  afterEach(() => {
+    if (previousDemo === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = previousDemo;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  });
+
+  const args = {
+    reply: "Open Your team, click the person, and change their role to Admin.",
+    escalationTerms: [],
+    recentHistory: [
+      { speaker: "Customer", body: "How do I remove a user from my team?" },
+      { speaker: "Mike", body: "In Your team, click the person, select Remove from organization." },
+    ],
+    summary: null,
+    role: "Technical support",
+    jobDescription: null,
+  };
+
+  it("puts it between the history and the draft", async () => {
+    await classifyCustomerOutput({ ...args, latestMessage: "How do I change someone's role from Member to Admin?" });
+    const prompt = String(runMock.mock.calls[0][1]);
+    const latest = prompt.indexOf("Latest customer message (the draft answers this):\nHow do I change someone's role from Member to Admin?");
+    expect(latest).toBeGreaterThan(prompt.indexOf("How do I remove a user from my team?"));
+    expect(latest).toBeLessThan(prompt.indexOf("Draft agent reply:"));
+  });
+
+  it("leaves the prompt as before when there is none", async () => {
+    await classifyCustomerOutput(args);
+    expect(String(runMock.mock.calls[0][1])).not.toContain("Latest customer message");
+  });
+});
+
 describe("the reply check on a conversation already with the team", () => {
   beforeEach(() => {
     process.env.DEMO_MODE = "false";
