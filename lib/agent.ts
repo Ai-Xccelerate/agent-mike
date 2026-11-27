@@ -1678,6 +1678,7 @@ export async function runAgent(
     referenceMaterialFound: knowledge.length > 0,
     knowledgeTitles: knowledge.map((match) => (match.heading ? `${match.title}: ${match.heading}` : match.title)),
     withTeam: Boolean(knownCustomer?.withTeam),
+    latestMessage: message,
   };
 
   const instructions = await timed("agent.instructions", () =>
