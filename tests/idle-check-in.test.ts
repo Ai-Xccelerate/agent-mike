@@ -7,7 +7,7 @@ import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket } from "@/lib/customer-turn";
 import { getIdentityAdapter, setIdentityAdapter, type IdentityAdapter } from "@/lib/identity";
 import { addInternalTicketNote, helpdeskRaisesTickets, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
-import { recordVisitorActivity, runIdleCheckIn, sweepIdleChats } from "@/lib/idle-check-in";
+import { recordVisitorActivity, runIdleCheckIn, statedWaitSeconds, sweepIdleChats } from "@/lib/idle-check-in";
 import { IDLE_CLOSE_TEXT, IDLE_NUDGE_TEXT, IDLE_NUDGE_WAITING_TEXT, readIdleCheckIn } from "@/lib/idle-check-in-settings";
 import { publicWorkerIdentity } from "@/lib/public-worker-identity";
 import { applyWorkerPatch } from "@/lib/worker-settings";
@@ -345,8 +345,8 @@ describe("the server sweep, for a visitor who left", () => {
     expect((await rows(conversation.id)).at(-1)?.body).toBe(IDLE_CLOSE_TEXT);
   });
 
-  it("never closes old chats when the setting is switched on: only replies from the last hour", async () => {
-    const conversation = await chat({}, 2 * 60 * 60);
+  it("never closes old chats when the setting is switched on: only replies from the last three hours", async () => {
+    const conversation = await chat({}, 4 * 60 * 60);
     await sweepIdleChats();
     expect((await rows(conversation.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
   });
@@ -419,5 +419,35 @@ describe("a visitor who is busy, a promise of a teammate, and a visitor still ty
     expect(res.status).toBe(404);
     const conversation = await chat();
     expect((await json(await postIdle(post({ conversation_id: conversation.id, stage: "activity" }))))).toEqual({ ok: true });
+  });
+});
+
+// "What if they say I need 20 more minutes?" (27 Nov): the time the visitor names is the wait.
+describe("a visitor who says how long they need", () => {
+  it("reads the time from what people write", () => {
+    expect(statedWaitSeconds("i need 20 more minutes")).toBe(20 * 60);
+    expect(statedWaitSeconds("back in half an hour")).toBe(30 * 60);
+    expect(statedWaitSeconds("give me 5 mins")).toBe(5 * 60);
+    expect(statedWaitSeconds("I'll be an hour")).toBe(60 * 60);
+    expect(statedWaitSeconds("need a few minutes")).toBe(5 * 60);
+    expect(statedWaitSeconds("give me 2 hours")).toBe(120 * 60);
+    expect(statedWaitSeconds("back in 5 hours")).toBe(120 * 60);
+    expect(statedWaitSeconds("How do I add 20 users?")).toBeNull();
+    expect(statedWaitSeconds("thanks")).toBeNull();
+  });
+
+  it("waits that long and a minute more before the gentle nudge", async () => {
+    const conversation = await chat({}, 60);
+    await db.insert(messages).values({ conversationId: conversation.id, senderType: "customer", senderName: "Visitor", body: "I need 20 more minutes to finish this", createdAt: ago(50) });
+    await db.insert(messages).values({ conversationId: conversation.id, senderType: "agent", senderName: "Eva", body: "No problem.", createdAt: ago(40) });
+    const early = await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" });
+    expect(early?.due).toBe(false);
+    expect((early as { dueInSeconds?: number }).dueInSeconds).toBeGreaterThan(20 * 60);
+    await sweepIdleChats();
+    expect((await rows(conversation.id)).at(-1)?.body).toBe("No problem.");
+    await age(conversation.id, 21 * 60);
+    const nudged = await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" });
+    if (!nudged?.due) throw new Error("not nudged");
+    expect(nudged.message.body).toBe(IDLE_NUDGE_WAITING_TEXT);
   });
 });
