@@ -351,6 +351,13 @@
       "when": 1790832800029,
       "tag": "0049_knowledge_page_questions",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1790919200029,
+      "tag": "0050_conversation_visitor_active",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { resolveChatTenant } from "@/lib/chat-turn";
-import { startIdleSweep, runIdleCheckIn } from "@/lib/idle-check-in";
+import { recordVisitorActivity, startIdleSweep, runIdleCheckIn } from "@/lib/idle-check-in";
 
 // Reads/writes the DB per request — never statically prerender or cache this route.
 export const dynamic = "force-dynamic";
@@ -19,9 +19,15 @@ export async function POST(req: NextRequest) {
 
   const body = (await req.json().catch(() => null)) as { conversation_id?: unknown; stage?: unknown } | null;
   const conversationId = typeof body?.conversation_id === "string" ? body.conversation_id : "";
-  const stage = body?.stage === "nudge" || body?.stage === "close" ? body.stage : null;
-  if (!stage) return NextResponse.json({ error: "stage must be nudge or close" }, { status: 400 });
+  const stage = body?.stage === "nudge" || body?.stage === "close" || body?.stage === "activity" ? body.stage : null;
+  if (!stage) return NextResponse.json({ error: "stage must be nudge, close or activity" }, { status: 400 });
   if (!/^[0-9a-f-]{36}$/i.test(conversationId)) return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+
+  // The visitor is typing: the check-in counts from now (the widget sends this at most every 20 seconds).
+  if (stage === "activity") {
+    const found = await recordVisitorActivity({ organizationId: tenant.orgId, conversationId });
+    return found ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+  }
 
   const outcome = await runIdleCheckIn({ organizationId: tenant.orgId, conversationId, stage });
   if (!outcome) return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
