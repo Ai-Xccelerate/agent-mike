@@ -50,6 +50,37 @@ const WORKER_WAITS = /\b(?:take your time|check your (?:email|inbox|junk|spam)|e
  * waits on them (take your time, a code to fetch, a request for their details). They get IDLE_WAITING_SECONDS before
  * the gentler nudge, not the setting's two minutes.
  */
+/** Longest stated wait honoured: past this the chat is closed as usual, and the visitor can always write again. */
+const MAX_STATED_WAIT_MINUTES = 120;
+const NUMBER_WORDS: Record<string, number> = {
+  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30, forty: 40, "forty-five": 45, sixty: 60,
+  "a few": 5, few: 5, "a couple": 2, "a couple of": 2, "couple of": 2, couple: 2,
+};
+const STATED_WAIT =
+  /\b(half an? hour|\d{1,3}|a few|few|a couple(?: of)?|couple(?: of)?|an?|one|two|three|four|five|ten|fifteen|twenty|thirty|forty(?:-five)?|sixty)\s*(?:more\s+|extra\s+)?(mins?|minutes?|hrs?|hours?)?\b/gi;
+
+/**
+ * The time the visitor says they need, in seconds ("I need 20 more minutes", "back in half an hour", "give me 5 mins",
+ * "an hour"), capped at MAX_STATED_WAIT_MINUTES; null when they name none.
+ */
+export function statedWaitSeconds(text: string): number | null {
+  let longest: number | null = null;
+  for (const match of text.matchAll(STATED_WAIT)) {
+    const amount = match[1].toLowerCase();
+    let minutes: number;
+    if (amount.startsWith("half")) minutes = 30;
+    else {
+      const unit = (match[2] ?? "").toLowerCase();
+      if (!unit) continue;
+      const count = /^\d+$/.test(amount) ? Number(amount) : NUMBER_WORDS[amount];
+      if (!count) continue;
+      minutes = unit.startsWith("h") ? count * 60 : count;
+    }
+    longest = Math.max(longest ?? 0, Math.min(minutes, MAX_STATED_WAIT_MINUTES));
+  }
+  return longest === null ? null : longest * 60;
+}
+
 function visitorBusy(rows: MessageRow[], lastWorkerReply: MessageRow): boolean {
   const lastCustomer = [...rows].reverse().find((row) => row.senderType === "customer");
   if (lastCustomer && VISITOR_BUSY.test(lastCustomer.body)) return true;
@@ -105,8 +136,16 @@ export async function runIdleCheckIn(input: {
     // visitor writing a long reply is not taken for one who left.
     const since = Math.max(last.createdAt.getTime(), conversation.visitorActiveAt?.getTime() ?? 0);
     const waitFor = (seconds: number) => Math.ceil((since + seconds * 1000 - now.getTime()) / 1000);
-    const busy = visitorBusy(rows, lastWorkerReply);
-    const nudgeAfter = busy ? Math.max(settings.nudgeAfterSeconds, IDLE_WAITING_SECONDS) : settings.nudgeAfterSeconds;
+    // "I need 20 more minutes": the time they named, and a minute more, before anyone asks.
+    const lastCustomer = [...rows].reverse().find((row) => row.senderType === "customer");
+    const stated = lastCustomer ? statedWaitSeconds(lastCustomer.body) : null;
+    const busy = stated !== null || visitorBusy(rows, lastWorkerReply);
+    const nudgeAfter =
+      stated !== null
+        ? Math.max(settings.nudgeAfterSeconds, stated + 60)
+        : busy
+          ? Math.max(settings.nudgeAfterSeconds, IDLE_WAITING_SECONDS)
+          : settings.nudgeAfterSeconds;
 
     if (stage === "nudge") {
       // Already asked: the next step is the close, not a second nudge.
@@ -163,8 +202,9 @@ async function logClosedChat(input: { organizationId: string; workerName: string
   }
 }
 
-/** Only chats the worker last spoke in within this long: switching the setting on never closes old, forgotten chats. */
-const SWEEP_LOOKBACK_MINUTES = 60;
+/** Only chats the worker last spoke in within this long (a stated wait of up to 2 hours, then the close): switching the
+ * setting on never closes old, forgotten chats. */
+const SWEEP_LOOKBACK_MINUTES = 180;
 const SWEEP_EVERY_MS = 60_000;
 
 /**
