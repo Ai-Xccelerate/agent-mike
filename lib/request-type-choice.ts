@@ -1,6 +1,7 @@
 import { Agent, run } from "@openai/agents";
 import { z } from "zod";
 import { guardrailModel, modelUnavailabilityReason } from "@/lib/env";
+import { FACTS_ONLY } from "@/lib/ticket-wording";
 import type { RequestTypeChoice } from "@/lib/tools-integrations/atlassian";
 
 /**
@@ -38,7 +39,9 @@ export async function chooseRequestType(args: {
       "your own words, from what the conversation says (why someone needs something is usually clear from what " +
       "they asked for). Never invent facts the conversation doesn't contain. Set requestTypeId to null only if " +
       "no type fits at all. The worker may already have answered some of what the customer asked: choose the type, " +
-      "and write the title, for the part that is still unanswered, not for the whole message.\n" +
+      "and write the title, for the part that is still unanswered, not for the whole message. If the worker answered " +
+      "all of it, title what the customer asked about and what they were given, never an outcome (for example \"Frozen " +
+      "EAPx Cloud screen: refresh steps given\" or \"How to add a column to a grid: steps given\"). " + FACTS_ONLY + "\n" +
       "Also write the ticket's title: one line, under 80 characters, saying what's wrong or what's wanted and " +
       "where, so the team knows the issue from the title alone (for example \"Login fails with server error for " +
       "whole office since 9am\" or \"Add optional Pronouns field to Online Intake form\"). Never use the " +
