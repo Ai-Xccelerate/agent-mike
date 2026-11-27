@@ -1,5 +1,6 @@
 import { resolveWidgetAppearance } from "@/lib/widget-appearance";
 import type { workerProfiles } from "@/db/schema";
+import { readIdleCheckIn } from "@/lib/idle-check-in-settings";
 
 type Profile = typeof workerProfiles.$inferSelect;
 
@@ -19,6 +20,8 @@ export function publicWorkerIdentity(profile: Profile, defaultQuickActions?: str
     // Whether the widget shows the paperclip for attaching a file.
     chatAttachments: profile.chatAttachments,
     widgetAppearance: resolveWidgetAppearance(profile.widgetAppearance),
+    // When the widget asks the server whether to check in on an idle visitor (lib/idle-check-in.ts).
+    idleCheckIn: readIdleCheckIn(profile.channelsConfig),
     // The widget shows a details form before the first message (lib/identity-gate.ts).
     identityGate,
     // Whether the details form also asks for an emailed code (email_code) or only a name and email.

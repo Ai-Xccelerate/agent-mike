@@ -432,6 +432,8 @@ export type HandoffTicketInput = {
   answeredByWorker?: boolean;
   /** The customer only asked after this earlier request (a status check): a note that they reached out again, no handover. */
   reachedOutAgain?: boolean;
+  /** With answeredByWorker: the website chat went quiet and was closed after the worker's check-in got no reply. */
+  closedAfterNoReply?: boolean;
 };
 
 export type HandoffTicketResult = {
@@ -487,7 +489,9 @@ export function handoffTicketDescription(input: HandoffTicketInput): string {
     .join("\n\n");
   return [
     input.answeredByWorker
-      ? `${workerName} answered this conversation herself and logged it here for the desk's records. Nothing is needed unless the customer writes again.`
+      ? input.closedAfterNoReply
+        ? `${workerName} answered this conversation herself and logged it here for the desk's records. The customer stopped replying, so the chat was closed after no reply. Nothing is needed unless the customer writes again.`
+        : `${workerName} answered this conversation herself and logged it here for the desk's records. Nothing is needed unless the customer writes again.`
       : input.raisedByManager
         ? `A manager raised this ticket from the Inbox for a conversation with ${workerName}.`
         : `${workerName} handed this conversation to a person and raised this ticket automatically.`,

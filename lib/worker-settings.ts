@@ -102,6 +102,12 @@ export async function applyWorkerPatch(organizationId: string, body: unknown): P
   // have rewritten the skill and still want it running. The screen says so
   // rather than letting them assume verification stopped.
 
+  // The channel switches are sent as a whole object. A caller that only knows about email, chat and voice (the
+  // Assistant, an older screen) must not switch the website chat's idle check-in off by leaving it out.
+  if (updates.channelsConfig && !updates.channelsConfig.idleCheckIn && profile.channelsConfig?.idleCheckIn) {
+    updates.channelsConfig = { ...updates.channelsConfig, idleCheckIn: profile.channelsConfig.idleCheckIn };
+  }
+
   try {
     const [updated] = await db
       .update(workerProfiles)

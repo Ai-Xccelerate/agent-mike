@@ -25,7 +25,7 @@ import {
   WIDGET_LABEL_MAX_LENGTH,
   type WidgetAppearance,
 } from "@/lib/widget-appearance";
-import { apiFetch, WidgetSite, WorkerProfile } from "@/lib/worker-api";
+import { apiFetch, type IdleCheckIn, WidgetSite, WorkerProfile } from "@/lib/worker-api";
 import { useWorkerProfile } from "@/lib/use-worker-profile";
 
 
@@ -200,6 +200,67 @@ function ChatChannelSettings({
         checked={profile.chatAttachments}
         onChange={() => update("chatAttachments", !profile.chatAttachments)}
       />
+      <IdleCheckInSettings profile={profile} update={update} fieldErrors={fieldErrors} />
+    </div>
+  );
+}
+
+const IDLE_DEFAULTS: IdleCheckIn = { enabled: false, nudgeAfterSeconds: 120, closeAfterSeconds: 120 };
+const IDLE_MAX_MINUTES = 1440;
+
+/** Whole minutes on screen, seconds on the server. */
+function toSeconds(raw: string): number {
+  const minutes = Math.round(Number(raw));
+  return Math.min(IDLE_MAX_MINUTES, Math.max(1, Number.isFinite(minutes) ? minutes : 1)) * 60;
+}
+
+/**
+ * The website chat's idle check-in: off by default. Saved inside channelsConfig with the header's Save, like the
+ * channel switches above it.
+ */
+function IdleCheckInSettings({ profile, update, fieldErrors }: { profile: WorkerProfile; update: Update; fieldErrors: Record<string, string> }) {
+  const idle = { ...IDLE_DEFAULTS, ...profile.channelsConfig.idleCheckIn };
+  const setIdle = (next: Partial<IdleCheckIn>) => update("channelsConfig", { ...profile.channelsConfig, idleCheckIn: { ...idle, ...next } });
+  const error = Object.entries(fieldErrors).find(([key]) => key.startsWith("channelsConfig.idleCheckIn"))?.[1];
+  return (
+    <div>
+      <SettingsToggleRow
+        title="Check in when a visitor goes quiet"
+        description={`If the visitor stops replying, ${profile.displayName} asks whether they still need help. With still no reply, the chat is closed and logged in Jira when a helpdesk is connected.`}
+        checked={idle.enabled}
+        onChange={() => setIdle({ enabled: !idle.enabled })}
+      />
+      {idle.enabled && (
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <label className={labelClass}>
+            Ask after (minutes)
+            <input
+              type="number"
+              min={1}
+              max={IDLE_MAX_MINUTES}
+              step={1}
+              value={Math.round(idle.nudgeAfterSeconds / 60)}
+              onChange={(event) => setIdle({ nudgeAfterSeconds: toSeconds(event.target.value) })}
+              className={`${fieldClass} mt-2`}
+            />
+            <span className={hintClass}>Counted from {profile.displayName}&apos;s last reply.</span>
+          </label>
+          <label className={labelClass}>
+            Close after (minutes)
+            <input
+              type="number"
+              min={1}
+              max={IDLE_MAX_MINUTES}
+              step={1}
+              value={Math.round(idle.closeAfterSeconds / 60)}
+              onChange={(event) => setIdle({ closeAfterSeconds: toSeconds(event.target.value) })}
+              className={`${fieldClass} mt-2`}
+            />
+            <span className={hintClass}>Counted from the check-in message.</span>
+          </label>
+          <FieldError message={error} />
+        </div>
+      )}
     </div>
   );
 }

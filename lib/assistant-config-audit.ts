@@ -140,9 +140,10 @@ function describeAtlassian(
 
 export function formatConfigurationSnapshot(snapshot: ConfigurationSnapshot): string {
   const { profile } = snapshot;
-  const on = (config: Record<string, boolean>) =>
+  // Only the on/off switches: channels_config also holds the website chat's idle check-in settings.
+  const on = (config: Record<string, unknown>) =>
     Object.entries(config)
-      .filter(([, value]) => value)
+      .filter(([, value]) => value === true)
       .map(([name]) => name)
       .join(", ") || "(none)";
   const enabledSkills = snapshot.skills.filter((skill) => skill.enabled);
