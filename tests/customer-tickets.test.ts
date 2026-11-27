@@ -4,7 +4,9 @@ import { db } from "@/lib/db";
 import { conversations, messages, workerProfiles } from "@/db/schema";
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket, runCustomerTurn } from "@/lib/customer-turn";
-import { customerTickets } from "@/lib/customer-tickets";
+import { customerTickets, quotedIsListed } from "@/lib/customer-tickets";
+import { buildAgentTools } from "@/lib/agent";
+import { CUSTOMER_TICKETS_TOOL_NAME } from "@/lib/tools-integrations/atlassian";
 import { customerStatusWord, referenceNotice, ticketReference } from "@/lib/ticket-reference";
 import { helpdeskRaisesTickets, helpdeskTicketsEveryConversation, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
 
@@ -368,5 +370,46 @@ describe("telling a chat's own request from an earlier one", () => {
     const list = await customerTickets(orgId, current.id, "EAP");
     expect(list.find((t) => t.reference === `EAP-${current.ticketNumber}`)?.thisChat).toBe(true);
     expect(list.find((t) => t.reference === `EAP-${earlier.ticketNumber}`)?.thisChat).toBeUndefined();
+  });
+});
+
+// 26 Nov, EAP (TCK-1060): a verified customer asked for "an update on ticket sds-6". SDS-6 is someone else's; they had
+// other requests, nothing said the quoted one was not among them, and the worker answered with SDS-4 as if it were it.
+describe("a customer quoting a number that is not one of theirs", () => {
+  it("knows which quoted numbers are in the list, whatever the case or spacing", () => {
+    const tickets = [
+      { reference: "EAP-1060", serviceDeskKey: "SDS-55", about: null, status: "Open", updated: "" },
+      { reference: "EAP-1054", serviceDeskKey: "SDS-4", about: null, status: "Open", updated: "" },
+    ];
+    expect(quotedIsListed("sds-4", tickets, "EAP")).toBe(true);
+    expect(quotedIsListed(" SDS-55 ", tickets, "EAP")).toBe(true);
+    expect(quotedIsListed("eap-1054", tickets, "EAP")).toBe(true);
+    expect(quotedIsListed("1054", tickets, "EAP")).toBe(true);
+    expect(quotedIsListed("sds-6", tickets, "EAP")).toBe(false);
+    expect(quotedIsListed("SDS-14", tickets, "EAP")).toBe(false);
+  });
+
+  async function lookUp(conversationId: string, reference: string) {
+    const tools = await buildAgentTools({ toolsConfig: {}, ticketPrefix: "EAP" }, orgId, conversationId);
+    const lookup = tools.find((t) => (t as { name?: string }).name === CUSTOMER_TICKETS_TOOL_NAME) as unknown as { invoke: (c: unknown, i: string) => Promise<string> };
+    return JSON.parse(await lookup.invoke(undefined, JSON.stringify({ reference })));
+  }
+
+  it("tells the worker the quoted number is not theirs, so it never answers with another request", async () => {
+    await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "mark@example.com", customerEmailVerifiedAt: new Date(), externalTicketKey: "SDS-4", ticketSummary: "Login fails with Error 400" });
+    await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "lauren@example.com", customerEmailVerifiedAt: new Date(), externalTicketKey: "SDS-6", ticketSummary: "Password reset" });
+    const chat = await insertConversationWithTicket({ organizationId: orgId, channel: "widget", customerEmail: "mark@example.com", customerEmailVerifiedAt: new Date(), externalTicketKey: "SDS-55" });
+
+    const asked = await lookUp(chat.id, "sds-6");
+    expect(asked.note).toMatch(/sds-6 is not one of this customer's requests/i);
+    expect(asked.note).toMatch(/never answer with a different request/i);
+    // Someone else's request stays hidden.
+    expect(JSON.stringify(asked.tickets)).not.toContain("SDS-6");
+    expect(JSON.stringify(asked.tickets)).not.toContain("Password reset");
+
+    // Their own number: no such note.
+    const theirs = await lookUp(chat.id, "SDS-4");
+    expect(theirs.note ?? "").not.toMatch(/not one of this customer's requests/i);
+    expect(JSON.stringify(theirs.tickets)).toContain("SDS-4");
   });
 });
