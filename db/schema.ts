@@ -149,8 +149,15 @@ export const workerProfiles = pgTable(
       ),
 
     // Channels (settings > Channels)
+    // idleCheckIn: the website chat asks an idle visitor whether they still need help, then closes the chat
+    // (lib/idle-check-in.ts). Absent = off. Kept here rather than in its own column so it needs no migration.
     channelsConfig: jsonb("channels_config")
-      .$type<{ email: boolean; chat: boolean; voice: boolean }>()
+      .$type<{
+        email: boolean;
+        chat: boolean;
+        voice: boolean;
+        idleCheckIn?: { enabled: boolean; nudgeAfterSeconds: number; closeAfterSeconds: number };
+      }>()
       .notNull()
       .default(sql`'{"email":false,"chat":true,"voice":false}'::jsonb`),
 

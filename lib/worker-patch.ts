@@ -3,6 +3,7 @@ import { fieldErrors, identityFieldSchemas } from "@/lib/identity-fields";
 import { integrationsConfigSchema } from "@/lib/integrations";
 import { ticketSchemaPatch } from "@/lib/ticket-schema";
 import { widgetAppearanceSchema } from "@/lib/widget-appearance";
+import { idleCheckInSchema } from "@/lib/idle-check-in-settings";
 
 const emptyToNull = (schema: z.ZodType<string | null>) =>
   z.union([z.literal(""), schema]).transform((value) => (value === "" ? null : value));
@@ -58,7 +59,13 @@ export const workerPatchSchema = z
     restrictEmailDomains: z.boolean(),
     toolsConfig: z.record(z.string(), z.boolean()),
     enabledSkills: z.array(z.string()),
-    channelsConfig: z.object({ email: z.boolean(), chat: z.boolean(), voice: z.boolean() }),
+    channelsConfig: z.object({
+      email: z.boolean(),
+      chat: z.boolean(),
+      voice: z.boolean(),
+      // Settings > Channels > Website chat: check in on an idle visitor, then close the chat (lib/idle-check-in.ts).
+      idleCheckIn: idleCheckInSchema.optional(),
+    }),
     integrationsConfig: integrationsConfigSchema,
     ticketPrefix: z.string().min(1).max(12),
     // null = back to the built-in request types, tiers and labels.

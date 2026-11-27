@@ -61,6 +61,7 @@ describe("publicWorkerIdentity", () => {
       welcomeMessage: null,
       quickActions: null,
       widgetAppearance: { theme: "light", corners: "rounded", launcherIcon: "chat", panelTitle: null, panelSubtitle: null },
+      idleCheckIn: { enabled: false, nudgeAfterSeconds: 120, closeAfterSeconds: 120 },
       identityGate: false,
       identityMode: "off",
     });

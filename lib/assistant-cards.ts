@@ -181,8 +181,9 @@ export function configCard(snapshot: ConfigurationSnapshot): AssistantCard {
     status: profile.status,
     model: profile.model,
     tone: profile.tone,
+    // Only the on/off switches: channels_config also holds the website chat's idle check-in settings.
     channels: Object.entries(profile.channelsConfig)
-      .filter(([, on]) => on)
+      .filter(([, on]) => on === true)
       .map(([name]) => name),
     skills: {
       enabled: enabledSkills.length,

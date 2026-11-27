@@ -130,10 +130,19 @@ export type ToolsConfig = {
   artifacts: boolean;
 };
 
+/** Website chat: ask a quiet visitor if they still need help, then close the chat (lib/idle-check-in.ts on the API). */
+export type IdleCheckIn = {
+  enabled: boolean;
+  nudgeAfterSeconds: number;
+  closeAfterSeconds: number;
+};
+
 export type ChannelsConfig = {
   email: boolean;
   chat: boolean;
   voice: boolean;
+  /** Absent = off. */
+  idleCheckIn?: IdleCheckIn;
 };
 
 export type WorkerStatus = "active" | "paused";
@@ -190,6 +199,8 @@ export type WorkerProfile = {
   emailManagerOnHandoff: boolean;
   /** Visitors may attach files in the website chat; the worker never reads them, the team does. */
   chatAttachments: boolean;
+  /** Public widget view only: the idle check-in setting with its defaults filled in. */
+  idleCheckIn?: IdleCheckIn;
   /** How the website chat looks. null = the defaults. */
   widgetAppearance: WidgetAppearance | null;
   /** The team's first-reply target in hours, shown on the Overview. */
@@ -1247,6 +1258,22 @@ export function verifyIdentityCode(
     widgetSiteToken,
   });
 }
+
+export type IdleStage = "nudge" | "close";
+export type IdleCheckInResponse = { due: false; status?: string; due_in_seconds?: number } | { due: true; status: string; message: Message };
+
+/** Asks the server whether the idle check-in's next step is due. The server decides; it posts the message once at most. */
+export function postIdleCheckIn(input: { conversationId: string; stage: IdleStage }, widgetSiteToken?: string): Promise<IdleCheckInResponse> {
+  return apiFetch<IdleCheckInResponse>("/chat/idle", {
+    method: "POST",
+    body: JSON.stringify({ conversation_id: input.conversationId, stage: input.stage }),
+    widgetSiteToken,
+  });
+}
+
+/** What the worker says when it checks in, and when it closes the chat (lib/idle-check-in-settings.ts on the API). */
+export const IDLE_NUDGE_TEXT = "Are you still there? Is there anything else I can help with?";
+export const IDLE_CLOSE_TEXT = "I haven't heard back, so I'll close this chat for now. If you need anything else, just send a new message.";
 
 /** Rate one of the worker's replies. Returns the saved rating. */
 export function rateReply(messageId: string, input: { rating: "good" | "bad"; reasons?: FeedbackReason[]; correction?: string | null }) {

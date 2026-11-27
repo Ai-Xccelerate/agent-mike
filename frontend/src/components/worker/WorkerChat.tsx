@@ -8,7 +8,18 @@ import WorkerChatRail from "@/components/worker/WorkerChatRail";
 import Badge from "@/components/ui/badge/Badge";
 import { ArrowUpIcon, DocsIcon, MicrophoneIcon } from "@/icons";
 import { useDictation } from "@/hooks/useDictation";
-import { apiFetch, ChatResponse, Conversation, Message, WorkerApiError, WorkerProfile } from "@/lib/worker-api";
+import {
+  apiFetch,
+  ChatResponse,
+  Conversation,
+  IDLE_CLOSE_TEXT,
+  IDLE_NUDGE_TEXT,
+  type IdleStage,
+  Message,
+  postIdleCheckIn,
+  WorkerApiError,
+  WorkerProfile,
+} from "@/lib/worker-api";
 import { attachedLines, FILE_ACCEPT, FILE_MAX_BYTES, FILES_MAX, fileSize } from "@/lib/customer-files";
 import { IDENTITY_UPDATED_EVENT } from "@/lib/use-worker-profile";
 import { forgetRemembered, readRemembered } from "@/lib/remembered-customer";
@@ -261,6 +272,59 @@ function ChatPanelBody({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compact, restoring, compactConversationId, siteToken, loading]);
+
+  // Idle check-in (Settings > Channels > Website chat, off by default): once the worker has replied and the visitor
+  // goes quiet, ask the server to check in, and later to close the chat. The timer here is only a reminder to ask: the
+  // server decides from the stored times whether a step is due and posts it once at most. Typing pushes it back, a
+  // turn in flight holds it, and nothing runs while the team has the chat or an earlier chat is open to read.
+  const idle = compact ? profile?.idleCheckIn : undefined;
+  const lastTypedAtRef = useRef(0);
+  useEffect(() => {
+    if (value) lastTypedAtRef.current = Date.now();
+  }, [value]);
+  const lastMessage = messages.at(-1);
+  const idleStage: IdleStage | null = (() => {
+    if (!idle?.enabled || !compactConversationId || restoring || loading || escalated || viewing || value.trim()) return null;
+    if (!lastMessage || lastMessage.senderType !== "agent" || lastMessage.id === "welcome" || String(lastMessage.id).startsWith("fallback-")) return null;
+    if (!messages.some((message) => message.senderType === "customer")) return null;
+    if (lastMessage.body === IDLE_CLOSE_TEXT) return null;
+    return lastMessage.body === IDLE_NUDGE_TEXT ? "close" : "nudge";
+  })();
+  const idleAfterSeconds = idleStage === "close" ? idle?.closeAfterSeconds : idle?.nudgeAfterSeconds;
+  useEffect(() => {
+    if (!idleStage || !idleAfterSeconds || !compactConversationId || !siteToken?.trim() || !lastMessage) return;
+    const stage = idleStage;
+    const conversation = compactConversationId;
+    let cancelled = false;
+    let timer: number | undefined;
+    // From the message's own time, never later than now (a device clock behind the server's), or the last keystroke.
+    const sentAt = Math.min(Date.parse(lastMessage.createdAt) || Date.now(), Date.now());
+    const dueAt = Math.max(sentAt, lastTypedAtRef.current) + idleAfterSeconds * 1000;
+    const ask = async (retries: number) => {
+      try {
+        const outcome = await postIdleCheckIn({ conversationId: conversation, stage }, siteToken);
+        if (cancelled) return;
+        if (outcome.due) {
+          const message = outcome.message;
+          setMessages((items) => (items.some((item) => item.id === message.id) ? items : [...items, message]));
+          return;
+        }
+        // A device clock ahead of the server's asks a little early: the server says how long is left.
+        if (outcome.due_in_seconds && outcome.due_in_seconds > 0 && retries > 0) {
+          timer = window.setTimeout(() => void ask(retries - 1), outcome.due_in_seconds * 1000 + 500);
+        }
+      } catch {
+        // Nothing to show: the visitor can carry on as before.
+      }
+    };
+    timer = window.setTimeout(() => void ask(2), Math.max(0, dueAt - Date.now()) + 500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // lastMessage is read through its id and time; the stage and delay already follow everything else.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idleStage, idleAfterSeconds, compactConversationId, siteToken, lastMessage?.id, lastMessage?.createdAt]);
 
   // Manager mode: the rail owns which conversation is selected. Load its
   // transcript when the selection changes; reset to a blank slate when

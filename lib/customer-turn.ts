@@ -121,6 +121,84 @@ export interface CustomerTurn {
  */
 const ticketsInFlight = new Map<string, Promise<unknown>>();
 
+/** Waits for a ticket still being raised for this conversation, if there is one. Never throws. */
+export async function waitForConversationTicket(conversationId: string): Promise<void> {
+  await ticketsInFlight.get(conversationId)?.catch(() => undefined);
+}
+
+/**
+ * No ticket is ever raised for an unknown person: whether this widget conversation still has to say who the customer is
+ * (the organization asks for identity, and the details are not on record, or for codes not verified yet).
+ */
+export function widgetNeedsIdentity(
+  conversation: Pick<ConversationRow, "channel" | "customerName" | "customerEmail" | "customerEmailVerifiedAt">,
+  identityMode: string | null | undefined,
+): boolean {
+  const mode = normalizeIdentityMode(identityMode);
+  const verified = Boolean(conversation.customerEmailVerifiedAt);
+  const identityKnown = Boolean(conversation.customerEmail) && !isPlaceholderCustomerName(conversation.customerName);
+  const needsIdentity = mode !== "off" && !(identityKnown && (mode === "email_match" || verified));
+  return conversation.channel === "widget" && needsIdentity;
+}
+
+/** The customer a ticket may be raised on behalf of: only an email a code was typed back for. */
+export function verifiedCustomerOf(
+  conversation: Pick<ConversationRow, "customerName" | "customerEmail" | "customerEmailVerifiedAt">,
+): { email: string; name: string | null } | undefined {
+  return conversation.customerEmailVerifiedAt && conversation.customerEmail
+    ? { email: conversation.customerEmail, name: isPlaceholderCustomerName(conversation.customerName) ? null : conversation.customerName }
+    : undefined;
+}
+
+/**
+ * "Ticket for every conversation": a conversation the worker answered by itself is logged as a ticket marked answered,
+ * for the desk's records. It never notifies a manager and says nothing to the customer. Runs in the background (the
+ * customer never waits for it) and never throws; another turn of the same conversation waits for it before raising
+ * its own ticket. Also used when the website chat is closed after no reply (lib/idle-check-in.ts).
+ */
+export function logAnsweredConversation(input: {
+  organizationId: string;
+  workerName: string;
+  conversation: ConversationRow;
+  /** The conversation so far, oldest first, including the latest customer message. */
+  transcript: HistoryTurn[];
+  latestMessage: string;
+  workerReply: string;
+  verifiedCustomer?: { email: string; name: string | null };
+  closedAfterNoReply?: boolean;
+}): Promise<void> {
+  const { organizationId, conversation } = input;
+  const job = (async () => {
+    const current = (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation;
+    const ticketSummary =
+      current.ticketSummary ?? (await summarizeForHandoff([...input.transcript, { speaker: input.workerName, body: input.workerReply }]));
+    if (ticketSummary && ticketSummary !== current.ticketSummary) {
+      await db.update(conversations).set({ ticketSummary }).where(eq(conversations.id, conversation.id));
+    }
+    await recordHandoffInJira({
+      organizationId,
+      workerName: input.workerName,
+      conversation: { ...current, ticketSummary: ticketSummary ?? current.ticketSummary },
+      transcript: input.transcript,
+      latestMessage: input.latestMessage,
+      workerReply: input.workerReply,
+      answeredByWorker: true,
+      ...(input.closedAfterNoReply ? { closedAfterNoReply: true } : {}),
+      ...(input.verifiedCustomer ? { verifiedCustomer: input.verifiedCustomer } : {}),
+    }).catch((error: unknown) => {
+      console.warn("[handoff] Jira ticket failed:", error instanceof Error ? error.message : error);
+      return null;
+    });
+  })().catch((error: unknown) => {
+    console.warn("[tickets] ticket for an answered conversation failed:", error instanceof Error ? error.message : error);
+  });
+  ticketsInFlight.set(conversation.id, job);
+  void job.finally(() => {
+    if (ticketsInFlight.get(conversation.id) === job) ticketsInFlight.delete(conversation.id);
+  });
+  return job;
+}
+
 export async function runCustomerTurn(input: {
   organizationId: string;
   profile: Profile;
@@ -272,9 +350,7 @@ export async function runCustomerTurn(input: {
       ...(answeredByWorker ? { answeredByWorker: true } : {}),
       ...(reachedOutAgain ? { reachedOutAgain: true } : {}),
       // Only an email a code was typed back for may be raised on behalf of.
-      ...(verified && conversation.customerEmail
-        ? { verifiedCustomer: { email: conversation.customerEmail, name: isPlaceholderCustomerName(conversation.customerName) ? null : conversation.customerName } }
-        : {}),
+      ...(verifiedCustomerOf(conversation) ? { verifiedCustomer: verifiedCustomerOf(conversation) } : {}),
     }).catch((error: unknown) => {
       console.warn("[handoff] Jira ticket failed:", error instanceof Error ? error.message : error);
       return null;
@@ -289,9 +365,9 @@ export async function runCustomerTurn(input: {
   // No ticket is ever raised for an unknown person. In the chat widget, a handover that would raise a helpdesk
   // ticket waits for the customer's details: the card asks for them (and the code), the team is still told, and the
   // ticket is raised on their behalf, creating them in the helpdesk if need be, as soon as they are known.
-  const needsIdentity = identityMode !== "off" && !(identityKnown && (identityMode === "email_match" || verified));
-  const widgetNeedsIdentity = conversation.channel === "widget" && needsIdentity;
-  const holdForIdentity = result.escalate && showsCards && widgetNeedsIdentity && (await helpdeskRaisesTickets(organizationId));
+  // Never true with identity off; spelled out so the cards below know the mode is one that asks.
+  const needsIdentity = identityMode !== "off" && widgetNeedsIdentity(conversation, profile.identityMode);
+  const holdForIdentity = result.escalate && showsCards && needsIdentity && (await helpdeskRaisesTickets(organizationId));
   if (holdForIdentity) {
     if (!cards.some((card) => card.kind === "identity_request")) {
       cards.push({
@@ -329,7 +405,7 @@ export async function runCustomerTurn(input: {
     !conversation.externalTicketKey &&
     !conversation.externalTicketError &&
     !ticketsInFlight.has(conversation.id) &&
-    !widgetNeedsIdentity &&
+    !needsIdentity &&
     (await helpdeskRaisesTickets(organizationId));
   const raisesTicket = !dry && ((result.escalate && !holdForIdentity) || missingTicket);
 
@@ -348,7 +424,7 @@ export async function runCustomerTurn(input: {
     !ticketsInFlight.has(conversation.id) &&
     (result.citations.length > 0 || priorMessages.some((row) => row.senderType === "customer")) &&
     (await helpdeskTicketsEveryConversation(organizationId));
-  const holdAnsweredForIdentity = answeredDue && showsCards && widgetNeedsIdentity;
+  const holdAnsweredForIdentity = answeredDue && showsCards && needsIdentity;
   if (holdAnsweredForIdentity) {
     const asked = priorMessages.some((row) => Array.isArray(row.cards) && (row.cards as { kind?: string }[]).some((card) => card.kind === "identity_request"));
     if (!asked && !cards.some((card) => card.kind === "identity_request")) {
@@ -583,21 +659,14 @@ export async function runCustomerTurn(input: {
 
   // The ticket for an answered conversation: started once the reply is stored, never awaited by the customer's turn.
   if (logsAnswered) {
-    const job = (async () => {
-      const current = (await db.select().from(conversations).where(eq(conversations.id, conversation.id)).limit(1))[0] ?? conversation;
-      const ticketSummary =
-        current.ticketSummary ??
-        (await summarizeForHandoff([...toHistoryTurns([...priorMessages, userMessage]), { speaker: profile.displayName, body: result.answer }]));
-      if (ticketSummary && ticketSummary !== current.ticketSummary) {
-        await db.update(conversations).set({ ticketSummary }).where(eq(conversations.id, conversation.id));
-      }
-      await raiseTicket({ ...current, ticketSummary: ticketSummary ?? current.ticketSummary }, true);
-    })().catch((error: unknown) => {
-      console.warn("[tickets] ticket for an answered conversation failed:", error instanceof Error ? error.message : error);
-    });
-    ticketsInFlight.set(conversation.id, job);
-    void job.finally(() => {
-      if (ticketsInFlight.get(conversation.id) === job) ticketsInFlight.delete(conversation.id);
+    void logAnsweredConversation({
+      organizationId,
+      workerName: profile.displayName,
+      conversation,
+      transcript: toHistoryTurns([...priorMessages, userMessage]),
+      latestMessage: message,
+      workerReply: result.answer,
+      verifiedCustomer: verifiedCustomerOf(conversation),
     });
   }
 
