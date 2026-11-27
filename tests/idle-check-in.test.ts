@@ -6,9 +6,9 @@ import { conversations, messages, organizations, workerProfiles } from "@/db/sch
 import { ensureOrganization, getOrCreateProfile } from "@/lib/bootstrap";
 import { insertConversationWithTicket } from "@/lib/customer-turn";
 import { getIdentityAdapter, setIdentityAdapter, type IdentityAdapter } from "@/lib/identity";
-import { addInternalTicketNote, handoffTicketDescription, helpdeskRaisesTickets, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
-import { runIdleCheckIn, sweepIdleChats } from "@/lib/idle-check-in";
-import { IDLE_CLOSE_TEXT, IDLE_NUDGE_TEXT, readIdleCheckIn } from "@/lib/idle-check-in-settings";
+import { addInternalTicketNote, helpdeskRaisesTickets, recordHandoffInJira } from "@/lib/tools-integrations/atlassian";
+import { recordVisitorActivity, runIdleCheckIn, sweepIdleChats } from "@/lib/idle-check-in";
+import { IDLE_CLOSE_TEXT, IDLE_NUDGE_TEXT, IDLE_NUDGE_WAITING_TEXT, readIdleCheckIn } from "@/lib/idle-check-in-settings";
 import { publicWorkerIdentity } from "@/lib/public-worker-identity";
 import { applyWorkerPatch } from "@/lib/worker-settings";
 import { POST as postIdle } from "@/app/api/v1/chat/idle/route";
@@ -213,7 +213,7 @@ describe("POST /api/v1/chat/idle", () => {
     expect(recordMock).not.toHaveBeenCalled();
   });
 
-  it("closes the chat, resolves it and logs it in Jira as answered and closed after no reply", async () => {
+  it("closes the chat and resolves it, raising no new ticket for a chat that has none", async () => {
     const conversation = await chat();
     await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" });
     await age(conversation.id, 121);
@@ -226,11 +226,8 @@ describe("POST /api/v1/chat/idle", () => {
     await outcome.logged;
 
     expect((await statusOf(conversation.id)).status).toBe("resolved");
-    expect(recordMock).toHaveBeenCalledTimes(1);
-    const input = recordMock.mock.calls[0][0];
-    expect(input).toMatchObject({ organizationId: orgId, answeredByWorker: true, closedAfterNoReply: true, latestMessage: "How do I reset my password?", workerReply: IDLE_CLOSE_TEXT });
-    expect(input.transcript.at(-1)?.body).toBe(IDLE_NUDGE_TEXT);
-    expect(handoffTicketDescription(input)).toContain("closed after no reply");
+    // "Ticket for every conversation" logs real exchanges; the ones it leaves out (a greeting, a redirect) stay out.
+    expect(recordMock).not.toHaveBeenCalled();
     expect(noteMock).not.toHaveBeenCalled();
 
     // Closed already: asking again does nothing.
@@ -284,17 +281,6 @@ describe("POST /api/v1/chat/idle", () => {
     expect(recordMock).not.toHaveBeenCalled();
   });
 
-  it("raises it on behalf of a verified visitor", async () => {
-    await db.update(workerProfiles).set({ identityMode: "email_code" }).where(eq(workerProfiles.organizationId, orgId));
-    const conversation = await chat({ customerName: "Dana Reyes", customerEmail: "dana@example.com", customerEmailVerifiedAt: new Date() });
-    await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" });
-    await age(conversation.id, 121);
-    const outcome = await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "close" });
-    if (!outcome?.due) throw new Error("not closed");
-    await outcome.logged;
-    expect(recordMock.mock.calls[0][0].verifiedCustomer).toEqual({ email: "dana@example.com", name: "Dana Reyes" });
-  });
-
   it("is never due while the team has the chat, a person took it over, or it is not the website chat", async () => {
     const waiting = await chat({ status: "needs_human" });
     const takenOver = await chat({ humanControlled: true });
@@ -331,14 +317,14 @@ describe("POST /api/v1/chat/idle", () => {
 
 // A visitor who closes the tab leaves no browser to ask for the nudge or the close: the server's minute sweep closes it.
 describe("the server sweep, for a visitor who left", () => {
-  it("closes a chat whose reply went unanswered for both delays, without a nudge, and logs it", async () => {
+  it("closes a chat whose reply went unanswered for both delays, without a nudge", async () => {
     const conversation = await chat({}, 250);
     expect(await sweepIdleChats()).toBeGreaterThanOrEqual(1);
     const all = await rows(conversation.id);
     expect(all.at(-1)?.body).toBe(IDLE_CLOSE_TEXT);
     expect(all.some((row) => row.body === IDLE_NUDGE_TEXT)).toBe(false);
     expect((await statusOf(conversation.id)).status).toBe("resolved");
-    await vi.waitFor(() => expect(recordMock).toHaveBeenCalledWith(expect.objectContaining({ closedAfterNoReply: true })));
+    expect(recordMock).not.toHaveBeenCalled();
   });
 
   it("leaves a chat alone until both delays have passed, so a visitor still on the page gets the nudge first", async () => {
@@ -372,5 +358,66 @@ describe("the server sweep, for a visitor who left", () => {
     await sweepIdleChats();
     expect((await rows(off.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
     expect((await rows(team.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
+  });
+});
+
+// Edge cases found after the first release (27 Nov).
+describe("a visitor who is busy, a promise of a teammate, and a visitor still typing", () => {
+  async function say(conversationId: string, senderType: "customer" | "agent", body: string, secondsAgo: number, cards: unknown[] = []) {
+    await db.insert(messages).values({ conversationId, senderType, senderName: senderType === "agent" ? "Eva" : "Visitor", body, cards: cards as any, createdAt: ago(secondsAgo) });
+  }
+
+  it("gives a visitor who asked for a moment ten minutes, then the gentler nudge", async () => {
+    const conversation = await chat({}, 400);
+    await say(conversation.id, "customer", "Give me a moment to see if it works", 300);
+    await say(conversation.id, "agent", "Of course. Let me know whether it worked.", 290);
+    const early = await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" });
+    expect(early).toMatchObject({ due: false });
+    expect((early as { dueInSeconds?: number }).dueInSeconds).toBeGreaterThan(250);
+    await age(conversation.id, 320);
+    const nudged = await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" });
+    if (!nudged?.due) throw new Error("not nudged");
+    expect(nudged.message.body).toBe(IDLE_NUDGE_WAITING_TEXT);
+    // And the close follows that nudge like any other.
+    await age(conversation.id, 121);
+    expect((await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "close" }))?.due).toBe(true);
+  });
+
+  it("waits the same when the worker said take your time, or asked for their details", async () => {
+    const told = await chat({}, 400);
+    await say(told.id, "agent", "No problem, take your time.", 200);
+    expect((await runIdleCheckIn({ organizationId: orgId, conversationId: told.id, stage: "nudge" }))?.due).toBe(false);
+    const asked = await chat({}, 400);
+    await say(asked.id, "agent", "To log this I need your name and email.", 200, [{ id: "c1", kind: "identity_request", data: { mode: "email_code" } }]);
+    expect((await runIdleCheckIn({ organizationId: orgId, conversationId: asked.id, stage: "nudge" }))?.due).toBe(false);
+    // The sweep gives them the longer wait too.
+    await sweepIdleChats();
+    expect((await rows(asked.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
+  });
+
+  it("never checks in or closes after a reply that promised a teammate will follow up", async () => {
+    const conversation = await chat({}, 600);
+    await say(conversation.id, "agent", "Thanks for clarifying. A teammate will follow up with you about this.", 500);
+    expect((await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" }))?.due).toBe(false);
+    await sweepIdleChats();
+    expect((await rows(conversation.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
+    expect((await statusOf(conversation.id)).status).toBe("open");
+  });
+
+  it("counts from when the visitor was last seen typing, so the sweep leaves them alone", async () => {
+    const conversation = await chat({}, 250);
+    expect(await recordVisitorActivity({ organizationId: orgId, conversationId: conversation.id })).toBe(true);
+    await sweepIdleChats();
+    expect((await rows(conversation.id)).at(-1)?.body).not.toBe(IDLE_CLOSE_TEXT);
+    expect((await runIdleCheckIn({ organizationId: orgId, conversationId: conversation.id, stage: "nudge" }))?.due).toBe(false);
+  });
+
+  it("takes typing activity only for the organization's own website chats", async () => {
+    const email = await chat({ channel: "email" });
+    expect(await recordVisitorActivity({ organizationId: orgId, conversationId: email.id })).toBe(false);
+    const res = await postIdle(post({ conversation_id: crypto.randomUUID(), stage: "activity" }));
+    expect(res.status).toBe(404);
+    const conversation = await chat();
+    expect((await json(await postIdle(post({ conversation_id: conversation.id, stage: "activity" }))))).toEqual({ ok: true });
   });
 });

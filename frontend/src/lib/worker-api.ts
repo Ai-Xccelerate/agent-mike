@@ -1271,8 +1271,22 @@ export function postIdleCheckIn(input: { conversationId: string; stage: IdleStag
   });
 }
 
+/** Tells the server the visitor is typing, so the idle check-in counts from now. Never throws. */
+export function postIdleActivity(conversationId: string, widgetSiteToken?: string): Promise<void> {
+  return apiFetch<{ ok: true }>("/chat/idle", {
+    method: "POST",
+    body: JSON.stringify({ conversation_id: conversationId, stage: "activity" }),
+    widgetSiteToken,
+  }).then(
+    () => undefined,
+    () => undefined,
+  );
+}
+
 /** What the worker says when it checks in, and when it closes the chat (lib/idle-check-in-settings.ts on the API). */
 export const IDLE_NUDGE_TEXT = "Are you still there? Is there anything else I can help with?";
+/** The nudge after a longer wait for a busy visitor (lib/idle-check-in-settings.ts IDLE_NUDGE_WAITING_TEXT). */
+export const IDLE_NUDGE_WAITING_TEXT = "Still working on it? Take your time, and let me know how it goes.";
 export const IDLE_CLOSE_TEXT = "I haven't heard back, so I'll close this chat for now. If you need anything else, just send a new message.";
 
 /** Rate one of the worker's replies. Returns the saved rating. */

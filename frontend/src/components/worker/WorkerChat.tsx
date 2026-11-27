@@ -14,8 +14,10 @@ import {
   Conversation,
   IDLE_CLOSE_TEXT,
   IDLE_NUDGE_TEXT,
+  IDLE_NUDGE_WAITING_TEXT,
   type IdleStage,
   Message,
+  postIdleActivity,
   postIdleCheckIn,
   WorkerApiError,
   WorkerProfile,
@@ -279,8 +281,17 @@ function ChatPanelBody({
   // turn in flight holds it, and nothing runs while the team has the chat or an earlier chat is open to read.
   const idle = compact ? profile?.idleCheckIn : undefined;
   const lastTypedAtRef = useRef(0);
+  // Typing also tells the server (at most every 20 seconds), so its sweep never takes a visitor writing a long reply
+  // for one who closed the tab.
+  const lastActivitySentRef = useRef(0);
   useEffect(() => {
-    if (value) lastTypedAtRef.current = Date.now();
+    if (!value) return;
+    lastTypedAtRef.current = Date.now();
+    if (!idle?.enabled || !compactConversationId || !siteToken?.trim()) return;
+    if (Date.now() - lastActivitySentRef.current < 20_000) return;
+    lastActivitySentRef.current = Date.now();
+    void postIdleActivity(compactConversationId, siteToken);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
   const lastMessage = messages.at(-1);
   const idleStage: IdleStage | null = (() => {
@@ -288,7 +299,7 @@ function ChatPanelBody({
     if (!lastMessage || lastMessage.senderType !== "agent" || lastMessage.id === "welcome" || String(lastMessage.id).startsWith("fallback-")) return null;
     if (!messages.some((message) => message.senderType === "customer")) return null;
     if (lastMessage.body === IDLE_CLOSE_TEXT) return null;
-    return lastMessage.body === IDLE_NUDGE_TEXT ? "close" : "nudge";
+    return lastMessage.body === IDLE_NUDGE_TEXT || lastMessage.body === IDLE_NUDGE_WAITING_TEXT ? "close" : "nudge";
   })();
   const idleAfterSeconds = idleStage === "close" ? idle?.closeAfterSeconds : idle?.nudgeAfterSeconds;
   useEffect(() => {
@@ -317,7 +328,8 @@ function ChatPanelBody({
         // Nothing to show: the visitor can carry on as before.
       }
     };
-    timer = window.setTimeout(() => void ask(2), Math.max(0, dueAt - Date.now()) + 500);
+    // Up to three retries: a clock ahead of the server's, and the longer wait the server gives a visitor who is busy.
+    timer = window.setTimeout(() => void ask(3), Math.max(0, dueAt - Date.now()) + 500);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

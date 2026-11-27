@@ -191,6 +191,8 @@ export const conversations = pgTable(
     // Set once a code sent to customerEmail was typed back. Until then the
     // email is only what the visitor said (lib/customer-identity.ts).
     customerEmailVerifiedAt: timestamp("customer_email_verified_at", { withTimezone: true }),
+    /** When the website chat visitor was last seen typing: the idle check-in waits from then (lib/idle-check-in.ts). */
+    visitorActiveAt: timestamp("visitor_active_at", { withTimezone: true }),
     // How the identity was learned: widget_card | email_code.
     identitySource: text("identity_source"),
     subject: text("subject"),

@@ -2,9 +2,10 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/db/schema";
 import { getOrCreateProfile } from "@/lib/bootstrap";
-import { logAnsweredConversation, toHistoryTurns, verifiedCustomerOf, waitForConversationTicket, widgetNeedsIdentity } from "@/lib/customer-turn";
-import { addInternalTicketNote, helpdeskRaisesTickets } from "@/lib/tools-integrations/atlassian";
-import { IDLE_CLOSE_TEXT, IDLE_NUDGE_TEXT, readIdleCheckIn } from "@/lib/idle-check-in-settings";
+import { waitForConversationTicket } from "@/lib/customer-turn";
+import { promisesPersonFollowUp } from "@/lib/agent";
+import { addInternalTicketNote } from "@/lib/tools-integrations/atlassian";
+import { IDLE_CLOSE_TEXT, IDLE_NUDGE_TEXT, IDLE_NUDGE_WAITING_TEXT, IDLE_WAITING_SECONDS, isIdleNudgeText, readIdleCheckIn } from "@/lib/idle-check-in-settings";
 
 /**
  * The website chat's idle check-in (Settings > Channels > Website chat). The widget keeps the clock, but only as a
@@ -35,7 +36,26 @@ export type IdleOutcome =
 const NEVER_STATUSES = new Set(["needs_human", "resolved", "closed"]);
 
 function isNudge(message: MessageRow | undefined): boolean {
-  return message?.senderType === "agent" && message.body === IDLE_NUDGE_TEXT;
+  return message?.senderType === "agent" && isIdleNudgeText(message.body);
+}
+
+/** The visitor said they need a moment: they are trying the steps, checking something, or will be right back. */
+const VISITOR_BUSY =
+  /\b(?:give me (?:a |one )?(?:moment|minute|min|sec|second|few)|one (?:moment|minute|min|sec|second)|just a (?:moment|minute|sec|second)|hold on|hang on|be right back|brb|let me (?:try|check|test|see|look|find|restart|log)|i(?:'|’)?ll (?:try|check|test|look|restart)|(?:checking|trying|testing) (?:now|it|that|this)|bear with me)\b/i;
+/** The worker told the visitor to take their time, or to fetch an emailed code (it can sit in the junk folder). */
+const WORKER_WAITS = /\b(?:take your time|check your (?:email|inbox|junk|spam)|enter the (?:6-digit )?code)\b/i;
+
+/**
+ * Whether the visitor is busy rather than gone: their last message says they need a moment, or the worker's reply
+ * waits on them (take your time, a code to fetch, a request for their details). They get IDLE_WAITING_SECONDS before
+ * the gentler nudge, not the setting's two minutes.
+ */
+function visitorBusy(rows: MessageRow[], lastWorkerReply: MessageRow): boolean {
+  const lastCustomer = [...rows].reverse().find((row) => row.senderType === "customer");
+  if (lastCustomer && VISITOR_BUSY.test(lastCustomer.body)) return true;
+  if (WORKER_WAITS.test(lastWorkerReply.body)) return true;
+  const cards = Array.isArray(lastWorkerReply.cards) ? (lastWorkerReply.cards as { kind?: string }[]) : [];
+  return cards.some((card) => card.kind === "identity_request");
 }
 
 /** null when the conversation is not this organization's (the caller answers 404). */
@@ -77,16 +97,25 @@ export async function runIdleCheckIn(input: {
     // Only once the visitor has said something, and only while the worker spoke last.
     if (!last || last.senderType !== "agent" || !rows.some((row) => row.senderType === "customer")) return notDue();
 
-    const waitFor = (seconds: number) => Math.ceil((last.createdAt.getTime() + seconds * 1000 - now.getTime()) / 1000);
+    // A reply that promises a teammate will follow up: the customer is waiting for a person, so never "close this chat".
+    const lastWorkerReply = [...rows].reverse().find((row) => row.senderType === "agent" && !isNudge(row)) ?? last;
+    if (promisesPersonFollowUp(lastWorkerReply.body)) return notDue();
+
+    // Counted from the worker's last message, or from when the visitor was last seen typing if that is later, so a
+    // visitor writing a long reply is not taken for one who left.
+    const since = Math.max(last.createdAt.getTime(), conversation.visitorActiveAt?.getTime() ?? 0);
+    const waitFor = (seconds: number) => Math.ceil((since + seconds * 1000 - now.getTime()) / 1000);
+    const busy = visitorBusy(rows, lastWorkerReply);
+    const nudgeAfter = busy ? Math.max(settings.nudgeAfterSeconds, IDLE_WAITING_SECONDS) : settings.nudgeAfterSeconds;
 
     if (stage === "nudge") {
       // Already asked: the next step is the close, not a second nudge.
       if (isNudge(last)) return notDue();
-      const wait = waitFor(settings.nudgeAfterSeconds);
+      const wait = waitFor(nudgeAfter);
       if (wait > 0) return notDue(wait);
       const [message] = await tx
         .insert(messages)
-        .values({ conversationId: conversation.id, senderType: "agent", senderName: profile.displayName, body: IDLE_NUDGE_TEXT })
+        .values({ conversationId: conversation.id, senderType: "agent", senderName: profile.displayName, body: busy ? IDLE_NUDGE_WAITING_TEXT : IDLE_NUDGE_TEXT })
         .returning();
       await tx.update(conversations).set({ updatedAt: now }).where(eq(conversations.id, conversation.id));
       return { outcome: { due: true, message, status: conversation.status } as IdleOutcome };
@@ -94,7 +123,7 @@ export async function runIdleCheckIn(input: {
 
     // The close follows a nudge the visitor left unanswered, or (sweep) a reply left unanswered by a visitor who left.
     if (!isNudge(last) && !input.visitorGone) return notDue();
-    const wait = waitFor(isNudge(last) ? settings.closeAfterSeconds : settings.nudgeAfterSeconds + settings.closeAfterSeconds);
+    const wait = waitFor(isNudge(last) ? settings.closeAfterSeconds : nudgeAfter + settings.closeAfterSeconds);
     if (wait > 0) return notDue(wait);
     const [message] = await tx
       .insert(messages)
@@ -107,59 +136,28 @@ export async function runIdleCheckIn(input: {
   if (!decided) return null;
   if (!("closed" in decided) || !decided.closed || !decided.outcome.due) return decided.outcome;
 
-  const logged = logClosedChat({
-    organizationId,
-    workerName: profile.displayName,
-    identityMode: profile.identityMode,
-    conversation: decided.closed.conversation,
-    transcript: decided.closed.transcript,
-  });
+  const logged = logClosedChat({ organizationId, workerName: profile.displayName, conversation: decided.closed.conversation });
   return { ...decided.outcome, logged };
 }
 
 /**
- * Logs a chat closed after no reply. A conversation with a ticket gets a staff-only note on it; one without gets the
- * same "answered by the worker" ticket as "Ticket for every conversation", saying it was closed after no reply. No
- * ticket for a widget visitor who has not said who they are (the chat is closed, so there is no one left to ask).
- * Never throws.
+ * Logs a chat closed after no reply: a staff-only note on the ticket the conversation already has. A conversation
+ * with no ticket gets none: "Ticket for every conversation" already logs every real exchange, and the ones it leaves
+ * out on purpose (a greeting, a question the worker redirected elsewhere) must not come back as tickets just because
+ * the visitor went quiet. Never throws.
  */
-async function logClosedChat(input: {
-  organizationId: string;
-  workerName: string;
-  identityMode: string | null;
-  conversation: ConversationRow;
-  transcript: MessageRow[];
-}): Promise<void> {
-  const { organizationId, workerName } = input;
+async function logClosedChat(input: { organizationId: string; workerName: string; conversation: ConversationRow }): Promise<void> {
   try {
     // A ticket for an earlier message may still be on its way: wait for it, then read what it recorded.
     await waitForConversationTicket(input.conversation.id);
     const [current] = await db.select().from(conversations).where(eq(conversations.id, input.conversation.id)).limit(1);
-    const conversation = current ?? input.conversation;
-
-    if (conversation.externalTicketKey) {
-      await addInternalTicketNote(
-        organizationId,
-        conversation.externalTicketKey,
-        `The customer went quiet in the website chat. ${workerName} asked if they still needed help, got no reply, and closed the chat.`,
-      );
-      return;
-    }
-    if (conversation.externalTicketError) return;
-    if (widgetNeedsIdentity(conversation, input.identityMode)) return;
-    if (!(await helpdeskRaisesTickets(organizationId))) return;
-
-    const lastCustomer = [...input.transcript].reverse().find((row) => row.senderType === "customer");
-    await logAnsweredConversation({
-      organizationId,
-      workerName,
-      conversation,
-      transcript: toHistoryTurns(input.transcript),
-      latestMessage: lastCustomer?.body ?? "",
-      workerReply: IDLE_CLOSE_TEXT,
-      verifiedCustomer: verifiedCustomerOf(conversation),
-      closedAfterNoReply: true,
-    });
+    const key = (current ?? input.conversation).externalTicketKey;
+    if (!key) return;
+    await addInternalTicketNote(
+      input.organizationId,
+      key,
+      `The customer went quiet in the website chat. ${input.workerName} asked if they still needed help, got no reply, and closed the chat.`,
+    );
   } catch (error) {
     console.warn("[idle] logging the closed chat failed:", error instanceof Error ? error.message : error);
   }
@@ -220,4 +218,17 @@ export function startIdleSweep(): void {
   if (sweeper || process.env.VITEST || process.env.NODE_ENV === "test") return;
   sweeper = setInterval(() => void sweepIdleChats(), SWEEP_EVERY_MS);
   sweeper.unref?.();
+}
+
+/**
+ * The widget saying the visitor is typing (throttled on its side): the idle check-in and its sweep then count from
+ * now. Only the organization's own website conversations; false when there is none.
+ */
+export async function recordVisitorActivity(input: { organizationId: string; conversationId: string; now?: Date }): Promise<boolean> {
+  const updated = await db
+    .update(conversations)
+    .set({ visitorActiveAt: input.now ?? new Date() })
+    .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), eq(conversations.channel, "widget")))
+    .returning({ id: conversations.id });
+  return updated.length > 0;
 }

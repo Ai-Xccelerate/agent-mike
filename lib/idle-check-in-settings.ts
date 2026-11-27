@@ -31,3 +31,15 @@ export function readIdleCheckIn(channelsConfig: unknown): IdleCheckInSettings {
 export const IDLE_NUDGE_TEXT = "Are you still there? Is there anything else I can help with?";
 /** What the worker says when it closes the chat after no reply. */
 export const IDLE_CLOSE_TEXT = "I haven't heard back, so I'll close this chat for now. If you need anything else, just send a new message.";
+/**
+ * What the worker says, after a longer wait, when the visitor is busy: they said "give me a moment", the worker told
+ * them to take their time, or it asked for an emailed code (it may be in their junk folder).
+ */
+export const IDLE_NUDGE_WAITING_TEXT = "Still working on it? Take your time, and let me know how it goes.";
+/** How long a busy visitor gets before that nudge (the close delay after it is the setting's own). */
+export const IDLE_WAITING_SECONDS = 600;
+
+/** Either nudge, as the worker posts it. */
+export function isIdleNudgeText(body: string | null | undefined): boolean {
+  return body === IDLE_NUDGE_TEXT || body === IDLE_NUDGE_WAITING_TEXT;
+}
