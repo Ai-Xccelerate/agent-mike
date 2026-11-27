@@ -85,6 +85,21 @@ export async function customerTickets(
   return own;
 }
 
+/**
+ * Whether the number the customer quoted is one of the requests they were shown: its helpdesk key ("SDS-6", any case,
+ * spaces ignored) or Mike's own reference ("TCK-1055", or just "1055").
+ */
+export function quotedIsListed(quoted: string, tickets: CustomerTicket[], ticketPrefix: string | null | undefined): boolean {
+  const text = quoted.replace(/\s+/g, "").toUpperCase();
+  if (!text) return true;
+  const prefix = (ticketPrefix || "TCK").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const digits = /^\d{1,9}$/.test(text) ? `${prefix}-${Number(text)}` : null;
+  return tickets.some((ticket) => {
+    const reference = ticket.reference.toUpperCase();
+    return ticket.serviceDeskKey?.toUpperCase() === text || reference === text || (digits !== null && reference === digits);
+  });
+}
+
 /** Whether a quoted number or helpdesk key names this conversation's request. */
 function quotedMatcher(
   ticketPrefix: string | null | undefined,

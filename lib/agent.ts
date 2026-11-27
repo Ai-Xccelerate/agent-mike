@@ -40,7 +40,7 @@ import {
 } from "@/lib/tools-integrations/composio-actions";
 import { logAndRunTool } from "@/lib/tools-integrations/logged-tool";
 import { buildConnectorTools, connectorGuidance } from "@/lib/mcp-connectors/agent-tools";
-import { customerTickets, customerTicketsForWorker } from "@/lib/customer-tickets";
+import { customerTickets, customerTicketsForWorker, quotedIsListed } from "@/lib/customer-tickets";
 import {
   CONFLUENCE_READ_TOOL_NAME,
   CONFLUENCE_SEARCH_TOOL_NAME,
@@ -1030,8 +1030,16 @@ export async function buildAgentTools(
           } catch {
             // A helpdesk answer that cannot be read leaves the worker's own status in place.
           }
+          // 26 Nov, EAP: a customer asked about "sds-6", which is not theirs; they had other requests, nothing said the
+          // quoted one was missing from the list, and the worker answered with one of the others (SDS-4) as if it were it.
+          const quotedMissing = Boolean(reference?.trim()) && !quotedIsListed(reference ?? "", found, profile.ticketPrefix);
           const noteForQuoted =
-            reference && own.length === 0
+            quotedMissing && own.length > 0
+              ? `${reference} is not one of this customer's requests: the ones listed here are all they can see. Never answer with a ` +
+                "different request as if it were the one they asked about, and never say whether that number exists. Tell them once that " +
+                "you can only see requests raised under their own email and that this number is not one of them, and that a teammate can " +
+                "check it if it was raised under another address or by someone else. Mention their other requests only if they ask."
+              : reference && own.length === 0
               ? "No request with that number is visible to this customer. Never say whether it exists. If they have not given the email address on that request, ask for it by opening the details form (end your reply with [[NEED_IDENTITY]]), so it can be checked: a request is only shown to the person it belongs to. Once they have filled it in, look the number up again. Explain this limit once only. If they have already given their details or you have already said you cannot see that request, do not say it again or ask again: say once that you cannot open it from here, tell them a teammate will check it, and end with [[ESCALATE]] so a person picks it up."
               : null;
           if (own.length === 0) {
