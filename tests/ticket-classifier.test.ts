@@ -253,16 +253,19 @@ describe("a many-part message handed over for one part", () => {
     { speaker: "Eva", body: "Here are the steps for the first two. I can't confirm pricing, a teammate will." },
   ];
 
-  it("tells the summary writer and the classifier that the ticket is only for what is still unanswered", async () => {
+  it("tells the summary writer and the classifier to write about what is still unanswered, and only what the conversation shows", async () => {
     runMock.mockResolvedValue({ finalOutput: "Ana needs a quote for 50 users. Adding a provider and running a report were already answered." });
     process.env.OPENAI_API_KEY ||= "test-key";
     expect(await summarizeForHandoff(turns)).toContain("quote for 50 users");
-    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("only for what is still unanswered");
+    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("is still unanswered");
+    // 27 Nov, SDS-63: "screen remains frozen after refresh" for a customer who had not replied.
+    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("steps the worker suggested are not steps the customer took");
 
     runMock.mockClear();
     chosen({ requestType: "Request", tier: "Tier 1", labels: [] });
     await classify(await conversation());
-    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("only for what is still unanswered");
+    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("is still unanswered");
+    expect(String((runMock.mock.calls[0][0] as { instructions: string }).instructions)).toContain("never take details from the name of an article".replace(/^n/, "N"));
   });
 });
 

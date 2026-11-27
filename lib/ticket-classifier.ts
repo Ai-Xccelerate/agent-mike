@@ -7,6 +7,7 @@ import { guardrailModel, modelUnavailabilityReason } from "@/lib/env";
 import { resolveTicketSchema, type TicketSchema } from "@/lib/ticket-schema";
 import { helpdeskBreakdownSource } from "@/lib/tools-integrations/atlassian";
 import type { HistoryTurn } from "@/lib/conversation-memory";
+import { FACTS_ONLY } from "@/lib/ticket-wording";
 
 /**
  * Sorts a customer conversation into the worker's own request types, tiers
@@ -28,8 +29,9 @@ import type { HistoryTurn } from "@/lib/conversation-memory";
  * ticket must say so, or the team re-does the parts that are already done.
  */
 export const ANSWERED_PARTS =
-  "The worker may already have answered some of what the customer asked. Then the ticket is only for what is still " +
-  "unanswered: write the summary about that part alone, and say in a few words what was already answered.";
+  "The worker may already have answered some of what the customer asked. If part of it is still unanswered, write about " +
+  "that part and say in a few words what was already answered. If the worker answered all of it, say what the customer " +
+  "asked and what the worker gave them. " + FACTS_ONLY;
 
 const TRANSCRIPT_TURNS = 12;
 const TURN_CHARS = 600;
