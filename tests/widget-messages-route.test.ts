@@ -101,6 +101,27 @@ describe("merging the server's copy into the open chat", () => {
     expect(merged.map((item) => item.id)).toEqual(["welcome", "a", "b", "fallback-9"]);
   });
 
+  // 27 Nov, staging: a slow turn lost its stream in the browser after the server had answered it; the note stayed
+  // under the real reply. It goes once the server holds that same message with a reply after it.
+  it("drops the failed-turn note once the server shows that turn was answered after all", () => {
+    const asked = { ...message("customer-5", "customer", "You"), body: "How do I change someone's role?" };
+    const local = [welcome, asked, { ...message("fallback-9"), body: "I can't reach the API right now" }];
+    const server = [
+      { ...message("a", "customer"), body: "How do I change someone's role?" },
+      { ...message("b"), body: "Open Team, pick the person, change their role." },
+    ];
+    expect(mergeWidgetHistory(server, [...local], welcome).map((item) => item.id)).toEqual(["welcome", "a", "b"]);
+  });
+
+  it("keeps it while the server holds that message but no reply yet, or never got it", () => {
+    const asked = { ...message("customer-5", "customer", "You"), body: "How do I change someone's role?" };
+    const local = [welcome, asked, message("fallback-9")];
+    const noReplyYet = [message("x"), { ...message("a", "customer"), body: "How do I change someone's role?" }];
+    expect(mergeWidgetHistory(noReplyYet, [...local], welcome).map((item) => item.id)).toContain("fallback-9");
+    const earlierOnly = [{ ...message("a", "customer"), body: "Something else" }, message("b")];
+    expect(mergeWidgetHistory(earlierOnly, [...local], welcome).map((item) => item.id)).toContain("fallback-9");
+  });
+
   it("changes nothing when nothing is new, so a quiet check does not redraw the chat", () => {
     const shown = [welcome, message("a"), message("b")];
     expect(sameMessages(mergeWidgetHistory([message("a"), message("b")], shown, welcome), shown)).toBe(true);

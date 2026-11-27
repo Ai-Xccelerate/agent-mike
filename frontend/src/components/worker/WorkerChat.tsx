@@ -429,6 +429,7 @@ function ChatPanelBody({
     setLoading(true);
     // Set from the run's error event, which a closure writes to; read in the catch below.
     const failed: { code: string | null } = { code: null };
+    const replyShown: { current: boolean; turn: ChatResponse | null } = { current: false, turn: null };
     try {
       // The server holds the history; the agent only carries this message.
       agent.setMessages([{ id: crypto.randomUUID(), role: "user", content: trimmed }]);
@@ -453,6 +454,8 @@ function ChatPanelBody({
               if (turn.message) {
                 addReply(turn.message as Message);
                 setReplied(true);
+                replyShown.current = true;
+                replyShown.turn = turn;
               }
             }
             if (event.name === "chat.ticket") addReply(event.value as Message);
@@ -495,6 +498,20 @@ function ChatPanelBody({
         setIdentity(undefined);
         setMessages((items) => items.filter((item) => item.id !== undefined && !String(item.id).startsWith("customer-")));
         setValue(trimmed);
+        return;
+      }
+      // The reply already came (the stream broke afterwards, waiting for the ticket number): nothing failed for the
+      // visitor, so no "can't reach" note under a real answer. The ticket number follows with the next check.
+      if (replyShown.current && replyShown.turn) {
+        const shown = replyShown.turn;
+        if (compact) {
+          setCompactConversationId(shown.conversation_id);
+        } else {
+          loadedIdRef.current = shown.conversation_id;
+          if (!externalConversationId) onConversationCreated?.(shown.conversation_id);
+          onConversationChanged?.();
+        }
+        setEscalated(shown.escalated);
         return;
       }
       setPreview(true);
